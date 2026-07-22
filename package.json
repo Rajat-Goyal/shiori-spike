@@ -1,0 +1,27 @@
+{
+  "name": "shiori-infrastructure-spike",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The initial public web and API infrastructure slice for Shiori.",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=24 <27"
+  },
+  "scripts": {
+    "build": "npm run build --workspace @shiori/web && npm run build --workspace @shiori/server",
+    "dev": "concurrently --kill-others --names server,web --prefix-colors blue,magenta \"npm run dev --workspace @shiori/server\" \"npm run dev --workspace @shiori/web\"",
+    "start": "npm run start --workspace @shiori/server",
+    "test": "npm run test:api && npm run build && npm run test:e2e",
+    "test:api": "npm run test --workspace @shiori/server",
+    "test:e2e": "playwright test",
+    "typecheck": "npm run typecheck --workspace @shiori/server && npm run typecheck --workspace @shiori/web",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.1",
+    "concurrently": "^9.2.0"
+  }
+}
