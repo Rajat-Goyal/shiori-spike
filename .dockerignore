@@ -1,0 +1,10 @@
+.git
+.gitignore
+.railway
+node_modules
+**/dist
+playwright-report
+test-results
+README.md
+PRODUCT.md
+spike.md
