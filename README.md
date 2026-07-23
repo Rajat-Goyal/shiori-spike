@@ -2,7 +2,7 @@
 
 A small public application that proves Shiori's browser and API foundations can be developed, tested, packaged, and deployed together. Clicking **Ping** calls the backend and displays **Pong**.
 
-This is an infrastructure precursor to the product in [`PRODUCT.md`](./PRODUCT.md), not an implementation of Shiori's Telegram or commitment behavior. The frozen slice contract is in [`spike.md`](./spike.md).
+This is an infrastructure precursor to the product in [`docs/product.md`](./docs/product.md), not an implementation of Shiori's Telegram or commitment behavior. The frozen slice contract is in [`docs/spike.md`](./docs/spike.md).
 
 ## Live application
 
@@ -52,6 +52,13 @@ curl --fail-with-body http://localhost:3000/api/health
 
 Stop both development processes with `Ctrl+C`.
 
+Run only one side of the application when working on an isolated change:
+
+```sh
+npm run dev:server
+npm run dev:web
+```
+
 ## Test and verify
 
 Install the Chromium browser used by Playwright once:
@@ -66,12 +73,36 @@ Run all static checks, API tests, the production build, and browser tests:
 npm run check
 ```
 
-Individual commands are also available:
+`npm test` and `npm run tests` are equivalent. Both run the API tests, create the production build, and run the end-to-end browser tests.
+
+The root package exposes stable commands for local development and separate CI stages:
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Run the API and browser development servers together |
+| `npm run dev:server` | Run only the Fastify development server |
+| `npm run dev:web` | Run only the Vite development server |
+| `npm run typecheck` | Type-check both workspaces |
+| `npm run typecheck:server` | Type-check only the server |
+| `npm run typecheck:web` | Type-check only the browser application |
+| `npm run test:api` | Run the Fastify API tests |
+| `npm run build` | Build both workspaces in production order |
+| `npm run build:server` | Build only the server |
+| `npm run build:web` | Build only the browser application |
+| `npm run test:e2e` | Run the Playwright browser tests against the production build |
+| `npm test` | Run API tests, build, and browser tests |
+| `npm run tests` | Alias for `npm test` |
+| `npm run check` | Run type-checking and the complete test sequence |
+| `npm run ci` | Stable full-CI alias for `npm run check` |
+
+A CI pipeline can use `npm run ci` as one verification stage or split the same checks into independent commands:
 
 ```sh
+npm ci
 npm run typecheck
 npm run test:api
 npm run build
+npx playwright install --with-deps chromium
 npm run test:e2e
 ```
 
@@ -151,6 +182,8 @@ The page and both APIs must resolve from the same HTTPS origin. No application s
 server/          Fastify server, API routes, and API contract tests
 web/             React/Vite browser application
 tests/e2e/       Playwright browser verification
+docs/            Product contract and historical spike documentation
 Dockerfile       Shared local and Railway production image
-spike.md         Agreed slice scope and definition of done
+AGENTS.md         Repository guidance for coding agents
+CLAUDE.md         Symlink to AGENTS.md
 ```

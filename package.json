@@ -12,13 +12,21 @@
   },
   "scripts": {
     "build": "npm run build --workspace @shiori/web && npm run build --workspace @shiori/server",
+    "build:server": "npm run build --workspace @shiori/server",
+    "build:web": "npm run build --workspace @shiori/web",
     "dev": "concurrently --kill-others --names server,web --prefix-colors blue,magenta \"npm run dev --workspace @shiori/server\" \"npm run dev --workspace @shiori/web\"",
+    "dev:server": "npm run dev --workspace @shiori/server",
+    "dev:web": "npm run dev --workspace @shiori/web",
     "start": "npm run start --workspace @shiori/server",
     "test": "npm run test:api && npm run build && npm run test:e2e",
+    "tests": "npm test",
     "test:api": "npm run test --workspace @shiori/server",
     "test:e2e": "playwright test",
     "typecheck": "npm run typecheck --workspace @shiori/server && npm run typecheck --workspace @shiori/web",
-    "check": "npm run typecheck && npm test"
+    "typecheck:server": "npm run typecheck --workspace @shiori/server",
+    "typecheck:web": "npm run typecheck --workspace @shiori/web",
+    "check": "npm run typecheck && npm run tests",
+    "ci": "npm run check"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.1",

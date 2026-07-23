@@ -6,7 +6,7 @@ Status: agreed scope for the first implementation slice
 
 Build and publicly deploy the smallest useful application slice that validates Shiori's intended web and API foundations.
 
-This spike is infrastructure scaffolding for the product described in [`PRODUCT.md`](./PRODUCT.md). It does not implement Shiori's Telegram, commitment, persistence, or agent behaviour. Its purpose is to prove that a browser application and backend APIs can be developed locally, packaged together, tested, deployed, and reached over the public internet.
+This spike is infrastructure scaffolding for the product described in [`product.md`](./product.md). It does not implement Shiori's Telegram, commitment, persistence, or agent behaviour. Its purpose is to prove that a browser application and backend APIs can be developed locally, packaged together, tested, deployed, and reached over the public internet.
 
 ## User outcome
 
@@ -144,4 +144,4 @@ The spike is complete when:
 
 ## Follow-on intent
 
-This spike establishes reusable browser, API, testing, container, and deployment foundations. A later slice may extend those foundations toward the behavior in `PRODUCT.md`, but any such work requires its own agreed scope and acceptance criteria.
+This spike establishes reusable browser, API, testing, container, and deployment foundations. A later slice may extend those foundations toward the behaviour in `product.md`, but any such work requires its own agreed scope and acceptance criteria.
