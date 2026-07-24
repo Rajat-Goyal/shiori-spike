@@ -2,15 +2,21 @@ import type { TelegramReply } from "../confirmation.js";
 import { supabaseHeaders } from "../supabase.js";
 
 export type SimpleCommitmentAction = "cancel" | "done";
+export type CancellationConfirmationAction =
+  | "confirm_cancel"
+  | "keep";
 
 type ParsedSimpleCommitmentAction = {
-  action: SimpleCommitmentAction;
+  action: SimpleCommitmentAction | CancellationConfirmationAction;
   commitmentId: string;
   version: number;
 };
 
 type SimpleCommitmentActionCommand = {
-  action: SimpleCommitmentAction | null;
+  action:
+    | SimpleCommitmentAction
+    | CancellationConfirmationAction
+    | null;
   chatId: number;
   commitmentId: string | null;
   updateId: number;
@@ -23,9 +29,16 @@ export type SimpleCommitmentActionResult =
       completed: true;
       kind:
         | "already_cancelled"
-        | "cancel_deferred"
+        | "cancelled"
+        | "kept"
         | "malformed"
         | "stale";
+    }
+  | {
+      completed: true;
+      commitmentId: string;
+      kind: "cancel_pending";
+      version: number;
     }
   | {
       completed: true;
@@ -44,13 +57,18 @@ const UUID_PATTERN =
 const ACTION_PATTERN = new RegExp(
   `^p:(${UUID_PATTERN}):([1-9][0-9]*):(done|cancel)$`,
 );
+const CANCELLATION_ACTION_PATTERN = new RegExp(
+  `^x:(${UUID_PATTERN}):([1-9][0-9]*):(confirm_cancel|keep)$`,
+);
 
 export const simpleCommitmentActionCopy = {
   alreadyCancelled: "That promise was already cancelled.",
   alreadyDone: "That promise is already complete.",
-  cancelDeferred:
-    "Cancellation requires confirmation. Nothing was changed.",
+  cancelPrompt:
+    "Cancel this saved promise? This requires a second confirmation. Nothing has changed yet.",
+  cancelled: "Promise cancelled.",
   done: "Promise completed.",
+  kept: "Promise kept active.",
   malformed: "That action isn’t valid. Nothing was changed.",
   stale: "That action is stale. Nothing was changed.",
   uncertain:
@@ -74,7 +92,9 @@ export function parseSimpleCommitmentAction(
   if (typeof value !== "string" || value.length > 64) {
     return null;
   }
-  const match = ACTION_PATTERN.exec(value);
+  const match =
+    ACTION_PATTERN.exec(value) ??
+    CANCELLATION_ACTION_PATTERN.exec(value);
   if (!match) {
     return null;
   }
@@ -83,7 +103,9 @@ export function parseSimpleCommitmentAction(
     return null;
   }
   return {
-    action: match[3] as SimpleCommitmentAction,
+    action: match[3] as
+      | SimpleCommitmentAction
+      | CancellationConfirmationAction,
     commitmentId: match[1],
     version,
   };
@@ -104,7 +126,8 @@ function parseActionResult(value: unknown): SimpleCommitmentActionResult {
   if (
     [
       "already_cancelled",
-      "cancel_deferred",
+      "cancelled",
+      "kept",
       "malformed",
       "stale",
     ].includes(value.kind)
@@ -113,9 +136,23 @@ function parseActionResult(value: unknown): SimpleCommitmentActionResult {
       completed: true,
       kind: value.kind as
         | "already_cancelled"
-        | "cancel_deferred"
+        | "cancelled"
+        | "kept"
         | "malformed"
         | "stale",
+    };
+  }
+  if (
+    value.kind === "cancel_pending" &&
+    typeof value.commitmentId === "string" &&
+    new RegExp(`^${UUID_PATTERN}$`).test(value.commitmentId) &&
+    safeVersion(value.version)
+  ) {
+    return {
+      completed: true,
+      commitmentId: value.commitmentId,
+      kind: "cancel_pending",
+      version: value.version,
     };
   }
   if (
@@ -131,6 +168,30 @@ function parseActionResult(value: unknown): SimpleCommitmentActionResult {
   throw new Error(
     "Simple commitment action repository returned an invalid response",
   );
+}
+
+function safeVersion(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0
+  );
+}
+
+export function cancellationActionReference(
+  commitmentId: string,
+  version: number,
+  action: CancellationConfirmationAction,
+): string {
+  const value = `x:${commitmentId}:${version}:${action}`;
+  if (
+    !new RegExp(`^${UUID_PATTERN}$`).test(commitmentId) ||
+    !safeVersion(version) ||
+    value.length > 64
+  ) {
+    throw new Error("Invalid cancellation action reference");
+  }
+  return value;
 }
 
 type SupabaseSimpleCommitmentActionRepositoryOptions = {
@@ -158,8 +219,14 @@ export class SupabaseSimpleCommitmentActionRepository
   async resolve(
     command: SimpleCommitmentActionCommand,
   ): Promise<SimpleCommitmentActionResult> {
+    const cancellation =
+      command.action === "confirm_cancel" ||
+      command.action === "keep";
+    const rpc = cancellation
+      ? "resolve_commitment_cancellation_action"
+      : "resolve_simple_reminder_action";
     const response = await this.#fetch(
-      `${this.#supabaseUrl}/rest/v1/rpc/resolve_simple_reminder_action`,
+      `${this.#supabaseUrl}/rest/v1/rpc/${rpc}`,
       {
         body: JSON.stringify({
           p_action: command.action,
@@ -223,8 +290,32 @@ export class SimpleCommitmentActionService {
         return { text: simpleCommitmentActionCopy.stale };
       case "already_cancelled":
         return { text: simpleCommitmentActionCopy.alreadyCancelled };
-      case "cancel_deferred":
-        return { text: simpleCommitmentActionCopy.cancelDeferred };
+      case "cancelled":
+        return { text: simpleCommitmentActionCopy.cancelled };
+      case "kept":
+        return { text: simpleCommitmentActionCopy.kept };
+      case "cancel_pending":
+        return {
+          actions: [
+            {
+              callbackData: cancellationActionReference(
+                result.commitmentId,
+                result.version,
+                "confirm_cancel",
+              ),
+              text: "Confirm cancellation",
+            },
+            {
+              callbackData: cancellationActionReference(
+                result.commitmentId,
+                result.version,
+                "keep",
+              ),
+              text: "Keep",
+            },
+          ],
+          text: simpleCommitmentActionCopy.cancelPrompt,
+        };
       case "already_done":
         return { text: simpleCommitmentActionCopy.alreadyDone };
       case "done":

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  cancellationActionReference,
   parseSimpleCommitmentAction,
   SimpleCommitmentActionService,
   simpleCommitmentActionCopy,
@@ -55,6 +56,18 @@ describe("simple commitment action reference", () => {
       commitmentId,
       version: 1,
     });
+    expect(
+      parseSimpleCommitmentAction(
+        `x:${commitmentId}:2:confirm_cancel`,
+      ),
+    ).toEqual({
+      action: "confirm_cancel",
+      commitmentId,
+      version: 2,
+    });
+    expect(
+      cancellationActionReference(commitmentId, 2, "keep"),
+    ).toBe(`x:${commitmentId}:2:keep`);
     expect(actionData.length).toBeLessThanOrEqual(64);
 
     for (const invalid of [
@@ -63,6 +76,7 @@ describe("simple commitment action reference", () => {
       actionData.replace(":1:", ":0:"),
       actionData.replace(":1:", ":01:"),
       actionData.replace(":done", ":confirm"),
+      `x:${commitmentId}:2:cancel`,
       `p:${commitmentId}:${Number.MAX_SAFE_INTEGER}0:done`,
       "not-an-action",
       null,
@@ -119,6 +133,39 @@ describe("SupabaseSimpleCommitmentActionRepository", () => {
     );
   });
 
+  it("routes the second cancellation confirmation to its dedicated RPC", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({ completed: true, kind: "cancelled" }),
+    );
+    const repository = new SupabaseSimpleCommitmentActionRepository({
+      fetch: fetchFromSupabase as typeof fetch,
+      ownerId,
+      supabaseSecretKey: "sb_secret_opaque-test-key",
+      supabaseUrl: "http://127.0.0.1:54321",
+    });
+
+    await repository.resolve({
+      action: "confirm_cancel",
+      chatId: ownerId,
+      commitmentId,
+      updateId: 7002,
+      version: 3,
+    });
+
+    const [url, options] = fetchFromSupabase.mock.calls[0];
+    expect(url).toBe(
+      "http://127.0.0.1:54321/rest/v1/rpc/resolve_commitment_cancellation_action",
+    );
+    expect(JSON.parse(String(options?.body))).toEqual({
+      p_action: "confirm_cancel",
+      p_commitment_id: commitmentId,
+      p_owner_chat_id: ownerId,
+      p_owner_id: String(ownerId),
+      p_update_id: 7002,
+      p_version: 3,
+    });
+  });
+
   it.each([
     {},
     { completed: false, kind: "done" },
@@ -166,17 +213,24 @@ describe("SimpleCommitmentActionService", () => {
       } satisfies SimpleCommitmentActionResult,
     },
     {
-      copy: simpleCommitmentActionCopy.cancelDeferred,
-      result: {
-        completed: true,
-        kind: "cancel_deferred",
-      } satisfies SimpleCommitmentActionResult,
-    },
-    {
       copy: simpleCommitmentActionCopy.alreadyCancelled,
       result: {
         completed: true,
         kind: "already_cancelled",
+      } satisfies SimpleCommitmentActionResult,
+    },
+    {
+      copy: simpleCommitmentActionCopy.cancelled,
+      result: {
+        completed: true,
+        kind: "cancelled",
+      } satisfies SimpleCommitmentActionResult,
+    },
+    {
+      copy: simpleCommitmentActionCopy.kept,
+      result: {
+        completed: true,
+        kind: "kept",
       } satisfies SimpleCommitmentActionResult,
     },
     {
@@ -201,6 +255,37 @@ describe("SimpleCommitmentActionService", () => {
     await expect(
       service.handle(7003, ownerId, actionData),
     ).resolves.toEqual({ text: copy });
+  });
+
+  it("renders only the current opaque second-confirmation actions", async () => {
+    const repository = new ControlledRepository();
+    repository.result = {
+      commitmentId,
+      completed: true,
+      kind: "cancel_pending",
+      version: 4,
+    };
+    const service = new SimpleCommitmentActionService({ repository });
+
+    await expect(
+      service.handle(
+        7004,
+        ownerId,
+        `p:${commitmentId}:1:cancel`,
+      ),
+    ).resolves.toEqual({
+      actions: [
+        {
+          callbackData: `x:${commitmentId}:4:confirm_cancel`,
+          text: "Confirm cancellation",
+        },
+        {
+          callbackData: `x:${commitmentId}:4:keep`,
+          text: "Keep",
+        },
+      ],
+      text: simpleCommitmentActionCopy.cancelPrompt,
+    });
   });
 
   it("passes no inferred authority for malformed callback data", async () => {

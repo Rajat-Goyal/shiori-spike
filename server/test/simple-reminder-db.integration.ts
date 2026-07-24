@@ -265,7 +265,9 @@ describe("local Supabase simple reminder delivery", () => {
         created.config.telegramOwnerUserId,
         `p:${created.commitmentId}:1:done`,
       ),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      text: "That promise is already complete.",
+    });
 
     const commitmentRows = await rows(
       created.config.supabaseUrl,
@@ -323,7 +325,18 @@ describe("local Supabase simple reminder delivery", () => {
         `p:${created.commitmentId}:1:cancel`,
       ),
     ).resolves.toEqual({
-      text: "Cancellation requires confirmation. Nothing was changed.",
+      actions: [
+        {
+          callbackData: `x:${created.commitmentId}:1:confirm_cancel`,
+          text: "Confirm cancellation",
+        },
+        {
+          callbackData: `x:${created.commitmentId}:1:keep`,
+          text: "Keep",
+        },
+      ],
+      text:
+        "Cancel this saved promise? This requires a second confirmation. Nothing has changed yet.",
     });
     expect(
       await rows(

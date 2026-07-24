@@ -5,6 +5,7 @@ export type TelegramProcessingResult =
   | "ignored"
   | "refused"
   | "status_empty"
+  | "status_listed"
   | "unsupported";
 
 export interface TelegramRepository {

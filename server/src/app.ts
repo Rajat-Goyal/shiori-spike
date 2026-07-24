@@ -42,6 +42,10 @@ import { TelegramBotClient } from "./telegram/client.js";
 import { SupabaseTelegramRepository } from "./telegram/repository.js";
 import { TelegramService } from "./telegram/service.js";
 import {
+  StatusService,
+  SupabaseStatusRepository,
+} from "./telegram/status-cancel.js";
+import {
   registerTelegramWebhook,
   type TelegramUpdateHandler,
 } from "./telegram/webhook.js";
@@ -130,6 +134,14 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       }),
       simpleCommitmentActionService: new SimpleCommitmentActionService({
         repository: new SupabaseSimpleCommitmentActionRepository({
+          ownerId: options.config.telegramOwnerUserId,
+          supabaseSecretKey: options.config.supabaseSecretKey,
+          supabaseUrl: options.config.supabaseUrl,
+        }),
+      }),
+      statusService: new StatusService({
+        now,
+        repository: new SupabaseStatusRepository({
           ownerId: options.config.telegramOwnerUserId,
           supabaseSecretKey: options.config.supabaseSecretKey,
           supabaseUrl: options.config.supabaseUrl,

@@ -29,6 +29,9 @@ type TelegramServiceOptions = {
       callbackData: unknown,
     ): Promise<TelegramReply | null>;
   };
+  statusService?: {
+    read(): Promise<readonly TelegramReply[]>;
+  };
 };
 
 type ParsedUpdate =
@@ -146,6 +149,9 @@ export class TelegramService {
   readonly #simpleCommitmentActionService:
     | TelegramServiceOptions["simpleCommitmentActionService"]
     | undefined;
+  readonly #statusService:
+    | TelegramServiceOptions["statusService"]
+    | undefined;
 
   constructor(options: TelegramServiceOptions) {
     this.#client = options.client;
@@ -155,6 +161,7 @@ export class TelegramService {
     this.#repository = options.repository;
     this.#simpleCommitmentActionService =
       options.simpleCommitmentActionService;
+    this.#statusService = options.statusService;
   }
 
   async handle(value: unknown): Promise<void> {
@@ -185,7 +192,10 @@ export class TelegramService {
     ) {
       const useSimpleCommitmentAction =
         typeof update.callbackData === "string" &&
-        update.callbackData.startsWith("p:");
+        (
+          update.callbackData.startsWith("p:") ||
+          update.callbackData.startsWith("x:")
+        );
       const callbackService = useSimpleCommitmentAction
         ? this.#simpleCommitmentActionService
         : this.#confirmationService;
@@ -230,11 +240,28 @@ export class TelegramService {
       } else if (update.kind === "callback") {
         throw new Error("Confirmation service is unavailable");
       } else if (update.text.trim() === "/status") {
-        if (await this.#repository.hasActiveCommitments()) {
-          throw new Error("Populated Telegram status is outside S01-02");
+        let replies: readonly TelegramReply[];
+        if (this.#statusService) {
+          replies = await this.#statusService.read();
+        } else {
+          if (await this.#repository.hasActiveCommitments()) {
+            throw new Error("Status service is unavailable");
+          }
+          replies = [];
         }
-        await this.#client.sendText(update.chatId, "No active promises.");
-        result = "status_empty";
+        if (replies.length === 0) {
+          await this.#client.sendText(update.chatId, "No active promises.");
+          result = "status_empty";
+        } else {
+          for (const reply of replies) {
+            await this.#client.sendText(
+              update.chatId,
+              reply.text,
+              reply.actions,
+            );
+          }
+          result = "status_listed";
+        }
       } else {
         const response = await this.#conversationService.handle(
           update.updateId,
