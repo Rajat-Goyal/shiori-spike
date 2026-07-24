@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-24T19:02:46Z",
-  "current_story": "S01-08",
-  "summary": "8/16 done",
+  "updated_at": "2026-07-24T19:08:51Z",
+  "current_story": null,
+  "summary": "9/16 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -625,6 +625,78 @@
         "S01-12 must rerun clean migration, callback replay/concurrency, mid-transaction rollback, restart, and deployed release checks."
       ],
       "context_for_next": "S01-03c is complete at source head 0b1e88e with evidence commits 9c3379e and 424a282; AC1-AC7 pass.\nComplete drafts render exact application-owned confirmation text and opaque d:<uuid>:<version>:confirm|cancel actions.\nThe conversation result atomically exposes the authoritative resulting draft reference/version; no second uncorrelated read exists.\nConfirm creates exactly one active commitment, one pending simple_reminder due at target, and two uniquely keyed creation events in one transaction.\nCancel creates no consequential rows; stale, terminal, malformed, replayed, and concurrent actions cannot duplicate product state.\nTerminal actions retain the draft and version; successful Confirm emits one saved acknowledgement and current Cancel emits one cancelled acknowledgement.\nNo model mutation authority, provider/Calendar call, Calendar write, work session, raw payload, or secret retention was introduced.\nExact gates pass focused 25/25, database 5/5, server 240/240, and browser 46/46; forced rollback leaves zero consequential rows.\nS01-04 is dependency-ready after its recorded owner decisions; S01-08 continues independently."
+    },
+    {
+      "story_id": "S01-08",
+      "started_at": "2026-07-24T18:26:35Z",
+      "finished_at": "2026-07-24T19:08:51Z",
+      "squad": "scheduling-core",
+      "outcome": "done",
+      "commits": [
+        "c07bd98 chore(S01-08): start story",
+        "e03bd50 chore(S01-08): record availability contract questions",
+        "9d0c516 chore(S01-08): resolve availability contract questions",
+        "20d84f8 feat(S01-08): bound primary Calendar reads",
+        "93e7988 fix(S01-08): accept empty Calendar event pages",
+        "27cb821 feat(S01-08): calculate deterministic work windows",
+        "fbb8447 test(S01-08): record availability evidence"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-08/availability-policy-matrix.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-08/availability-policy-matrix.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-08/availability-policy-matrix.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-08/alternative-ranking.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-08/alternative-ranking.json"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-08/availability-policy-matrix.json"
+        },
+        {
+          "id": "AC7",
+          "result": "pass",
+          "evidence": "evidence/S01-08/calendar-request-redacted.json"
+        }
+      ],
+      "decisions": [
+        "The availability engine accepts owner-approved normalized effective-day windows rather than parsing natural-language timingConstraints; raw-text conversion remains an explicitly separate upstream contract.",
+        "The Calendar adapter accepts an injected server-only token provider and performs no refresh-token decryption or exchange wiring; it rejects non-primary Calendar access before token or HTTP use.",
+        "Google FreeBusy is the sole blocking authority. Busy intervals are normalized to instants, clipped to the bounded request range, deduplicated, and overlap-merged; event summaries expose only ADR-approved bounded fields.",
+        "Availability is deterministic in Asia/Singapore for 30, 60, 90, or 120 minutes, half-hour boundaries, effective hours, no buffers or midnight crossing, the 14-day generated cap, exact-proposal exception through target, and seven-day overdue recovery.",
+        "Ranking returns at most two later-then-earlier same-day or chronological future alternatives, earliest two without a proposal, and explicit no_fit without relaxing constraints or claiming optimality."
+      ],
+      "deviations_from_plan": [
+        "The Calendar adapter initially rejected an empty events page; focused tests identified that valid provider response shape and the separate correction 93e7988 accepted it without widening the projection or scope.",
+        "The first full check was sandbox-blocked from binding the Playwright server with EPERM; the exact supported Node 24 unsandboxed rerun passed 274 server tests, both builds, and 46 browser tests.",
+        "The first sandboxed attempt to obtain the ephemeral Node 24 runner was DNS-blocked and made no repository change; the approved unsandboxed invocation used Node 24.18.0 and passed both exact commands.",
+        "No database, live provider, or owner-browser gate was run because S01-08 is a pure deterministic core plus controlled adapter boundary and its acceptance commands require none."
+      ],
+      "follow_ups": [
+        "S01-09 must integrate the bounded busy-only reader without passing event titles, full provider objects, or Calendar data into the model or product history.",
+        "The upstream conversion from stored natural-language timingConstraints to normalized effective-day windows remains undefined and must be explicitly assigned before user-facing availability orchestration consumes it.",
+        "Production Google token refresh/decryption remains outside this story; later integration must preserve the injected server-only capability and exact read-only primary-Calendar policy."
+      ],
+      "context_for_next": "S01-08 is complete at source head 27cb821 with evidence commit fbb8447; AC1-AC7 pass.\nGoogleCalendarAdapter accepts only primary, a bounded range, and an injected server-only token provider; no production consumer is wired yet.\nFreeBusy is the sole blocking authority; busy intervals are normalized, clipped, deduplicated, and overlap-merged.\nEvent summaries expose only bounded ADR-approved fields; raw provider fields never enter the availability engine, model, persistence, or logs.\nfindWorkWindows accepts normalized effective-day windows and a busy-only reader; raw timingConstraints parsing is intentionally outside this story.\nDurations, SGT boundaries, effective hours, midnight, 14-day generated, exact-proposal, seven-day recovery, ranking, and no-fit rules are deterministic.\nNo Calendar writes, provider-token exchange, runtime dependency, app wiring, database, dashboard, Telegram, or conversation changes were introduced.\nExact gates pass focused 34/34, server 274/274, and browser 46/46 with clean privacy and leakage audits.\nS01-09 may consume this boundary only after S01-05 and S01-03c dependencies are complete."
     }
   ]
 }
