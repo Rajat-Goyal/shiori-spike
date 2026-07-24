@@ -10,7 +10,7 @@ export type DraftReference = {
 
 export type TelegramInlineAction = {
   callbackData: string;
-  text: "Cancel" | "Confirm" | "Done";
+  text: string;
 };
 
 export type TelegramReply = {
