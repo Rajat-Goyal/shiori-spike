@@ -13,6 +13,10 @@ import {
   SupabaseDashboardRepository,
 } from "./dashboard.js";
 import { OpenAIDecisionEngine } from "./decision/engine.js";
+import {
+  ConfirmationService,
+  SupabaseConfirmationRepository,
+} from "./confirmation.js";
 import { SupabaseConversationRepository } from "./conversation/repository.js";
 import { ConversationService } from "./conversation/service.js";
 import {
@@ -84,6 +88,13 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     new TelegramService({
       client: new TelegramBotClient({
         botToken: options.config.telegramBotToken,
+      }),
+      confirmationService: new ConfirmationService({
+        repository: new SupabaseConfirmationRepository({
+          ownerId: options.config.telegramOwnerUserId,
+          supabaseSecretKey: options.config.supabaseSecretKey,
+          supabaseUrl: options.config.supabaseUrl,
+        }),
       }),
       conversationService: new ConversationService({
         decisionEngine: new OpenAIDecisionEngine({

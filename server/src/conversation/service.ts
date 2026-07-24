@@ -5,6 +5,11 @@ import type {
   DecisionResult,
 } from "../decision/schema.js";
 import {
+  confirmationCopy,
+  confirmationSummary,
+  type TelegramReply,
+} from "../confirmation.js";
+import {
   collectedDraftCopy,
   collisionCopy,
   conversationCopy,
@@ -28,6 +33,13 @@ type ConversationServiceOptions = {
   promptVersion: string;
   repository: ConversationRepository;
 };
+
+type CompleteReply = {
+  completeFields: DecisionContextFields;
+  prefix?: string;
+};
+
+type ConversationReply = string | TelegramReply;
 
 function candidateFields(decision: DecisionResult): DecisionContextFields {
   return {
@@ -123,6 +135,29 @@ function responseText(decision: DecisionResult): string | undefined {
   return response ? decision.response! : undefined;
 }
 
+function collectedReply(
+  phase: ConversationPhase,
+  fields: DecisionContextFields,
+  prefix?: string,
+): string | CompleteReply {
+  return phase === "complete"
+    ? {
+        completeFields: fields,
+        ...(prefix ? { prefix } : {}),
+      }
+    : collectedDraftCopy(phase);
+}
+
+function isCompleteReply(
+  value: ConversationReply | CompleteReply,
+): value is CompleteReply {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "completeFields" in value
+  );
+}
+
 export class ConversationService {
   readonly #decisionEngine: DecisionEngine;
   readonly #modelId: string;
@@ -136,7 +171,10 @@ export class ConversationService {
     this.#repository = options.repository;
   }
 
-  async handle(updateId: number, ownerText: string): Promise<string> {
+  async handle(
+    updateId: number,
+    ownerText: string,
+  ): Promise<ConversationReply> {
     const read = await this.#repository.readTurn(updateId);
     if (read.kind === "expired") {
       return conversationCopy.expired;
@@ -189,7 +227,7 @@ export class ConversationService {
     updateId: number,
     snapshot: Extract<ConversationSnapshot, { kind: "none" }>,
     decision: DecisionResult,
-  ): Promise<string> {
+  ): Promise<ConversationReply> {
     if (
       decision.turnRelation === "none" &&
       decision.inputClass === "ordinary_question" &&
@@ -248,7 +286,7 @@ export class ConversationService {
         updateId,
       },
       snapshot,
-      collectedDraftCopy(phase),
+      collectedReply(phase, fields),
     );
   }
 
@@ -256,7 +294,7 @@ export class ConversationService {
     updateId: number,
     snapshot: PermissionCandidate,
     decision: DecisionResult,
-  ): Promise<string> {
+  ): Promise<ConversationReply> {
     switch (decision.turnRelation) {
       case "permission_accepted": {
         const accepted =
@@ -278,7 +316,7 @@ export class ConversationService {
           },
           snapshot,
           draftIsAllowed
-            ? collectedDraftCopy(phase)
+            ? collectedReply(phase, snapshot.fields)
             : conversationCopy.failureNoDraft,
           draftIsAllowed,
         );
@@ -353,7 +391,7 @@ export class ConversationService {
     updateId: number,
     snapshot: ActiveDraft,
     decision: DecisionResult,
-  ): Promise<string> {
+  ): Promise<ConversationReply> {
     if (decision.turnRelation === "none") {
       if (
         decision.inputClass !== "ordinary_question" ||
@@ -384,7 +422,13 @@ export class ConversationService {
           updateId,
         },
         snapshot,
-        collisionCopy(snapshot.phase),
+        snapshot.phase === "complete"
+          ? confirmationSummary(
+              snapshot.fields,
+              snapshot,
+              confirmationCopy.secondRequest,
+            )
+          : collisionCopy(snapshot.phase),
       );
     }
 
@@ -401,6 +445,27 @@ export class ConversationService {
 
     const fields = candidateFields(decision);
     const phase = phaseFor(fields);
+    if (
+      snapshot.phase === "complete" &&
+      decision.turnRelation === "correction" &&
+      phase !== "complete"
+    ) {
+      return this.#finish(
+        {
+          action: "preserve",
+          audit: this.#audit(decision),
+          expected: expectedSnapshot(snapshot),
+          processingResult: "conversation",
+          updateId,
+        },
+        snapshot,
+        confirmationSummary(
+          snapshot.fields,
+          snapshot,
+          confirmationCopy.correctionIncomplete,
+        ),
+      );
+    }
     if (!draftable(fields) || phase === undefined) {
       return this.#preserveRejected(updateId, snapshot, decision);
     }
@@ -417,15 +482,17 @@ export class ConversationService {
       },
       snapshot,
       decision.turnRelation === "correction"
-        ? correctionCopy(phase)
-        : collectedDraftCopy(phase),
+        ? phase === "complete"
+          ? collectedReply(phase, fields, confirmationCopy.updated)
+          : correctionCopy(phase)
+        : collectedReply(phase, fields),
     );
   }
 
   async #preserveFailure(
     updateId: number,
     snapshot: ConversationSnapshot,
-  ): Promise<string> {
+  ): Promise<ConversationReply> {
     return this.#finish(
       {
         action: "preserve",
@@ -442,7 +509,7 @@ export class ConversationService {
     updateId: number,
     snapshot: ConversationSnapshot,
     decision: DecisionResult,
-  ): Promise<string> {
+  ): Promise<ConversationReply> {
     return this.#finish(
       {
         action: "preserve",
@@ -459,9 +526,9 @@ export class ConversationService {
   async #finish(
     command: ConversationCommand,
     snapshot: ConversationSnapshot,
-    copy: string,
+    copy: ConversationReply | CompleteReply,
     expectDraft = false,
-  ): Promise<string> {
+  ): Promise<ConversationReply> {
     const result = await this.#repository.applyTurn(command);
     return this.#copyForApply(result, snapshot, copy, expectDraft);
   }
@@ -469,9 +536,9 @@ export class ConversationService {
   #copyForApply(
     result: ConversationApplyResult,
     snapshot: ConversationSnapshot,
-    copy: string,
+    copy: ConversationReply | CompleteReply,
     expectDraft: boolean,
-  ): string {
+  ): ConversationReply {
     if (!result.completed) {
       throw new Error("Conversation update was not completed");
     }
@@ -482,10 +549,22 @@ export class ConversationService {
         return conversationCopy.interrupted;
       case "stale":
         return safeFailure(snapshot);
-      case "applied":
-        return expectDraft && !result.draftCreated
-          ? conversationCopy.failureNoDraft
-          : copy;
+      case "applied": {
+        if (expectDraft && !result.draftCreated) {
+          return conversationCopy.failureNoDraft;
+        }
+        if (isCompleteReply(copy)) {
+          if (!result.draftReference) {
+            throw new Error("Complete draft reference is missing");
+          }
+          return confirmationSummary(
+            copy.completeFields,
+            result.draftReference,
+            copy.prefix,
+          );
+        }
+        return copy;
+      }
     }
   }
 

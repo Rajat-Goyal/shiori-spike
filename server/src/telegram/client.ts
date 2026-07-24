@@ -1,5 +1,12 @@
+import type { TelegramInlineAction } from "../confirmation.js";
+
 export interface TelegramClient {
-  sendText(chatId: number, text: string): Promise<void>;
+  answerCallbackQuery?(callbackQueryId: string): Promise<void>;
+  sendText(
+    chatId: number,
+    text: string,
+    actions?: readonly TelegramInlineAction[],
+  ): Promise<void>;
 }
 
 type TelegramBotClientOptions = {
@@ -16,17 +23,46 @@ export class TelegramBotClient implements TelegramClient {
     this.#fetch = options.fetch ?? fetch;
   }
 
-  async sendText(chatId: number, text: string): Promise<void> {
+  async answerCallbackQuery(callbackQueryId: string): Promise<void> {
+    await this.#request("answerCallbackQuery", {
+      callback_query_id: callbackQueryId,
+    });
+  }
+
+  async sendText(
+    chatId: number,
+    text: string,
+    actions?: readonly TelegramInlineAction[],
+  ): Promise<void> {
+    await this.#request("sendMessage", {
+      chat_id: chatId,
+      ...(actions && actions.length > 0
+        ? {
+            reply_markup: {
+              inline_keyboard: [
+                actions.map((action) => ({
+                  callback_data: action.callbackData,
+                  text: action.text,
+                })),
+              ],
+            },
+          }
+        : {}),
+      text,
+    });
+  }
+
+  async #request(
+    method: "answerCallbackQuery" | "sendMessage",
+    body: Record<string, unknown>,
+  ): Promise<void> {
     let response: Response;
 
     try {
       response = await this.#fetch(
-        `https://api.telegram.org/bot${this.#botToken}/sendMessage`,
+        `https://api.telegram.org/bot${this.#botToken}/${method}`,
         {
-          body: JSON.stringify({
-            chat_id: chatId,
-            text,
-          }),
+          body: JSON.stringify(body),
           headers: {
             Accept: "application/json",
             "Content-Type": "application/json",

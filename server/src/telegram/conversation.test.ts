@@ -9,6 +9,10 @@ import type {
   DecisionResult,
 } from "../decision/schema.js";
 import {
+  confirmationCopy,
+  confirmationSummary,
+} from "../confirmation.js";
+import {
   collectedDraftCopy,
   collisionCopy,
   conversationCopy,
@@ -151,6 +155,10 @@ class ControlledRepository implements ConversationRepository {
   readonly commands: Array<Record<string, unknown>> = [];
   applyResult: ConversationApplyResult = {
     completed: true,
+    draftReference: {
+      id: "11111111-1111-4111-8111-111111111111",
+      version: 1,
+    },
     draftCreated: false,
     status: "applied",
   };
@@ -216,7 +224,10 @@ describe("ConversationService", () => {
       phase: "awaiting_target",
     },
     {
-      copy: "I have the details. Nothing has been saved yet.",
+      copy: confirmationSummary(completeFields, {
+        id: "11111111-1111-4111-8111-111111111111",
+        version: 1,
+      }),
       fields: completeFields,
       phase: "complete",
     },
@@ -230,7 +241,7 @@ describe("ConversationService", () => {
 
       await expect(
         test.service.handle(7000, "private raw owner sentinel"),
-      ).resolves.toBe(copy);
+      ).resolves.toEqual(copy);
       expect(test.decide).toHaveBeenCalledWith({
         context: { fields: null, phase: "none" },
         ownerText: "private raw owner sentinel",
@@ -258,7 +269,14 @@ describe("ConversationService", () => {
       expect(JSON.stringify(test.repository.audits)).not.toContain(
         "Provider response that application copy does not trust.",
       );
-      expect(copy).not.toMatch(/Confirm|Cancel|\/correct/);
+      if (typeof copy === "string") {
+        expect(copy).not.toMatch(/Confirm|Cancel|\/correct/);
+      } else {
+        expect(copy.actions?.map((action) => action.text)).toEqual([
+          "Confirm",
+          "Cancel",
+        ]);
+      }
     },
   );
 
@@ -334,8 +352,11 @@ describe("ConversationService", () => {
     );
     test.repository.applyResult.draftCreated = true;
 
-    await expect(test.service.handle(7002, "yes")).resolves.toBe(
-      collectedDraftCopy("complete"),
+    await expect(test.service.handle(7002, "yes")).resolves.toEqual(
+      confirmationSummary(completeFields, {
+        id: "11111111-1111-4111-8111-111111111111",
+        version: 1,
+      }),
     );
     expect(test.repository.commands).toEqual([
       {
@@ -563,6 +584,82 @@ describe("ConversationService", () => {
     });
   });
 
+  it("increments a complete correction once and binds the full updated summary to the new version", async () => {
+    const snapshot = activeDraft("complete", completeFields, 7);
+    const correctedFields = {
+      ...completeFields,
+      definitionOfDone: "Submit the corrected synthetic note",
+    };
+    const test = controlled(
+      snapshot,
+      success(
+        decision(correctedFields, {
+          turnRelation: "correction",
+        }),
+      ),
+    );
+    test.repository.applyResult.draftReference = {
+      id: snapshot.id,
+      version: 8,
+    };
+
+    await expect(
+      test.service.handle(7012, "correct the current promise"),
+    ).resolves.toEqual(
+      confirmationSummary(
+        correctedFields,
+        { id: snapshot.id, version: 8 },
+        confirmationCopy.updated,
+      ),
+    );
+    expect(test.repository.commands[0]).toMatchObject({
+      action: "update_draft",
+      expected: {
+        id: snapshot.id,
+        kind: "draft",
+        version: 7,
+      },
+      fields: correctedFields,
+      phase: "complete",
+    });
+  });
+
+  it("rejects a correction that would make a complete draft incomplete and rerenders the current version", async () => {
+    const snapshot = activeDraft("complete", completeFields, 7);
+    const test = controlled(
+      snapshot,
+      success(
+        decision(
+          {
+            ...completeFields,
+            definitionOfDone: null,
+          },
+          {
+            turnRelation: "correction",
+          },
+        ),
+      ),
+    );
+
+    await expect(
+      test.service.handle(7012, "clear the definition"),
+    ).resolves.toEqual(
+      confirmationSummary(
+        completeFields,
+        snapshot,
+        confirmationCopy.correctionIncomplete,
+      ),
+    );
+    expect(test.repository.commands[0]).toMatchObject({
+      action: "preserve",
+      expected: {
+        id: snapshot.id,
+        kind: "draft",
+        version: 7,
+      },
+    });
+  });
+
   it.each([
     completeFields,
     {
@@ -582,8 +679,12 @@ describe("ConversationService", () => {
         ),
       );
 
-      await expect(test.service.handle(7012, "second promise")).resolves.toBe(
-        collisionCopy("complete"),
+      await expect(test.service.handle(7012, "second promise")).resolves.toEqual(
+        confirmationSummary(
+          completeFields,
+          snapshot,
+          confirmationCopy.secondRequest,
+        ),
       );
       expect(test.repository.commands[0]).toEqual({
         action: "preserve",
@@ -724,16 +825,25 @@ describe("ConversationService", () => {
     );
   });
 
-  it("keeps approved complete-state copy free of actions", () => {
-    const completeCopies = [
-      collectedDraftCopy("complete"),
-      collisionCopy("complete"),
-      correctionCopy("complete"),
-    ];
+  it("binds complete-state actions only to the opaque current draft reference", () => {
+    const reply = confirmationSummary(
+      completeFields,
+      activeDraft("complete", completeFields, 12),
+    );
 
-    for (const copy of completeCopies) {
-      expect(copy).not.toMatch(/Confirm|Cancel|button|action|\/correct/);
-      expect(copy).toContain("Nothing has been saved");
-    }
+    expect(reply.text).toContain("Nothing has been saved");
+    expect(reply.text).not.toContain(reply.actions![0].callbackData);
+    expect(reply.actions).toEqual([
+      {
+        callbackData:
+          "d:11111111-1111-4111-8111-111111111111:12:confirm",
+        text: "Confirm",
+      },
+      {
+        callbackData:
+          "d:11111111-1111-4111-8111-111111111111:12:cancel",
+        text: "Cancel",
+      },
+    ]);
   });
 });

@@ -1,4 +1,5 @@
 import type { TelegramClient } from "./client.js";
+import type { TelegramReply } from "../confirmation.js";
 import {
   type TelegramProcessingResult,
   type TelegramRepository,
@@ -6,14 +7,33 @@ import {
 
 type TelegramServiceOptions = {
   client: TelegramClient;
+  confirmationService?: {
+    handle(
+      updateId: number,
+      chatId: number,
+      callbackData: unknown,
+    ): Promise<TelegramReply | null>;
+  };
   conversationService: {
-    handle(updateId: number, ownerText: string): Promise<string>;
+    handle(
+      updateId: number,
+      ownerText: string,
+    ): Promise<string | TelegramReply>;
   };
   ownerUserId: number;
   repository: TelegramRepository;
 };
 
 type ParsedUpdate =
+  | {
+      callbackData: unknown;
+      callbackId: string;
+      chatId: number;
+      chatType: string;
+      fromId?: number;
+      kind: "callback";
+      updateId: number;
+    }
   | {
       chatId: number;
       chatType: string;
@@ -39,6 +59,41 @@ function parseUpdate(value: unknown): ParsedUpdate | undefined {
   const update = value as Record<string, unknown>;
   if (!safeInteger(update.update_id) || update.update_id < 0) {
     return undefined;
+  }
+  if (
+    update.callback_query &&
+    typeof update.callback_query === "object"
+  ) {
+    const callback = update.callback_query as Record<string, unknown>;
+    const message =
+      callback.message && typeof callback.message === "object"
+        ? (callback.message as Record<string, unknown>)
+        : undefined;
+    const chat =
+      message?.chat && typeof message.chat === "object"
+        ? (message.chat as Record<string, unknown>)
+        : undefined;
+    const from =
+      callback.from && typeof callback.from === "object"
+        ? (callback.from as Record<string, unknown>)
+        : undefined;
+    if (
+      typeof callback.id !== "string" ||
+      !chat ||
+      !safeInteger(chat.id) ||
+      typeof chat.type !== "string"
+    ) {
+      return { kind: "ignored", updateId: update.update_id };
+    }
+    return {
+      callbackData: callback.data,
+      callbackId: callback.id,
+      chatId: chat.id,
+      chatType: chat.type,
+      fromId: safeInteger(from?.id) ? from.id : undefined,
+      kind: "callback",
+      updateId: update.update_id,
+    };
   }
   if (!update.message || typeof update.message !== "object") {
     return { kind: "ignored", updateId: update.update_id };
@@ -75,12 +130,16 @@ function parseUpdate(value: unknown): ParsedUpdate | undefined {
 
 export class TelegramService {
   readonly #client: TelegramClient;
+  readonly #confirmationService:
+    | TelegramServiceOptions["confirmationService"]
+    | undefined;
   readonly #conversationService: TelegramServiceOptions["conversationService"];
   readonly #ownerUserId: number;
   readonly #repository: TelegramRepository;
 
   constructor(options: TelegramServiceOptions) {
     this.#client = options.client;
+    this.#confirmationService = options.confirmationService;
     this.#conversationService = options.conversationService;
     this.#ownerUserId = options.ownerUserId;
     this.#repository = options.repository;
@@ -101,11 +160,36 @@ export class TelegramService {
     }
 
     const isOwnerPrivate =
-      update.kind === "text" &&
+      update.kind !== "ignored" &&
       update.fromId === this.#ownerUserId &&
       update.chatType === "private" &&
       update.chatId === this.#ownerUserId;
     const ownerChatId = isOwnerPrivate ? update.chatId : undefined;
+
+    if (
+      update.kind === "callback" &&
+      isOwnerPrivate &&
+      this.#confirmationService
+    ) {
+      const reply = await this.#confirmationService.handle(
+        update.updateId,
+        update.chatId,
+        update.callbackData,
+      );
+      if (!reply) {
+        return;
+      }
+      await this.#client
+        .answerCallbackQuery?.(update.callbackId)
+        .catch(() => undefined);
+      await this.#client.sendText(
+        update.chatId,
+        reply.text,
+        reply.actions,
+      );
+      return;
+    }
+
     const claimed = await this.#repository.claimUpdate(
       update.updateId,
       ownerChatId,
@@ -122,6 +206,8 @@ export class TelegramService {
       } else if (!isOwnerPrivate) {
         await this.#client.sendText(update.chatId, "I can’t help in this chat.");
         result = "refused";
+      } else if (update.kind === "callback") {
+        throw new Error("Confirmation service is unavailable");
       } else if (update.text.trim() === "/status") {
         if (await this.#repository.hasActiveCommitments()) {
           throw new Error("Populated Telegram status is outside S01-02");
@@ -133,9 +219,12 @@ export class TelegramService {
           update.updateId,
           update.text,
         );
+        const reply =
+          typeof response === "string" ? { text: response } : response;
         await this.#client.sendText(
           update.chatId,
-          response,
+          reply.text,
+          reply.actions,
         );
         return;
       }
