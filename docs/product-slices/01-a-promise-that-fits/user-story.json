@@ -2125,12 +2125,9 @@
       "squad": {
         "type": "dashboard-ux",
         "members": [
-          "pm",
-          "designer",
-          "staff-engineer",
-          "qa"
+          "staff-engineer"
         ],
-        "rationale": "This is the complete read-only visual product surface, requiring PM field coverage, designer state/layout ownership, staff read-model work, and independent API/browser parity verification."
+        "rationale": "The owner requested engineer-only implementation first; PM, Design only if needed, and QA are consolidated after all slice implementation."
       },
       "context": {
         "read_first": [
@@ -2145,13 +2142,8 @@
           "tests/e2e/google-connection.spec.ts"
         ]
       },
-      "status": "todo",
-      "open_questions": [
-        "Approve one enriched owner-protected GET /api/dashboard/summary plus the existing isolated GET /api/google-calendar/connection for S01-11. Do not add /api/commitments and /api/commitments/:id merely from ADR inventory; requiring all three read endpoints would trigger a split review. Owner approval is required.",
-        "Approve deterministic dashboard history bounds: all active commitments ordered target_at/id ascending; newest five past sessions per commitment by sequence descending with a truncation label; newest ten terminal commitments by terminal time/id descending; newest twenty events by occurred_at/id descending. Owner approval is required.",
-        "Approve exact simple-action label `Calendar check not needed` with null Calendar audit fields and a semantic simple-action discriminator, distinct from work-session `Saved without a Calendar check`. Owner approval is required.",
-        "Before Staff starts, freeze next-action copy, missing-value copy, and the UI label for every final scheduled-message state from the completed S01-05, S01-06, S01-09c, and S01-10c handoffs; do not infer these before dependencies land."
-      ]
+      "status": "in_progress",
+      "open_questions": []
     },
     {
       "id": "S01-12a",
