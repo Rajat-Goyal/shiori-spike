@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-03c",
+  "generated_at": "2026-07-24T18:49:30Z",
+  "source_commit": "0b1e88e214ae458cb10206a1277dd7761ecf1538",
+  "result": "pass",
+  "acceptance_criteria": [
+    "AC1",
+    "AC2"
+  ],
+  "summary_contract": {
+    "exact_template": "Please confirm this promise.\n\nDefinition of done: {stored definition}\nTarget: {formatted target}\nReminder: {same formatted target}\nCalendar availability: Not checked.\nGoogle Calendar will not be changed.\nNothing has been saved yet.",
+    "stored_definition_used": true,
+    "target_and_reminder_identical": true,
+    "calendar_availability": "Not checked.",
+    "calendar_write_statement_present": true,
+    "saved_before_confirm": false,
+    "plain_text": true
+  },
+  "singapore_time_format": {
+    "template": "D MMM YYYY at h:mm AM/PM SGT (UTC+08:00)",
+    "seconds_included_only_when_nonzero": true,
+    "zero_seconds_case": "pass",
+    "nonzero_seconds_case": "pass",
+    "midnight_case": "pass",
+    "noon_case": "pass",
+    "invalid_calendar_date_rejected": true
+  },
+  "inline_actions": {
+    "rows": 1,
+    "actions_per_row": 2,
+    "labels_in_order": [
+      "Confirm",
+      "Cancel"
+    ],
+    "callback_template": "d:<lowercase UUID>:<positive canonical decimal version>:confirm|cancel",
+    "maximum_bytes": 64,
+    "full_match_required": true,
+    "product_text_present": false,
+    "calendar_data_present": false,
+    "secrets_present": false
+  },
+  "complete_draft_paths": {
+    "initial_completion": {
+      "full_summary": true,
+      "current_version_actions": true
+    },
+    "second_request": {
+      "prefix": "You already have a complete draft. I didn’t replace it.",
+      "returned_candidate_fields_ignored": true,
+      "full_current_summary": true,
+      "current_version_actions": true,
+      "draft_overwritten": false
+    },
+    "complete_correction": {
+      "prefix": "Updated.",
+      "full_updated_summary": true,
+      "new_version_actions": true
+    },
+    "correction_becoming_incomplete": {
+      "prefix": "I need the corrected promise to include both what counts as done and when it should be done. I didn’t change the current draft.",
+      "full_current_summary": true,
+      "current_version_actions": true,
+      "draft_changed": false
+    }
+  },
+  "verification": {
+    "focused_tests_passed": 25,
+    "conversation_tests_passed": 39,
+    "exact_copy_assertions": "pass",
+    "renderer_is_application_owned": true,
+    "provider_response_used_for_summary": false,
+    "calendar_interface_calls": 0,
+    "qa_signoff": "pass"
+  }
+}
+

@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-03c",
+  "generated_at": "2026-07-24T18:49:30Z",
+  "source_commit": "0b1e88e214ae458cb10206a1277dd7761ecf1538",
+  "result": "pass",
+  "acceptance_criteria": [
+    "AC3",
+    "AC5",
+    "AC7"
+  ],
+  "callback_parser": {
+    "valid_shape": "d:<lowercase UUID>:<positive canonical decimal version>:confirm|cancel",
+    "maximum_length": 64,
+    "full_string_match": true,
+    "invalid_cases_rejected": [
+      "trailing data",
+      "uppercase UUID/action",
+      "zero version",
+      "leading-zero version",
+      "unsupported action",
+      "unsafe integer version",
+      "unstructured text",
+      "non-string value"
+    ],
+    "malformed_authority_forwarded": false,
+    "malformed_database_command": {
+      "action": null,
+      "draft_id": null,
+      "version": null
+    }
+  },
+  "authorization": {
+    "webhook_secret_checked_before_body_processing": true,
+    "configured_numeric_owner_required": true,
+    "private_owner_chat_required": true,
+    "unauthorized_confirmation_calls": 0,
+    "unauthorized_response_is_generic": true
+  },
+  "same_update_replay": {
+    "database_result": "replay",
+    "additional_transition_count": 0,
+    "additional_commitment_count": 0,
+    "additional_scheduled_message_count": 0,
+    "additional_event_count": 0,
+    "additional_saved_acknowledgements": 0,
+    "additional_visible_messages": 0,
+    "additional_callback_acknowledgements": 0
+  },
+  "concurrent_current_confirm": {
+    "attempts": 2,
+    "results": [
+      "confirmed",
+      "already_confirmed"
+    ],
+    "confirmed_transition_count": 1,
+    "saved_acknowledgement_count": 1,
+    "commitment_count": 1,
+    "scheduled_message_count": 1,
+    "creation_event_count": 2,
+    "resolved_action_key_count": 1,
+    "duplicates": 0
+  },
+  "resolved_and_stale_results": {
+    "stale_active": "That action is stale. I didn’t change anything.",
+    "already_cancelled": "That draft was already cancelled. Nothing was saved.",
+    "already_confirmed": "That promise was already saved. I didn’t create another promise or reminder.",
+    "expired": "That draft expired after 24 hours of inactivity. Nothing was saved. Please send the promise again to start over.",
+    "malformed": "That action isn’t valid. I didn’t change anything."
+  },
+  "delivery_shape": {
+    "visible_send_message_count_per_processed_callback": 1,
+    "callback_acknowledgement_optional": true,
+    "callback_acknowledgement_text_present": false,
+    "inline_keyboard_rows": 1,
+    "provider_or_conversation_engine_invocations": 0
+  },
+  "retention_and_leakage": {
+    "repository_request_keys": [
+      "p_action",
+      "p_draft_id",
+      "p_owner_chat_id",
+      "p_owner_id",
+      "p_update_id",
+      "p_version"
+    ],
+    "product_text_in_callback_or_rpc_command": false,
+    "calendar_data_in_callback_or_rpc_command": false,
+    "raw_callback_query_persisted": false,
+    "callback_query_id_persisted": false,
+    "provider_payload_or_trace_persisted": false,
+    "chain_of_thought_persisted": false,
+    "sensitive_env_values_scanned": 11,
+    "sensitive_env_value_matches": 0,
+    "public_loopback_supabase_url_excluded_from_secret_scan": true
+  },
+  "verification": {
+    "focused_tests_passed": 25,
+    "full_server_tests_passed": 240,
+    "database_tests_passed": 5,
+    "browser_tests_passed": 46,
+    "qa_signoff": "pass"
+  }
+}

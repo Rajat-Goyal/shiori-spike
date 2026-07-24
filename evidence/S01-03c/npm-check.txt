@@ -1,0 +1,80 @@
+S01-03c independent verification
+Generated: 2026-07-24T18:49:30Z
+Result: PASS
+
+Committed implementation:
+- 897b55c2f1b3c29d91e0d3f3316067c4607e1394
+  feat(S01-03c): persist atomic simple confirmation
+- ee66ba94f0e495df22645429301e506ae5ab4c3a
+  feat(S01-03c): deliver versioned confirmation actions
+- 0b1e88e214ae458cb10206a1277dd7761ecf1538
+  test(S01-03c): include resolved action key in DB oracle
+
+Runtime:
+- Node.js v24.18.0
+- npm 11.17.0
+
+Exact story command:
+  npm run test --workspace @shiori/server -- src/telegram/confirmation.test.ts
+Result:
+- 1 test file passed
+- 25 tests passed
+- 0 failed
+
+Exact database command:
+  npm run test:db
+Environment:
+- Clean disposable Supabase project built only from committed migrations
+- Fixed local API port 54321; distinct disposable database/support ports
+- Credentials remained in process memory and are not recorded here
+Result:
+- 4 test files passed
+- 5 tests passed
+- 0 failed
+- Conversation/confirmation transaction test passed
+- Telegram retention/schema test passed
+- Dashboard test passed
+- Google connection tests passed
+
+Exact repository command:
+  npm run check
+Result:
+- Server tests: 240 passed, 0 failed across 12 files
+- Server and web typechecks: pass
+- Server and web production builds: pass
+- Isolated Playwright: 46 passed, 0 failed
+
+Independent transaction injection:
+- A disposable-only trigger rejected scheduled_message.created during Confirm.
+- The transaction returned no success.
+- Draft remained active, unresolved, and at the same version.
+- Commitment rows created: 0
+- Scheduled-message rows created: 0
+- Creation-event rows created: 0
+- Callback claim rows retained: 0
+- No production failure hook or source change was introduced.
+
+Attempt provenance:
+- The first clean database run passed 4/5.
+- Failure was the pre-story Telegram schema oracle omitting the new bounded
+  resolved_action_key column; confirmation transaction verification passed.
+- Staff corrected only that expected column list in commit 0b1e88e.
+- The clean full database rerun passed 5/5.
+- The first repository check attempt was sandbox-blocked from binding the
+  Playwright loopback server with EPERM.
+- The exact command was rerun outside that sandbox and passed completely.
+
+Isolation and cleanup:
+- Only the shared Kong gateway was briefly paused to free fixed test port 54321.
+- Shared database, REST/Auth services, rows, and volumes were not reset,
+  migrated, queried, or deleted.
+- Disposable containers and volumes were removed.
+- Shared gateway health after restoration: HTTP 200.
+
+Hygiene:
+- git diff --check: pass
+- Source worktree was clean before evidence creation.
+- Runtime dependency changes: 0
+- Live OpenAI requests: 0
+- Live Google Calendar requests or writes: 0
+

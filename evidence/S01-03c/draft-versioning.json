@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-03c",
+  "generated_at": "2026-07-24T18:49:30Z",
+  "source_commit": "0b1e88e214ae458cb10206a1277dd7761ecf1538",
+  "result": "pass",
+  "acceptance_criteria": [
+    "AC2",
+    "AC3",
+    "AC6"
+  ],
+  "version_matrix": [
+    {
+      "case": "accepted complete correction",
+      "expected_version_delta": 1,
+      "actual_version_delta": 1,
+      "old_actions": "stale",
+      "new_actions_bound_to_resulting_version": true,
+      "result": "pass"
+    },
+    {
+      "case": "replayed correction update",
+      "engine_invocations": 1,
+      "accepted_updates": 1,
+      "additional_version_delta": 0,
+      "result": "pass"
+    },
+    {
+      "case": "second commitment request",
+      "version_delta": 0,
+      "draft_fields_changed": false,
+      "candidate_fields_ignored_for_equal_and_different_values": true,
+      "current_summary_rerendered": true,
+      "result": "pass"
+    },
+    {
+      "case": "correction becoming incomplete",
+      "version_delta": 0,
+      "draft_fields_changed": false,
+      "expiry_extended": false,
+      "current_summary_rerendered": true,
+      "result": "pass"
+    },
+    {
+      "case": "old-version action against active draft",
+      "transition_count": 0,
+      "response": "stale",
+      "authoritative_current_summary_rerendered": true,
+      "current_actions_returned": true,
+      "result": "pass"
+    }
+  ],
+  "terminal_states": {
+    "confirmed": {
+      "draft_row_retained": true,
+      "version_unchanged": true,
+      "resolved_update_recorded": true,
+      "resolved_at_recorded": true,
+      "repeat_response": "already_confirmed"
+    },
+    "cancelled": {
+      "draft_row_retained": true,
+      "version_unchanged": true,
+      "resolved_update_recorded": true,
+      "resolved_at_recorded": true,
+      "repeat_response": "already_cancelled"
+    },
+    "expired": {
+      "transition_count": 0,
+      "response": "expired",
+      "old_action_accepted": false
+    }
+  },
+  "database_constraints": {
+    "states": [
+      "active",
+      "confirmed",
+      "cancelled",
+      "expired"
+    ],
+    "terminal_resolution_pair_required": true,
+    "one_active_draft_constraint_preserved": true,
+    "commitment_source_draft_unique": true,
+    "resolved_action_key_unique": true
+  },
+  "verification": {
+    "conversation_tests_passed": 39,
+    "database_tests_passed": 5,
+    "concurrent_compare_and_swap": "pass",
+    "restart_safe_reference_returned_atomically": true,
+    "second_unauthenticated_read_added": false,
+    "qa_signoff": "pass"
+  }
+}
+

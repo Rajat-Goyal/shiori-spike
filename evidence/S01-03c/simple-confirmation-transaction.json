@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-03c",
+  "generated_at": "2026-07-24T18:49:30Z",
+  "source_commit": "0b1e88e214ae458cb10206a1277dd7761ecf1538",
+  "result": "pass",
+  "acceptance_criteria": [
+    "AC4",
+    "AC6",
+    "AC7"
+  ],
+  "confirm_transaction": {
+    "commitments_created": 1,
+    "commitment": {
+      "owner_id": "configured numeric Telegram owner as canonical decimal text",
+      "definition_matches_draft": true,
+      "target_instant_matches_draft": true,
+      "status": "active",
+      "source_draft_unique": true
+    },
+    "scheduled_messages_created": 1,
+    "scheduled_message": {
+      "kind": "simple_reminder",
+      "state": "pending",
+      "due_at_matches_target_instant": true,
+      "attempt_count": 0,
+      "logical_key_unique": true
+    },
+    "events_created": 2,
+    "events": [
+      {
+        "event_type": "commitment.created",
+        "count": 1,
+        "actor": "owner",
+        "metadata": {},
+        "idempotency_key_unique": true
+      },
+      {
+        "event_type": "scheduled_message.created",
+        "count": 1,
+        "actor": "owner",
+        "metadata": {},
+        "idempotency_key_unique": true
+      }
+    ],
+    "draft_state": "confirmed",
+    "draft_version_unchanged": true,
+    "telegram_processing_result": "confirmation_confirmed",
+    "bounded_action_reference_recorded": true
+  },
+  "cancel_transaction": {
+    "draft_state": "cancelled",
+    "draft_version_unchanged": true,
+    "commitment_delta": 0,
+    "scheduled_message_delta": 0,
+    "creation_event_delta": 0,
+    "work_session_mutations": 0,
+    "calendar_mutations": 0,
+    "acknowledgement": "Draft cancelled. Nothing was saved."
+  },
+  "forced_rollback": {
+    "environment": "disposable local Supabase only",
+    "injection": "temporary trigger rejected scheduled_message.created during Confirm",
+    "production_failure_hook_added": false,
+    "transaction_reported_success": false,
+    "draft_state_after": "active",
+    "draft_version_unchanged": true,
+    "draft_resolved": false,
+    "commitment_rows_retained": 0,
+    "scheduled_message_rows_retained": 0,
+    "creation_event_rows_retained": 0,
+    "callback_claim_rows_retained": 0,
+    "service_failure_copy": "I couldn’t confirm whether the promise was saved. Please press Confirm again.",
+    "false_saved_acknowledgements": 0,
+    "result": "pass"
+  },
+  "boundaries": {
+    "database_function_security_definer": true,
+    "database_function_empty_search_path": true,
+    "anon_execute_revoked": true,
+    "authenticated_execute_revoked": true,
+    "service_role_execute_only": true,
+    "provider_calls": 0,
+    "calendar_reads": 0,
+    "calendar_writes": 0
+  },
+  "verification": {
+    "clean_migrations": "pass",
+    "database_test_files_passed": 4,
+    "database_tests_passed": 5,
+    "forced_rollback_probe": "pass",
+    "qa_signoff": "pass"
+  }
+}
+
