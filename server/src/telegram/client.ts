@@ -6,13 +6,49 @@ export interface TelegramClient {
     chatId: number,
     text: string,
     actions?: readonly TelegramInlineAction[],
-  ): Promise<void>;
+  ): Promise<TelegramSendReceipt | void>;
+}
+
+export type TelegramDeliveryFailure =
+  | "delivery_unknown"
+  | "permanent_failure"
+  | "rate_limited";
+
+export type TelegramSendReceipt = {
+  messageId?: number;
+};
+
+export class TelegramSendError extends Error {
+  readonly failure: TelegramDeliveryFailure;
+  readonly retryAfterSeconds?: number;
+
+  constructor(
+    failure: TelegramDeliveryFailure,
+    retryAfterSeconds?: number,
+  ) {
+    super("Telegram delivery failed");
+    this.name = "TelegramSendError";
+    this.failure = failure;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
 }
 
 type TelegramBotClientOptions = {
   botToken: string;
   fetch?: typeof fetch;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function positiveSafeInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0
+  );
+}
 
 export class TelegramBotClient implements TelegramClient {
   readonly #botToken: string;
@@ -33,8 +69,8 @@ export class TelegramBotClient implements TelegramClient {
     chatId: number,
     text: string,
     actions?: readonly TelegramInlineAction[],
-  ): Promise<void> {
-    await this.#request("sendMessage", {
+  ): Promise<TelegramSendReceipt> {
+    const result = await this.#request("sendMessage", {
       chat_id: chatId,
       ...(actions && actions.length > 0
         ? {
@@ -50,12 +86,15 @@ export class TelegramBotClient implements TelegramClient {
         : {}),
       text,
     });
+    return isRecord(result) && positiveSafeInteger(result.message_id)
+      ? { messageId: result.message_id }
+      : {};
   }
 
   async #request(
     method: "answerCallbackQuery" | "sendMessage",
     body: Record<string, unknown>,
-  ): Promise<void> {
+  ): Promise<unknown> {
     let response: Response;
 
     try {
@@ -72,11 +111,49 @@ export class TelegramBotClient implements TelegramClient {
         },
       );
     } catch {
-      throw new Error("Telegram delivery failed");
+      throw new TelegramSendError("delivery_unknown");
     }
 
     if (!response.ok) {
-      throw new Error("Telegram delivery failed");
+      if (response.status === 429) {
+        const responseBody: unknown = await response.json().catch(() => null);
+        const parameters =
+          isRecord(responseBody) && isRecord(responseBody.parameters)
+            ? responseBody.parameters
+            : null;
+        if (
+          isRecord(responseBody) &&
+          responseBody.ok === false &&
+          responseBody.error_code === 429 &&
+          parameters &&
+          positiveSafeInteger(parameters.retry_after)
+        ) {
+          throw new TelegramSendError(
+            "rate_limited",
+            parameters.retry_after,
+          );
+        }
+        throw new TelegramSendError("delivery_unknown");
+      }
+      throw new TelegramSendError(
+        response.status >= 400 && response.status < 500
+          ? "permanent_failure"
+          : "delivery_unknown",
+      );
     }
+
+    if (method === "answerCallbackQuery") {
+      return undefined;
+    }
+
+    const responseBody: unknown = await response.json().catch(() => null);
+    if (
+      !isRecord(responseBody) ||
+      responseBody.ok !== true ||
+      !("result" in responseBody)
+    ) {
+      return undefined;
+    }
+    return responseBody.result;
   }
 }

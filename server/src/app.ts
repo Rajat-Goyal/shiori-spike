@@ -17,6 +17,10 @@ import {
   ConfirmationService,
   SupabaseConfirmationRepository,
 } from "./confirmation.js";
+import {
+  SimpleCommitmentActionService,
+  SupabaseSimpleCommitmentActionRepository,
+} from "./commitments/simple-action.js";
 import { SupabaseConversationRepository } from "./conversation/repository.js";
 import { ConversationService } from "./conversation/service.js";
 import {
@@ -30,6 +34,10 @@ import {
   ownerSession,
   readCookie,
 } from "./owner-auth.js";
+import {
+  SimpleReminderScheduler,
+  SupabaseSimpleReminderRepository,
+} from "./scheduler/scheduler.js";
 import { TelegramBotClient } from "./telegram/client.js";
 import { SupabaseTelegramRepository } from "./telegram/repository.js";
 import { TelegramService } from "./telegram/service.js";
@@ -45,6 +53,10 @@ export type AppOptions = {
   logger?: FastifyServerOptions["logger"];
   now?: () => Date;
   serveStatic?: boolean;
+  simpleReminderScheduler?: {
+    start(): void;
+    stop(): Promise<void>;
+  };
   telegramService?: TelegramUpdateHandler;
   webRoot?: string;
 };
@@ -83,12 +95,13 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
         supabaseUrl: options.config.supabaseUrl,
       }),
     });
+  const telegramClient = new TelegramBotClient({
+    botToken: options.config.telegramBotToken,
+  });
   const telegramService =
     options.telegramService ??
     new TelegramService({
-      client: new TelegramBotClient({
-        botToken: options.config.telegramBotToken,
-      }),
+      client: telegramClient,
       confirmationService: new ConfirmationService({
         repository: new SupabaseConfirmationRepository({
           ownerId: options.config.telegramOwnerUserId,
@@ -112,6 +125,23 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       }),
       ownerUserId: options.config.telegramOwnerUserId,
       repository: new SupabaseTelegramRepository({
+        supabaseSecretKey: options.config.supabaseSecretKey,
+        supabaseUrl: options.config.supabaseUrl,
+      }),
+      simpleCommitmentActionService: new SimpleCommitmentActionService({
+        repository: new SupabaseSimpleCommitmentActionRepository({
+          ownerId: options.config.telegramOwnerUserId,
+          supabaseSecretKey: options.config.supabaseSecretKey,
+          supabaseUrl: options.config.supabaseUrl,
+        }),
+      }),
+    });
+  const simpleReminderScheduler =
+    options.simpleReminderScheduler ??
+    new SimpleReminderScheduler({
+      client: telegramClient,
+      now,
+      repository: new SupabaseSimpleReminderRepository({
         supabaseSecretKey: options.config.supabaseSecretKey,
         supabaseUrl: options.config.supabaseUrl,
       }),
@@ -142,6 +172,12 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   registerTelegramWebhook(app, {
     service: telegramService,
     webhookSecret: options.config.telegramWebhookSecret,
+  });
+  app.addHook("onReady", async () => {
+    simpleReminderScheduler.start();
+  });
+  app.addHook("onClose", async () => {
+    await simpleReminderScheduler.stop();
   });
 
   app.post<{ Body: { password?: unknown } }>("/api/owner/login", async (request, reply) => {

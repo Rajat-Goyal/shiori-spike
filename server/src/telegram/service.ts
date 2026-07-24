@@ -22,6 +22,13 @@ type TelegramServiceOptions = {
   };
   ownerUserId: number;
   repository: TelegramRepository;
+  simpleCommitmentActionService?: {
+    handle(
+      updateId: number,
+      chatId: number,
+      callbackData: unknown,
+    ): Promise<TelegramReply | null>;
+  };
 };
 
 type ParsedUpdate =
@@ -136,6 +143,9 @@ export class TelegramService {
   readonly #conversationService: TelegramServiceOptions["conversationService"];
   readonly #ownerUserId: number;
   readonly #repository: TelegramRepository;
+  readonly #simpleCommitmentActionService:
+    | TelegramServiceOptions["simpleCommitmentActionService"]
+    | undefined;
 
   constructor(options: TelegramServiceOptions) {
     this.#client = options.client;
@@ -143,6 +153,8 @@ export class TelegramService {
     this.#conversationService = options.conversationService;
     this.#ownerUserId = options.ownerUserId;
     this.#repository = options.repository;
+    this.#simpleCommitmentActionService =
+      options.simpleCommitmentActionService;
   }
 
   async handle(value: unknown): Promise<void> {
@@ -169,9 +181,18 @@ export class TelegramService {
     if (
       update.kind === "callback" &&
       isOwnerPrivate &&
-      this.#confirmationService
+      (this.#confirmationService || this.#simpleCommitmentActionService)
     ) {
-      const reply = await this.#confirmationService.handle(
+      const useSimpleCommitmentAction =
+        typeof update.callbackData === "string" &&
+        update.callbackData.startsWith("p:");
+      const callbackService = useSimpleCommitmentAction
+        ? this.#simpleCommitmentActionService
+        : this.#confirmationService;
+      if (!callbackService) {
+        throw new Error("Callback service is unavailable");
+      }
+      const reply = await callbackService.handle(
         update.updateId,
         update.chatId,
         update.callbackData,
