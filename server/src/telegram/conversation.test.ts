@@ -1,0 +1,739 @@
+import { describe, expect, it, vi } from "vitest";
+import type {
+  DecisionEngine,
+  DecisionFailureClass,
+  DecisionOutcome,
+} from "../decision/engine.js";
+import type {
+  DecisionContextFields,
+  DecisionResult,
+} from "../decision/schema.js";
+import {
+  collectedDraftCopy,
+  collisionCopy,
+  conversationCopy,
+  correctionCopy,
+} from "../conversation/copy.js";
+import type {
+  ActiveDraft,
+  ConversationApplyResult,
+  ConversationCommand,
+  ConversationReadResult,
+  ConversationRepository,
+  DecisionAudit,
+  PermissionCandidate,
+} from "../conversation/repository.js";
+import { ConversationService } from "../conversation/service.js";
+
+const completeFields: DecisionContextFields = {
+  definitionOfDone: "Submit the synthetic note",
+  durationMinutes: null,
+  offerWorkWindowHelp: false,
+  possibleWorkSession: false,
+  simpleAction: true,
+  targetAt: "2026-07-27T10:00:00+08:00",
+  targetTimeZone: "Asia/Singapore",
+  timingConstraints: ["Before lunch"],
+};
+const incompleteFields: DecisionContextFields = {
+  ...completeFields,
+  definitionOfDone: null,
+  simpleAction: false,
+  targetAt: null,
+  targetTimeZone: null,
+};
+const targetMissingFields: DecisionContextFields = {
+  ...completeFields,
+  simpleAction: false,
+  targetAt: null,
+  targetTimeZone: null,
+};
+const workFields: DecisionContextFields = {
+  ...completeFields,
+  possibleWorkSession: true,
+  simpleAction: false,
+};
+
+function decision(
+  fields: DecisionContextFields,
+  options: Partial<DecisionResult> = {},
+): DecisionResult {
+  const missingFields: DecisionResult["missingFields"] = [];
+  if (fields.definitionOfDone === null) {
+    missingFields.push("definition_of_done");
+  }
+  if (fields.targetAt === null) {
+    missingFields.push("target");
+  }
+  const nextAction =
+    missingFields[0] === "definition_of_done"
+      ? "ask_definition"
+      : missingFields[0] === "target"
+        ? "ask_target"
+        : fields.possibleWorkSession
+          ? "offer_work_window"
+          : "ready";
+  return {
+    ...fields,
+    inputClass: "explicit_commitment",
+    missingFields,
+    nextAction,
+    response: "Provider response that application copy does not trust.",
+    turnRelation: "new_request",
+    ...options,
+  };
+}
+
+function ordinary(
+  response = "A bounded synthetic answer.",
+  turnRelation: DecisionResult["turnRelation"] = "none",
+): DecisionResult {
+  return {
+    definitionOfDone: null,
+    durationMinutes: null,
+    inputClass: "ordinary_question",
+    missingFields: [],
+    nextAction: "answer",
+    offerWorkWindowHelp: false,
+    possibleWorkSession: false,
+    response,
+    simpleAction: false,
+    targetAt: null,
+    targetTimeZone: null,
+    timingConstraints: [],
+    turnRelation,
+  };
+}
+
+function implied(
+  fields: DecisionContextFields = incompleteFields,
+): DecisionResult {
+  return {
+    ...fields,
+    inputClass: "implied_intention",
+    missingFields: [],
+    nextAction: "ask_permission",
+    response: "Provider permission wording is not used.",
+    turnRelation: "new_request",
+  };
+}
+
+function activeDraft(
+  phase: ActiveDraft["phase"],
+  fields: DecisionContextFields,
+  version = 3,
+): ActiveDraft {
+  return {
+    expiresAt: "2026-07-26T16:00:00.000Z",
+    fields,
+    id: "11111111-1111-4111-8111-111111111111",
+    kind: "draft",
+    phase,
+    version,
+  };
+}
+
+function permissionCandidate(
+  fields: DecisionContextFields = completeFields,
+): PermissionCandidate {
+  return {
+    correlatedUpdateId: 7002,
+    expiresAt: "2026-07-26T16:00:00.000Z",
+    fields,
+    id: "22222222-2222-4222-8222-222222222222",
+    kind: "permission",
+    sourceUpdateId: 7001,
+  };
+}
+
+class ControlledRepository implements ConversationRepository {
+  readonly audits: DecisionAudit[] = [];
+  readonly commands: Array<Record<string, unknown>> = [];
+  applyResult: ConversationApplyResult = {
+    completed: true,
+    draftCreated: false,
+    status: "applied",
+  };
+
+  constructor(readonly readResult: ConversationReadResult) {}
+
+  async applyTurn(
+    command: ConversationCommand,
+  ): Promise<ConversationApplyResult> {
+    const { audit, ...withoutAudit } = command;
+    if (audit) {
+      this.audits.push(audit);
+    }
+    this.commands.push(withoutAudit);
+    return {
+      ...this.applyResult,
+      draftCreated:
+        this.applyResult.draftCreated ||
+        command.action === "create_draft",
+    };
+  }
+
+  async readTurn(): Promise<ConversationReadResult> {
+    return this.readResult;
+  }
+}
+
+function controlled(
+  snapshot: ConversationReadResult,
+  outcome: DecisionOutcome,
+) {
+  const repository = new ControlledRepository(snapshot);
+  const decisionEngine: DecisionEngine = {
+    decide: vi.fn(async () => outcome),
+  };
+  const service = new ConversationService({
+    decisionEngine,
+    modelId: "gpt-test-model",
+    promptVersion: "shiori-test-v1",
+    repository,
+  });
+  return {
+    decide: vi.mocked(decisionEngine.decide),
+    repository,
+    service,
+  };
+}
+
+function success(result: DecisionResult): DecisionOutcome {
+  return { decision: result, ok: true };
+}
+
+describe("ConversationService", () => {
+  it.each([
+    {
+      copy: conversationCopy.missingDefinition,
+      fields: incompleteFields,
+      phase: "awaiting_definition",
+    },
+    {
+      copy: conversationCopy.missingTarget,
+      fields: targetMissingFields,
+      phase: "awaiting_target",
+    },
+    {
+      copy: "I have the details. Nothing has been saved yet.",
+      fields: completeFields,
+      phase: "complete",
+    },
+  ] as const)(
+    "creates a restart-safe simple draft and sends only $phase copy",
+    async ({ copy, fields, phase }) => {
+      const test = controlled(
+        { kind: "none" },
+        success(decision(fields)),
+      );
+
+      await expect(
+        test.service.handle(7000, "private raw owner sentinel"),
+      ).resolves.toBe(copy);
+      expect(test.decide).toHaveBeenCalledWith({
+        context: { fields: null, phase: "none" },
+        ownerText: "private raw owner sentinel",
+      });
+      expect(test.repository.commands).toEqual([
+        {
+          action: "create_draft",
+          expected: { kind: "none" },
+          fields,
+          phase,
+          processingResult: "conversation",
+          updateId: 7000,
+        },
+      ]);
+      expect(JSON.stringify(test.repository.commands)).not.toContain(
+        "private raw owner sentinel",
+      );
+      expect(test.repository.audits).toHaveLength(1);
+      expect(test.repository.audits[0]).toMatchObject({
+        inputClass: "explicit_commitment",
+        modelId: "gpt-test-model",
+        promptVersion: "shiori-test-v1",
+      });
+      expect(test.repository.audits[0]).not.toHaveProperty("response");
+      expect(JSON.stringify(test.repository.audits)).not.toContain(
+        "Provider response that application copy does not trust.",
+      );
+      expect(copy).not.toMatch(/Confirm|Cancel|\/correct/);
+    },
+  );
+
+  it("stores one bounded permission candidate and uses approved permission copy", async () => {
+    const test = controlled({ kind: "none" }, success(implied()));
+
+    await expect(test.service.handle(7001, "Maybe I should do it")).resolves.toBe(
+      conversationCopy.impliedPermission,
+    );
+    expect(test.repository.commands).toEqual([
+      {
+        action: "create_permission",
+        expected: { kind: "none" },
+        fields: incompleteFields,
+        processingResult: "conversation",
+        updateId: 7001,
+      },
+    ]);
+  });
+
+  it("answers an ordinary phase-none question with only one bounded audit mutation", async () => {
+    const result = ordinary("A direct bounded answer.");
+    const test = controlled({ kind: "none" }, success(result));
+
+    await expect(
+      test.service.handle(7003, "private ordinary text"),
+    ).resolves.toBe("A direct bounded answer.");
+    expect(test.repository.commands).toEqual([
+      {
+        action: "preserve",
+        expected: { kind: "none" },
+        processingResult: "conversation",
+        updateId: 7003,
+      },
+    ]);
+    expect(test.repository.audits).toEqual([
+      {
+        inputClass: "ordinary_question",
+        modelId: "gpt-test-model",
+        payload: {
+          definitionOfDone: null,
+          durationMinutes: null,
+          missingFields: [],
+          nextAction: "answer",
+          offerWorkWindowHelp: false,
+          possibleWorkSession: false,
+          simpleAction: false,
+          targetAt: null,
+          targetTimeZone: null,
+          timingConstraints: [],
+          turnRelation: "none",
+        },
+        promptVersion: "shiori-test-v1",
+      },
+    ]);
+    expect(JSON.stringify(test.repository.commands)).not.toMatch(
+      /fields|version|expires|commitment|session|scheduled|event/,
+    );
+    expect(JSON.stringify(test.repository.audits)).not.toContain(
+      "A direct bounded answer.",
+    );
+  });
+
+  it("accepts permission only by exact stored candidate and passes no candidate mutation fields", async () => {
+    const permission = permissionCandidate();
+    const test = controlled(
+      permission,
+      success(
+        decision(completeFields, {
+          turnRelation: "permission_accepted",
+        }),
+      ),
+    );
+    test.repository.applyResult.draftCreated = true;
+
+    await expect(test.service.handle(7002, "yes")).resolves.toBe(
+      collectedDraftCopy("complete"),
+    );
+    expect(test.repository.commands).toEqual([
+      {
+        action: "accept_permission",
+        expected: {
+          correlatedUpdateId: 7002,
+          id: permission.id,
+          kind: "permission",
+          sourceUpdateId: 7001,
+        },
+        processingResult: "conversation",
+        updateId: 7002,
+      },
+    ]);
+    expect(JSON.stringify(test.repository.commands)).not.toContain(
+      completeFields.definitionOfDone,
+    );
+  });
+
+  it("fails closed when permission acceptance does not exactly match all eight stored fields", async () => {
+    const permission = permissionCandidate({
+      ...completeFields,
+      timingConstraints: ["First", "Second"],
+    });
+    const test = controlled(
+      permission,
+      success(
+        decision(
+          {
+            ...permission.fields,
+            timingConstraints: ["Second", "First"],
+          },
+          { turnRelation: "permission_accepted" },
+        ),
+      ),
+    );
+
+    await expect(test.service.handle(7002, "yes")).resolves.toBe(
+      conversationCopy.failureNoDraft,
+    );
+    expect(test.repository.commands[0]).toMatchObject({
+      action: "preserve",
+      processingResult: "conversation_failed",
+    });
+    expect(test.repository.audits).toHaveLength(0);
+  });
+
+  it("terminally rejects an accepted work candidate without a draft", async () => {
+    const permission = permissionCandidate(workFields);
+    const test = controlled(
+      permission,
+      success(
+        decision(workFields, {
+          turnRelation: "permission_accepted",
+        }),
+      ),
+    );
+
+    await expect(test.service.handle(7002, "yes")).resolves.toBe(
+      conversationCopy.failureNoDraft,
+    );
+    expect(test.repository.commands[0]).toMatchObject({
+      action: "accept_permission",
+    });
+  });
+
+  it.each([
+    {
+      copy: conversationCopy.decline,
+      decision: ordinary("No.", "permission_declined"),
+      action: "terminate_permission",
+    },
+    {
+      copy: conversationCopy.permissionUnclear,
+      decision: ordinary("Unclear.", "clarification_continuation"),
+      action: "rearm_permission",
+    },
+    {
+      copy: "A bounded answer.",
+      decision: ordinary("A bounded answer."),
+      action: "terminate_permission",
+    },
+  ] as const)(
+    "handles permission response with $action and exact copy",
+    async ({ action, copy, decision: result }) => {
+      const test = controlled(
+        permissionCandidate(),
+        success(result),
+      );
+
+      await expect(test.service.handle(7002, "owner response")).resolves.toBe(
+        copy,
+      );
+      expect(test.repository.commands[0]).toMatchObject({ action });
+    },
+  );
+
+  it.each([
+    {
+      returnedFields: completeFields,
+      label: "coincidentally equal",
+    },
+    {
+      returnedFields: {
+        ...completeFields,
+        definitionOfDone: "A different separate request",
+      },
+      label: "different",
+    },
+  ])(
+    "treats a $label permission-phase separate request as collision-only",
+    async ({ returnedFields }) => {
+      const test = controlled(
+        permissionCandidate(),
+        success(
+          decision(returnedFields, {
+            turnRelation: "separate_request",
+          }),
+        ),
+      );
+
+      await expect(test.service.handle(7002, "another request")).resolves.toBe(
+        conversationCopy.permissionCollision,
+      );
+      expect(test.repository.commands[0]).toMatchObject({
+        action: "rearm_permission",
+      });
+      expect(JSON.stringify(test.repository.commands)).not.toContain(
+        returnedFields.definitionOfDone,
+      );
+    },
+  );
+
+  it.each([
+    {
+      copy: collectedDraftCopy("awaiting_target"),
+      relation: "clarification_continuation",
+    },
+    {
+      copy: correctionCopy("awaiting_target"),
+      relation: "correction",
+    },
+  ] as const)(
+    "applies an accepted $relation once against current draft version",
+    async ({ copy, relation }) => {
+      const snapshot = activeDraft(
+        "awaiting_definition",
+        incompleteFields,
+        5,
+      );
+      const fields = targetMissingFields;
+      const test = controlled(
+        snapshot,
+        success(decision(fields, { turnRelation: relation })),
+      );
+
+      await expect(test.service.handle(7010, "structured update")).resolves.toBe(
+        copy,
+      );
+      expect(test.repository.commands).toEqual([
+        {
+          action: "update_draft",
+          expected: {
+            id: snapshot.id,
+            kind: "draft",
+            version: 5,
+          },
+          fields,
+          phase: "awaiting_target",
+          processingResult: "conversation",
+          updateId: 7010,
+        },
+      ]);
+    },
+  );
+
+  it("rejects a work-shaped clarification and preserves draft version and expiry", async () => {
+    const snapshot = activeDraft(
+      "awaiting_target",
+      targetMissingFields,
+      6,
+    );
+    const test = controlled(
+      snapshot,
+      success(
+        decision(workFields, {
+          turnRelation: "clarification_continuation",
+        }),
+      ),
+    );
+
+    await expect(test.service.handle(7011, "work-shaped")).resolves.toBe(
+      conversationCopy.failureWithDraft,
+    );
+    expect(test.repository.commands[0]).toEqual({
+      action: "preserve",
+      expected: {
+        id: snapshot.id,
+        kind: "draft",
+        version: 6,
+      },
+      processingResult: "conversation",
+      updateId: 7011,
+    });
+    expect(test.repository.audits).toHaveLength(1);
+  });
+
+  it("rejects clarification relation in complete phase", async () => {
+    const snapshot = activeDraft("complete", completeFields, 7);
+    const test = controlled(
+      snapshot,
+      success(
+        decision(completeFields, {
+          turnRelation: "clarification_continuation",
+        }),
+      ),
+    );
+
+    await expect(test.service.handle(7011, "invalid relation")).resolves.toBe(
+      conversationCopy.failureWithDraft,
+    );
+    expect(test.repository.commands[0]).toMatchObject({
+      action: "preserve",
+      processingResult: "conversation_failed",
+    });
+  });
+
+  it.each([
+    completeFields,
+    {
+      ...completeFields,
+      definitionOfDone: "Different returned candidate",
+    },
+  ])(
+    "ignores every separate-request field and preserves complete draft",
+    async (returnedFields) => {
+      const snapshot = activeDraft("complete", completeFields, 8);
+      const test = controlled(
+        snapshot,
+        success(
+          decision(returnedFields, {
+            turnRelation: "separate_request",
+          }),
+        ),
+      );
+
+      await expect(test.service.handle(7012, "second promise")).resolves.toBe(
+        collisionCopy("complete"),
+      );
+      expect(test.repository.commands[0]).toEqual({
+        action: "preserve",
+        expected: {
+          id: snapshot.id,
+          kind: "draft",
+          version: 8,
+        },
+        processingResult: "conversation",
+        updateId: 7012,
+      });
+      expect(JSON.stringify(test.repository.commands)).not.toContain(
+        returnedFields.definitionOfDone,
+      );
+    },
+  );
+
+  it("answers an ordinary question without extending or changing active draft", async () => {
+    const snapshot = activeDraft("complete", completeFields, 9);
+    const test = controlled(
+      snapshot,
+      success(ordinary("The bounded answer.")),
+    );
+
+    await expect(test.service.handle(7013, "ordinary")).resolves.toBe(
+      "The bounded answer.\n\nYour current draft is unchanged.",
+    );
+    expect(test.repository.commands[0]).toEqual({
+      action: "preserve",
+      expected: {
+        id: snapshot.id,
+        kind: "draft",
+        version: 9,
+      },
+      processingResult: "conversation",
+      updateId: 7013,
+    });
+  });
+
+  it.each([
+    {
+      copy: conversationCopy.expired,
+      read: { completed: true, kind: "expired" },
+    },
+    {
+      copy: conversationCopy.interrupted,
+      read: { completed: true, kind: "interrupted" },
+    },
+    {
+      copy: conversationCopy.permissionCollision,
+      read: { completed: true, kind: "busy" },
+    },
+  ] as const)(
+    "bypasses the engine for terminal pre-decision state $read.kind",
+    async ({ copy, read }) => {
+      const test = controlled(
+        read,
+        success(decision(completeFields)),
+      );
+
+      await expect(test.service.handle(7014, "must not reach model")).resolves.toBe(
+        copy,
+      );
+      expect(test.decide).not.toHaveBeenCalled();
+      expect(test.repository.commands).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    "http",
+    "provider_error",
+    "incomplete",
+    "refusal",
+    "missing_output",
+    "non_json",
+    "schema",
+    "semantic",
+    "timeout",
+  ] satisfies DecisionFailureClass[])(
+    "preserves state for bounded decision failure %s",
+    async (failure) => {
+      const snapshot = activeDraft("complete", completeFields, 10);
+      const test = controlled(snapshot, { failure, ok: false });
+
+      await expect(test.service.handle(7015, "private sentinel")).resolves.toBe(
+        conversationCopy.failureWithDraft,
+      );
+      expect(test.repository.commands[0]).toEqual({
+        action: "preserve",
+        expected: {
+          id: snapshot.id,
+          kind: "draft",
+          version: 10,
+        },
+        processingResult: "conversation_failed",
+        updateId: 7015,
+      });
+      expect(test.repository.audits).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    {
+      copy: conversationCopy.expired,
+      status: "expired",
+    },
+    {
+      copy: conversationCopy.interrupted,
+      status: "interrupted",
+    },
+    {
+      copy: conversationCopy.failureWithDraft,
+      status: "stale",
+    },
+  ] as const)(
+    "uses bounded $status result when CAS does not apply",
+    async ({ copy, status }) => {
+      const snapshot = activeDraft("complete", completeFields);
+      const test = controlled(
+        snapshot,
+        success(ordinary("Answer")),
+      );
+      test.repository.applyResult.status = status;
+
+      await expect(test.service.handle(7016, "owner input")).resolves.toBe(copy);
+    },
+  );
+
+  it("throws opaquely if repository does not atomically complete the update", async () => {
+    const test = controlled(
+      { kind: "none" },
+      success(ordinary("Answer")),
+    );
+    test.repository.applyResult.completed = false;
+
+    await expect(test.service.handle(7017, "private sentinel")).rejects.toThrow(
+      "Conversation update was not completed",
+    );
+  });
+
+  it("keeps approved complete-state copy free of actions", () => {
+    const completeCopies = [
+      collectedDraftCopy("complete"),
+      collisionCopy("complete"),
+      correctionCopy("complete"),
+    ];
+
+    for (const copy of completeCopies) {
+      expect(copy).not.toMatch(/Confirm|Cancel|button|action|\/correct/);
+      expect(copy).toContain("Nothing has been saved");
+    }
+  });
+});
