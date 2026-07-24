@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-24T16:02:40Z",
-  "current_story": "S01-03b",
-  "summary": "5/16 done",
+  "updated_at": "2026-07-24T17:34:21Z",
+  "current_story": "S01-07",
+  "summary": "6/16 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -420,6 +420,71 @@
         "S01-12: preserve the two-attempt provider provenance and no-retention boundary during deployed release verification."
       ],
       "context_for_next": "S01-03a1 is complete: DecisionEngine accepts current owner text plus bounded five-phase context and returns one of seven strict non-authorizing relations.\nPermission acceptance deep-equals all eight candidate fields; incomplete no-mode candidates may progress only under the frozen option-B rules.\nSeparate_request is descriptive and collision-only downstream; never merge its returned fields into the active draft.\nThe corrected provider prompt has no output normalization or application bypass.\nControlled gates pass 103 focused tests, 164 full server tests, both builds, 46 E2E tests, and 201 independent baseline assertions.\nAttempt one safely failed semantic; owner-authorized attempt two passed exact permission acceptance with no retained provider material or side effects.\nAll four evidence artifacts and AC1-AC4 are PASS.\nS01-03b is dependency-eligible; preserve the S01-02 Telegram boundary and the S01-03a/S01-03a1 non-authorization boundary."
+    },
+    {
+      "story_id": "S01-03b",
+      "started_at": "2026-07-24T16:02:36Z",
+      "finished_at": "2026-07-24T17:34:21Z",
+      "squad": "conversation-state",
+      "outcome": "done",
+      "commits": [
+        "84f2e88 chore(S01-03b): resume story",
+        "2ac8cda feat(S01-03b): persist bounded conversation state",
+        "afdace4 feat(S01-03b): orchestrate restart-safe draft turns",
+        "ad3f82f feat(S01-03b): route authorized Telegram turns",
+        "4444e3f test(S01-03b): record conversation evidence"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/draft-lifecycle.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/pre-confirmation-state.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/conversation-failures.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/draft-lifecycle.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/conversation-failures.json"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/pre-confirmation-state.json"
+        }
+      ],
+      "decisions": [
+        "One database-owned conversation transition atomically checks the claimed Telegram update, serializes on the durable owner singleton, applies draft or permission state with compare-and-swap, records a bounded response-free model decision, and completes the update before outbound send.",
+        "The durable state is limited to one 24-hour simple-action draft or one immediately correlated permission candidate; definition precedes target, only accepted create, clarification, or correction activity extends expiry, and database time makes expiry terminal.",
+        "Separate_request is collision-only and ignores every returned candidate field; ordinary questions preserve draft state, natural corrections increment once, and Telegram replay stops before the DecisionEngine.",
+        "Model-decision audit rows contain only the validated eight candidate fields, missing fields, next action, turn relation, input class, configured model and prompt identifiers, and database timestamp; response text, raw owner input, provider material, and chain of thought are never stored.",
+        "Complete collection exposes the approved no-save copy and no action; this story creates no commitment, session, event, scheduled message, Calendar mutation, or dashboard write."
+      ],
+      "deviations_from_plan": [
+        "This resumed run preserves the earlier append-only blocked S01-03b record; the approved S01-03a1 prerequisite supplied the missing bounded relation contract, so no acceptance criterion was changed.",
+        "Before the lead confirmed that S01-07 owned the shared local database, staff applied the additive uncommitted conversation migration and one synthetic integration flow there. No Google/OAuth or consequential table was touched, all later shared-database calls stopped, and canonical verification used a separate clean Supabase stack.",
+        "The final clean database gate ran on an isolated Supabase project with distinct ports and passed the full 5/5 suite plus deterministic permission, concurrency, expiry, and zero-consequence probes.",
+        "Because the owner-assisted S01-07 server occupied port 4173, final repository verification used an independently built synthetic server on port 4174; npm check passed 213 server tests, both builds, and 46 isolated browser tests without provider calls."
+      ],
+      "follow_ups": [
+        "S01-03c is dependency-eligible: use the stable versioned draft and bounded audit without adding provider mutation authority.",
+        "S01-08 now waits only for S01-07; consume the stable simple-action draft and read-only Calendar connection after that story closes.",
+        "S01-12 must preserve the conversation raw-data prohibition and rerun the clean migration, restart, replay, and deployed release checks."
+      ],
+      "context_for_next": "S01-03b is complete at source head ad3f82f with evidence commit 4444e3f; all six ACs independently pass.\nSupabase persists at most one active 24-hour simple-action draft or one immediately correlated permission candidate.\nConversation transitions serialize on the owner singleton and atomically CAS state, write bounded model_decisions metadata, and complete the claimed Telegram update.\nThe stable draft has exactly eight fields plus phase, version, expiry, and activity timestamps; raw text and model response are absent.\nDefinition is collected before target; only accepted create, clarification, or correction extends expiry, and expiry is terminal by database time.\nSeparate_request never merges fields, ordinary questions preserve state, natural correction increments once, and replay stops before the engine.\nComplete state has exact no-save copy and no action; no commitment, session, event, scheduled message, Calendar, or dashboard write exists.\nClean isolated DB gates pass 5/5 and the full repository gate passes 213 server tests, both builds, and 46 E2E tests.\nS01-03c is now eligible; S01-08 additionally requires S01-07."
     }
   ]
 }
