@@ -812,7 +812,9 @@
         ]
       },
       "status": "in_progress",
-      "open_questions": []
+      "open_questions": [
+        "AC4 requires bounded append-only creation events, but scope and ADR explicitly name commitment.created without defining a reminder-creation event or exact event count. PM recommends exactly two uniquely keyed events in the Confirm transaction: commitment.created and scheduled_message.created. Owner approval is required before implementation."
+      ]
     },
     {
       "id": "S01-04",
