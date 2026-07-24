@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { readServerConfig } from "../src/config.js";
+import { SupabaseConfirmationRepository } from "../src/confirmation.js";
 import {
   type ActiveDraft,
   type DecisionAudit,
@@ -13,12 +14,14 @@ import { SupabaseTelegramRepository } from "../src/telegram/repository.js";
 function localConfig() {
   const config = readServerConfig();
   const url = new URL(config.supabaseUrl);
+  const expectedPort =
+    process.env.SHIORI_TEST_SUPABASE_PORT ?? "54321";
   if (
     !["127.0.0.1", "localhost"].includes(url.hostname) ||
-    url.port !== "54321"
+    url.port !== expectedPort
   ) {
     throw new Error(
-      "test:db is restricted to the Docker-generated local Supabase API on port 54321",
+      `test:db is restricted to the Docker-generated local Supabase API on port ${expectedPort}`,
     );
   }
   return config;
@@ -183,7 +186,7 @@ describe("local Supabase conversation state", () => {
           processingResult: "conversation",
           updateId: permissionUpdateId,
         }),
-      ).resolves.toEqual({
+      ).resolves.toMatchObject({
         completed: true,
         draftCreated: true,
         status: "applied",
@@ -462,5 +465,231 @@ describe("local Supabase conversation state", () => {
         "commitments",
       ),
     ).toHaveLength(0);
+
+    const confirmation = new SupabaseConfirmationRepository({
+      ownerId: config.telegramOwnerUserId,
+      supabaseSecretKey: config.supabaseSecretKey,
+      supabaseUrl: config.supabaseUrl,
+    });
+    const staleResult = await confirmation.resolve({
+      action: "confirm",
+      chatId: config.telegramOwnerUserId,
+      draftId: restored.id,
+      updateId: baseUpdateId + 7,
+      version: restored.version - 1,
+    });
+    expect(staleResult).toMatchObject({
+      completed: true,
+      draft: {
+        id: restored.id,
+        version: restored.version,
+      },
+      kind: "stale",
+    });
+
+    const concurrentConfirmIds = [baseUpdateId + 8, baseUpdateId + 9];
+    const concurrentResults = await Promise.all(
+      concurrentConfirmIds.map((updateId) =>
+        confirmation.resolve({
+          action: "confirm",
+          chatId: config.telegramOwnerUserId,
+          draftId: restored.id,
+          updateId,
+          version: restored.version,
+        }),
+      ),
+    );
+    expect(
+      concurrentResults.map((result) => result.kind).sort(),
+    ).toEqual(["already_confirmed", "confirmed"]);
+    await expect(
+      confirmation.resolve({
+        action: "confirm",
+        chatId: config.telegramOwnerUserId,
+        draftId: restored.id,
+        updateId: concurrentConfirmIds[0],
+        version: restored.version,
+      }),
+    ).resolves.toEqual({ kind: "replay" });
+
+    const [
+      commitmentRows,
+      scheduledRows,
+      eventRows,
+      confirmedDraftRows,
+      confirmUpdateRows,
+    ] = await Promise.all([
+      rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "commitments",
+      ),
+      rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "scheduled_messages",
+      ),
+      rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "commitment_events",
+      ),
+      rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "conversation_drafts",
+        "&state=eq.confirmed",
+      ),
+      rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "telegram_updates",
+        `&update_id=in.(${[
+          baseUpdateId + 7,
+          ...concurrentConfirmIds,
+        ].join(",")})`,
+      ),
+    ]);
+    expect(commitmentRows).toHaveLength(1);
+    expect(commitmentRows[0]).toMatchObject({
+      definition_of_done: restored.fields.definitionOfDone,
+      owner_id: String(config.telegramOwnerUserId),
+      source_draft_id: restored.id,
+      status: "active",
+    });
+    expect(
+      new Date(String(commitmentRows[0].target_at)).getTime(),
+    ).toBe(new Date(String(restored.fields.targetAt)).getTime());
+    expect(scheduledRows).toHaveLength(1);
+    expect(scheduledRows[0]).toMatchObject({
+      attempt_count: 0,
+      commitment_id: commitmentRows[0].id,
+      kind: "simple_reminder",
+      state: "pending",
+    });
+    expect(
+      new Date(String(scheduledRows[0].due_at)).getTime(),
+    ).toBe(new Date(String(restored.fields.targetAt)).getTime());
+    expect(
+      eventRows
+        .map((row) => row.event_type)
+        .sort(),
+    ).toEqual(["commitment.created", "scheduled_message.created"]);
+    expect(
+      eventRows.every(
+        (row) =>
+          row.actor === "owner" &&
+          JSON.stringify(row.metadata) === "{}" &&
+          typeof row.idempotency_key === "string" &&
+          row.idempotency_key.length <= 100,
+      ),
+    ).toBe(true);
+    expect(new Set(eventRows.map((row) => row.idempotency_key)).size).toBe(
+      2,
+    );
+    expect(confirmedDraftRows).toHaveLength(1);
+    expect(confirmedDraftRows[0]).toMatchObject({
+      id: restored.id,
+      state: "confirmed",
+      version: restored.version,
+    });
+    expect(
+      confirmUpdateRows.filter(
+        (row) => row.processing_result === "confirmation_confirmed",
+      ),
+    ).toHaveLength(1);
+    expect(
+      confirmUpdateRows.filter(
+        (row) => row.processing_result === "confirmation_resolved",
+      ),
+    ).toHaveLength(1);
+    expect(
+      confirmUpdateRows.filter(
+        (row) => row.processing_result === "confirmation_stale",
+      ),
+    ).toHaveLength(1);
+    expect(
+      confirmUpdateRows.filter(
+        (row) => row.resolved_action_key !== null,
+      ),
+    ).toHaveLength(1);
+
+    const cancelCreateUpdateId = baseUpdateId + 10;
+    await telegram.claimUpdate(
+      cancelCreateUpdateId,
+      config.telegramOwnerUserId,
+    );
+    await expect(
+      conversation.readTurn(cancelCreateUpdateId),
+    ).resolves.toEqual({ kind: "none" });
+    const cancelCreate = await conversation.applyTurn({
+      action: "create_draft",
+      audit: audit(fields, {
+        inputClass: "explicit_commitment",
+        nextAction: "ready",
+        turnRelation: "new_request",
+      }),
+      expected: { kind: "none" },
+      fields,
+      phase: "complete",
+      processingResult: "conversation",
+      updateId: cancelCreateUpdateId,
+    });
+    expect(cancelCreate).toMatchObject({
+      completed: true,
+      draftCreated: true,
+      status: "applied",
+    });
+    expect(cancelCreate.draftReference).toBeDefined();
+    const cancelReference = cancelCreate.draftReference!;
+    await expect(
+      confirmation.resolve({
+        action: "cancel",
+        chatId: config.telegramOwnerUserId,
+        draftId: cancelReference.id,
+        updateId: baseUpdateId + 11,
+        version: cancelReference.version,
+      }),
+    ).resolves.toEqual({
+      completed: true,
+      kind: "cancelled",
+    });
+
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "conversation_drafts",
+        `&id=eq.${cancelReference.id}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: cancelReference.id,
+        state: "cancelled",
+        version: cancelReference.version,
+      }),
+    ]);
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "commitments",
+      ),
+    ).toHaveLength(1);
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "scheduled_messages",
+      ),
+    ).toHaveLength(1);
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "commitment_events",
+      ),
+    ).toHaveLength(2);
+
   });
 });

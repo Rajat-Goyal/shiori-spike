@@ -96,6 +96,10 @@ export type ConversationCommand = ConversationAction &
 
 export type ConversationApplyResult = {
   completed: boolean;
+  draftReference?: {
+    id: string;
+    version: number;
+  };
   draftCreated: boolean;
   status: "applied" | "expired" | "interrupted" | "stale";
 };
@@ -237,7 +241,30 @@ function parseApplyResult(value: unknown): ConversationApplyResult {
   ) {
     throw new Error("Conversation apply returned an invalid response");
   }
-  return value as ConversationApplyResult;
+  const draftReference = value.draftReference;
+  if (
+    draftReference !== undefined &&
+    (!isRecord(draftReference) ||
+      typeof draftReference.id !== "string" ||
+      !safeInteger(draftReference.version) ||
+      draftReference.version < 1)
+  ) {
+    throw new Error("Conversation apply returned an invalid draft reference");
+  }
+  return {
+    completed: value.completed,
+    ...(draftReference === undefined
+      ? {}
+      : {
+          draftReference: {
+            id: draftReference.id as string,
+            version: (draftReference as Record<string, unknown>)
+              .version as number,
+          },
+        }),
+    draftCreated: value.draftCreated,
+    status: value.status as ConversationApplyResult["status"],
+  };
 }
 
 export class SupabaseConversationRepository
