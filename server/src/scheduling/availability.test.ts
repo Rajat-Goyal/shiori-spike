@@ -322,7 +322,7 @@ describe("findWorkWindows", () => {
     }
   });
 
-  it("allows recovery only after target and caps its range at seven days", async () => {
+  it("allows recovery evaluation before target and caps it at target plus seven days", async () => {
     const test = controlled([]);
     await findWorkWindows(
       {
@@ -335,27 +335,41 @@ describe("findWorkWindows", () => {
     );
     expect(test.calls).toEqual([
       {
-        endAt: "2026-08-10T08:01:00+08:00",
+        endAt: "2026-08-10T08:00:00+08:00",
         startAt: "2026-08-03T08:30:00+08:00",
       },
     ]);
 
     const early = controlled([]);
+    await findWorkWindows(
+      {
+        ...base,
+        kind: "recovery",
+        now: "2026-08-03T07:59:00+08:00",
+        targetAt: "2026-08-03T08:00:00+08:00",
+      },
+      early.reader,
+    );
+    expect(early.calls).toEqual([
+      {
+        endAt: "2026-08-10T08:00:00+08:00",
+        startAt: "2026-08-03T08:00:00+08:00",
+      },
+    ]);
+
+    const expired = controlled([]);
     await expect(
       findWorkWindows(
         {
           ...base,
           kind: "recovery",
-          now: "2026-08-03T07:59:00+08:00",
+          now: "2026-08-10T08:00:00+08:00",
           targetAt: "2026-08-03T08:00:00+08:00",
         },
-        early.reader,
+        expired.reader,
       ),
-    ).resolves.toEqual({
-      reason: "recovery_not_due",
-      status: "invalid_request",
-    });
-    expect(early.reader).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ alternatives: [], status: "no_fit" });
+    expect(expired.reader).not.toHaveBeenCalled();
   });
 
   it("returns a free proposal exactly without alternatives", async () => {

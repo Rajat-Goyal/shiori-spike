@@ -381,8 +381,10 @@ function generatedRange(base: ValidatedBase): MillisecondInterval | undefined {
 }
 
 function recoveryRange(base: ValidatedBase): MillisecondInterval | undefined {
-  const startMillis = roundedUpBoundary(base.nowMillis);
-  const endMillis = base.nowMillis + RECOVERY_CAP_MILLISECONDS;
+  const startMillis = roundedUpBoundary(
+    Math.max(base.nowMillis, base.targetMillis),
+  );
+  const endMillis = base.targetMillis + RECOVERY_CAP_MILLISECONDS;
   return startMillis + base.durationMilliseconds <= endMillis
     ? { endMillis, startMillis }
     : undefined;
@@ -447,12 +449,6 @@ export async function findWorkWindows(
   const base = validation;
 
   if (request.kind === "recovery") {
-    if (base.nowMillis <= base.targetMillis) {
-      return {
-        reason: "recovery_not_due",
-        status: "invalid_request",
-      };
-    }
     const range = recoveryRange(base);
     if (!range) {
       return available([], null, null);

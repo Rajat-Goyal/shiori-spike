@@ -292,8 +292,8 @@ function relevantDates(
   if (request.kind === "recovery") {
     addDateRange(
       dates,
-      nowMillis,
-      nowMillis + RECOVERY_CAP_MILLISECONDS,
+      Math.max(nowMillis, targetMillis),
+      targetMillis + RECOVERY_CAP_MILLISECONDS,
     );
   } else if (nowMillis <= targetMillis) {
     addDateRange(
