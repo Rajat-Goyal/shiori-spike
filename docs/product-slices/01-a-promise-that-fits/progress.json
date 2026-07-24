@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-24T13:25:38Z",
-  "current_story": "S01-03a",
-  "summary": "3/15 done",
+  "updated_at": "2026-07-24T13:51:40Z",
+  "current_story": null,
+  "summary": "4/15 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -171,6 +171,70 @@
         "S01-12: configure the deployed Telegram webhook and record a real owner/private, unauthorized, and replay-safe smoke without exposing identifiers or message text."
       ],
       "context_for_next": "Telegram ingress is stable at POST /api/telegram/webhook with secret validation before JSON parsing.\nTelegramService owns owner/private-chat checks and uses injected client and repository seams.\nThe exact generic refusal and empty-status responses are frozen; HTTP acknowledgements remain opaque.\nPostgres atomically claims unique update IDs and captures the single owner delivery chat without retaining payloads or message text.\nConcurrent replay produces one claim, send, and completion; later deliveries do nothing.\nThe local database has been reset from both committed migrations and contains no synthetic QA rows.\nAll exact S01-02 commands and the full Node 24 gate pass; evidence records the QA execution bridge.\nS01-03 and S01-07 are dependency-eligible; preserve the Telegram security and minimization boundary."
+    },
+    {
+      "story_id": "S01-03a",
+      "started_at": "2026-07-24T13:08:24Z",
+      "finished_at": "2026-07-24T13:51:40Z",
+      "squad": "contract-design",
+      "outcome": "done",
+      "commits": [
+        "3245551 chore(S01-03): start story",
+        "6a397c0 chore(S01-03a): split oversized decision story",
+        "bc03d40 chore(S01-03a): isolate provider contract",
+        "8064efa feat(S01-03a): validate OpenAI decision config",
+        "4c59866 feat(S01-03a): bound OpenAI decisions",
+        "6697b6c test(S01-03a): add opt-in provider smoke",
+        "5cbbb96 fix(S01-03a): require completed provider decisions",
+        "d80c3eb fix(S01-03a): accept valid smoke extraction shapes",
+        "23c2eb4 test(S01-03a): record bounded decision evidence"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/decision-contract.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/responses-request-contract.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/decision-contract.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/provider-failure-and-smoke.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/provider-failure-and-smoke.json"
+        }
+      ],
+      "decisions": [
+        "One declarative decision specification generates the strict API JSON schema, inferred TypeScript result type, and runtime structural validation without a new runtime dependency.",
+        "The OpenAI Responses adapter is stateless and tool-free, uses strict text-format schema output with store false, and enforces the configured server-only model, prompt version, credential, and five-second timeout.",
+        "Application semantic validation independently enforces the class/action/missing-field relationships, simple-action constraints, and future Asia/Singapore absolute targets.",
+        "Refusal, incomplete envelopes, HTTP and JSON failures, timeout, structural failure, and semantic failure map to bounded non-authorizing outcomes without raw provider material.",
+        "One benign synthetic live-provider request supplements exhaustive controlled tests; neither path writes product state or retains raw input, output, trace, or chain of thought."
+      ],
+      "deviations_from_plan": [
+        "The original S01-03 exceeded the sizing rule and was split into S01-03a, S01-03b, and S01-03c, then S01-03a was narrowed to the provider contract; no acceptance criterion was weakened.",
+        "The QA sandbox denied the full repository gate's local test-server binding, so the lead context ran that immutable command while QA independently ran the exact engine suite and reviewed all evidence.",
+        "The single real-provider smoke ran at immutable commit 6697b6c before two review corrections; those corrections did not change its request or input, final controlled regressions cover the corrected handling, and no second provider request was made.",
+        "Two architecture correction cycles tightened completed-envelope, body-read timeout, and smoke-shape handling before the final PASS."
+      ],
+      "follow_ups": [
+        "S01-03b: integrate the stable DecisionEngine with Telegram conversation drafts and persist only bounded model-decision audit metadata.",
+        "S01-03c: use the durable draft to atomically confirm and create the promise without giving the provider mutation authority.",
+        "S01-12: exercise the configured provider adapter in deployed release verification without retaining provider material."
+      ],
+      "context_for_next": "DecisionEngine is stable under server/src/decision with one source for schema, inferred type, and runtime parsing.\nThe OpenAI adapter uses strict Responses text.format, store false, no tools, no provider conversation state, and a five-second timeout.\nSemantic validation is application-owned and returns only bounded success or failure results; it cannot mutate product state.\nNo Telegram orchestration, draft persistence, or commitment creation was introduced.\nOne sanitized live-provider request passed at 6697b6c; final response-handling corrections are covered deterministically at d80c3eb.\nAll 46 engine tests and the full Node 24 repository gate pass; final architecture and QA reviews are PASS.\nS01-03b and S01-07 are dependency-eligible; preserve the decision redaction and non-authorization boundary."
     }
   ]
 }
