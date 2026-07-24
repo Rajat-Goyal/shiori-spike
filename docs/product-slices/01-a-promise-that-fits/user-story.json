@@ -2494,8 +2494,9 @@
       "verification": {
         "method": "automated-test",
         "commands": [
-          "npm run test --workspace @shiori/server -- src/dashboard/read-model.test.ts",
-          "npm run test:e2e -- tests/e2e/dashboard.spec.ts",
+          "npm run test --workspace @shiori/server -- src/dashboard.test.ts src/app.test.ts",
+          "npm run test:db -- server/test/dashboard-db.integration.ts",
+          "npm run test:e2e -- tests/e2e/dashboard.spec.ts tests/e2e/owner-dashboard-states.spec.ts tests/e2e/google-connection.spec.ts",
           "npm run check"
         ],
         "evidence": [
@@ -2549,16 +2550,21 @@
         "read_first": [
           "docs/product-slices/01-a-promise-that-fits/scope.md#dashboard",
           "docs/product-slices/01-a-promise-that-fits/adr.md#decision-12-dashboard-read-model",
-          "server/src/dashboard/",
-          "server/src/work-sessions/",
-          "web/src/App.tsx"
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "server/src/dashboard.ts",
+          "server/src/dashboard.test.ts",
+          "server/src/app.test.ts",
+          "web/src/App.tsx",
+          "tests/e2e/owner-dashboard-states.spec.ts",
+          "tests/e2e/google-connection.spec.ts"
         ]
       },
       "status": "todo",
       "open_questions": [
         "Approve one enriched owner-protected GET /api/dashboard/summary plus the existing isolated GET /api/google-calendar/connection for S01-11. Do not add /api/commitments and /api/commitments/:id merely from ADR inventory; requiring all three read endpoints would trigger a split review. Owner approval is required.",
         "Approve deterministic dashboard history bounds: all active commitments ordered target_at/id ascending; newest five past sessions per commitment by sequence descending with a truncation label; newest ten terminal commitments by terminal time/id descending; newest twenty events by occurred_at/id descending. Owner approval is required.",
-        "Approve exact simple-action label `Calendar check not needed` with null Calendar audit fields, distinct from work-session `Saved without a Calendar check`. Owner approval is required."
+        "Approve exact simple-action label `Calendar check not needed` with null Calendar audit fields and a semantic simple-action discriminator, distinct from work-session `Saved without a Calendar check`. Owner approval is required.",
+        "Before Staff starts, freeze next-action copy, missing-value copy, and the UI label for every final scheduled-message state from the completed S01-05, S01-06, S01-09c, and S01-10c handoffs; do not infer these before dependencies land."
       ]
     },
     {
@@ -2575,14 +2581,14 @@
       "in_scope": [
         "Add a value-redacting fail-closed release verifier.",
         "Run clean Node 24 install, disposable database, and full repository gates.",
-        "Verify explicit Railway project, environment, dedicated service, legacy-service deny target, domain, and one replica.",
+        "Verify Railway project shiori-spike (d8806797-6bb9-495b-8e10-b13122a6eff6), production environment (0a533591-3fce-4904-8fb3-84d0f52346e7), dedicated service shiori-slice-01 (85bc7677-b070-43ce-8ae1-e2c65241a721), domain shiori-slice-01-production.up.railway.app, and one replica.",
         "Verify and apply only approved backward-compatible pending migrations to the dedicated database.",
         "Deploy only the recorded HEAD and wait for terminal SUCCESS.",
         "Record health, deployment, migration, previous-release, and rollback-baseline evidence."
       ],
       "out_of_scope": [
         "S1–S28 journeys beyond health.",
-        "Targeting the legacy service.",
+        "Targeting legacy service shiori-spike (15ab9853-c3ea-4387-8486-254e60204693) or its domain shiori-spike-production.up.railway.app.",
         "Production down migrations or unapproved restore.",
         "Webhook or OAuth callback cutover.",
         "New product behavior."
@@ -2704,8 +2710,7 @@
       },
       "status": "todo",
       "open_questions": [
-        "BLOCKING: Record exact dedicated Railway project, environment, service, domain, and legacy-service deny identities.",
-        "BLOCKING: Confirm the dedicated slice service uses a separate Supabase data plane from the legacy spike.",
+        "BLOCKING AT DEPLOY: Read-only Railway preflight found no application Supabase or database variables on either service. Configure the dedicated slice service from the owner-approved slice data plane without adding those values to legacy service shiori-spike, then prove the target identities differ or that the legacy has no Supabase data plane.",
         "BLOCKING: Identify the migration approver, backup or PITR evidence, and restore owner.",
         "Is an actual production rollback drill required, or is rollback readiness plus disposable rehearsal sufficient?",
         "If no prior release SHA exists, which owner-approved recovery action replaces application rollback?"
