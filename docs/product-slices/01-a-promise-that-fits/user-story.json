@@ -1,6 +1,6 @@
 {
   "slice": "01-a-promise-that-fits",
-  "generated_at": "2026-07-24T09:34:54Z",
+  "generated_at": "2026-07-24T14:33:13Z",
   "source_docs": [
     "docs/product-slices/01-a-promise-that-fits/scope.md",
     "docs/product-slices/01-a-promise-that-fits/adr.md",
@@ -430,7 +430,7 @@
         "S01-02"
       ],
       "blocks": [
-        "S01-03b"
+        "S01-03a1"
       ],
       "squad": {
         "type": "contract-design",
@@ -455,10 +455,118 @@
       "open_questions": []
     },
     {
+      "id": "S01-03a1",
+      "title": "Classify turns against bounded draft context",
+      "user_story": "As the owner, I want Shiori to distinguish a clarification, correction, separate promise, and permission response against my current draft, so that deterministic application code can preserve or update it without guessing.",
+      "why_now": "S01-03b proved that the completed three-way result is non-authorizing but lacks the draft-relative signal required for safe permission and correction transitions.",
+      "scope_refs": [
+        "Scope §Main user journeys — Simple action",
+        "Scope §Main user journeys — Implied intention",
+        "Scope §Draft rules",
+        "Scope §Input and decision contract",
+        "ADR Decision 2",
+        "ADR Decisions 3–4 and 13–14"
+      ],
+      "in_scope": [
+        "Replace the string-only DecisionEngine input with current owner text plus bounded structured conversation context containing phase and validated draft fields but no prior raw messages or transcript.",
+        "Add one strict non-authorizing turn-relation result that distinguishes no relation, new request, clarification continuation, correction, separate request, permission accepted, and permission declined.",
+        "Semantically validate every relation against input class, conversation phase, missing fields, and structured draft context.",
+        "Preserve the existing strict schema, stateless tool-free Responses request, timeout, refusal, failure, redaction, and non-mutation boundaries.",
+        "Verify correction, collision, permission, clarification, invalid-relation, and one sanitized real-provider context case without retaining provider material."
+      ],
+      "out_of_scope": [
+        "Telegram orchestration, user-facing copy, commands, inline actions, persistence, drafts, commitments, sessions, events, scheduled messages, Calendar, or dashboard state.",
+        "Application authorization or mutation based only on the model relation.",
+        "Provider-managed conversation state, raw-message history, transcript, trace, chain of thought, or new runtime dependencies."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a bounded conversation phase and validated current draft context",
+          "when": "DecisionEngine receives the current owner turn",
+          "then": "the strict result identifies the applicable draft-relative relation without receiving any prior raw message or transcript."
+        },
+        {
+          "id": "AC2",
+          "given": "correction, separate-request, clarification, permission-accepted, permission-declined, and unrelated fixtures",
+          "when": "the result passes structural and semantic validation",
+          "then": "each relation is accepted only for compatible class, phase, missing fields, and structured context combinations."
+        },
+        {
+          "id": "AC3",
+          "given": "a contradictory, unsupported, incomplete, refused, timed-out, or provider-failed relation result",
+          "when": "the adapter finishes",
+          "then": "it returns a bounded non-authorizing failure and cannot authorize or perform any product transition."
+        },
+        {
+          "id": "AC4",
+          "given": "controlled fixtures and one benign synthetic provider request with bounded context",
+          "when": "tests, captured requests, logs, tracked files, and evidence are inspected",
+          "then": "the new relation contract is proven with store false, no tools, no prior raw context, no product mutation, and no retained provider material."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/decision/engine.test.ts",
+          "npm run test:openai:smoke",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-03a1/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03a1/decision-context-contract.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03a1/relation-semantic-matrix.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03a1/provider-context-smoke.json"
+          }
+        ],
+        "done_when": "A reviewer can prove from bounded context fixtures and one sanitized provider request that correction, collision, clarification, and permission relations are strict, non-authorizing, and free of prior raw-message retention."
+      },
+      "depends_on": [
+        "S01-03a"
+      ],
+      "blocks": [
+        "S01-03b"
+      ],
+      "squad": {
+        "type": "contract-evolution",
+        "members": [
+          "pm",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "This story makes one security-sensitive interface change, with PM freezing semantics and QA independently proving that the new signal remains bounded and non-authorizing."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#input-and-decision-contract",
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-2-bounded-openai-decision-engine",
+          "server/src/decision/schema.ts",
+          "server/src/decision/semantic.ts",
+          "server/src/decision/engine.ts",
+          "server/src/decision/engine.test.ts",
+          "server/test/openai-decision.smoke.ts"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
       "id": "S01-03b",
       "title": "Collect one restart-safe simple-action draft",
       "user_story": "As the owner, I want Shiori to ask permission or one clarification at a time and remember the structured draft, so that my intent survives a restart without becoming a commitment.",
-      "why_now": "S01-03a provides a non-authorizing decision contract; this story can now integrate it with Telegram and durable draft state while still exposing no consequential action.",
+      "why_now": "S01-03a1 provides a bounded draft-relative relation without authorization; this story can integrate it with Telegram and durable draft state while still exposing no consequential action.",
       "scope_refs": [
         "Scope §Main user journeys — Simple action",
         "Scope §Main user journeys — Implied intention",
@@ -467,7 +575,7 @@
         "ADR Decisions 2–4 and 13–14"
       ],
       "in_scope": [
-        "Pass authorized owner text and bounded current draft context through the S01-03a DecisionEngine without retaining raw messages.",
+        "Pass authorized owner text and bounded current draft context through the S01-03a1 DecisionEngine contract without retaining raw messages.",
         "Ask for definition of done before target when both are missing, and ask exactly one concise question per turn.",
         "Interpret and persist absolute targets in Asia/Singapore while rejecting ambiguous, past, invalid, or work-session-shaped decisions.",
         "Ask permission before an implied intention can create a draft, retaining at most one validated non-actionable audit row that can correlate the immediately following agreement.",
@@ -478,7 +586,7 @@
       "out_of_scope": [
         "Confirmation summary, inline Confirm or Cancel actions, commitment creation, reminder creation, or product events.",
         "Reminder delivery, saved-commitment outcomes, Calendar access, work sessions, recurrence, or dashboard changes.",
-        "Prompt or schema expansion beyond the S01-03a DecisionEngine contract."
+        "Prompt or schema expansion beyond the S01-03a1 DecisionEngine contract."
       ],
       "acceptance_criteria": [
         {
@@ -546,7 +654,7 @@
         "done_when": "A reviewer can exercise all three conversation classes across restart, permission, correction, replay, collision, and expiry while observing one bounded draft and zero consequential records or raw-message retention."
       },
       "depends_on": [
-        "S01-03a"
+        "S01-03a1"
       ],
       "blocks": [
         "S01-03c",
@@ -572,10 +680,8 @@
           "supabase/migrations/20260724130000_add_telegram_ingress.sql"
         ]
       },
-      "status": "blocked",
-      "open_questions": [
-        "Should correction and immediately-following permission intent use an owner-visible deterministic command contract, or should a narrow prerequisite story extend DecisionEngine with a strict non-authorizing draft-relative intent signal?"
-      ]
+      "status": "todo",
+      "open_questions": []
     },
     {
       "id": "S01-03c",
