@@ -1,0 +1,57 @@
+{
+  "story_id": "S01-03a",
+  "captured_at": "2026-07-24T13:48:09Z",
+  "final_commit": "d80c3eb8f15418128c6e16130f07d5f2e995851b",
+  "result": "pass",
+  "single_source_contract": {
+    "specification_sources": 1,
+    "api_schema_derived": true,
+    "typescript_result_derived": true,
+    "runtime_parser_derived": true,
+    "runtime_field_count": 12,
+    "unknown_fields_rejected": true,
+    "new_runtime_dependencies": 0
+  },
+  "three_way_fixtures": {
+    "representative_cases": 3,
+    "accepted_cases": 3,
+    "explicit_commitment": {
+      "class_correct": true,
+      "extracted_field_presence_correct": true,
+      "missing_fields_correct": true,
+      "bounded_next_action": true
+    },
+    "implied_intention": {
+      "class_correct": true,
+      "missing_fields_correct": true,
+      "permission_action_only": true
+    },
+    "ordinary_question": {
+      "class_correct": true,
+      "missing_fields_correct": true,
+      "answer_action_only": true
+    }
+  },
+  "missing_field_contract": {
+    "valid_canonical_cases": 2,
+    "invalid_order_cases_rejected": 1,
+    "one_field_at_a_time_ordered": true
+  },
+  "semantic_validation": {
+    "invalid_cases": 9,
+    "rejected_cases": 9,
+    "time_zone_boundary": "pass",
+    "absolute_future_target_boundary": "pass",
+    "simple_action_work_session_exclusivity": "pass",
+    "class_action_boundary": "pass",
+    "missing_field_consistency": "pass"
+  },
+  "completion_envelope_validation": {
+    "top_level_status_cases": 5,
+    "message_status_cases": 5,
+    "completed_without_message_cases": 1,
+    "unsafe_cases_accepted": 0
+  },
+  "authorization_capabilities": 0,
+  "raw_fixture_values_recorded": false
+}

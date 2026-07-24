@@ -1,0 +1,49 @@
+{
+  "story_id": "S01-03a",
+  "captured_at": "2026-07-24T13:48:09Z",
+  "final_commit": "d80c3eb8f15418128c6e16130f07d5f2e995851b",
+  "provider_smoke_commit": "6697b6cc32d57ea38e8cb8ca16ed1accfe74bc27",
+  "result": "pass",
+  "configured_categories": {
+    "server_credential_present": true,
+    "model_identifier_present": true,
+    "prompt_version_present": true,
+    "credential_value_recorded": false,
+    "model_value_recorded": false,
+    "prompt_value_recorded": false
+  },
+  "captured_request": {
+    "request_count": 1,
+    "responses_endpoint": true,
+    "post_method": true,
+    "authorization_matches_config_in_memory": true,
+    "model_matches_config_in_memory": true,
+    "prompt_version_matches_config_in_memory": true,
+    "store": false,
+    "tool_count": 0,
+    "previous_response_state_present": false,
+    "provider_conversation_state_present": false,
+    "bounded_timeout_milliseconds": 5000
+  },
+  "structured_output": {
+    "location": "text_format",
+    "type": "json_schema",
+    "strict": true,
+    "all_object_fields_required": true,
+    "additional_properties_allowed": false,
+    "same_schema_as_runtime_parser": true
+  },
+  "cross_commit_review": {
+    "outbound_request_changed_after_smoke": false,
+    "synthetic_smoke_input_changed_after_smoke": false,
+    "response_handling_regressions_run_at_final_commit": true,
+    "second_provider_request_made": false
+  },
+  "retention": {
+    "request_body_recorded": false,
+    "request_headers_recorded": false,
+    "raw_response_recorded": false,
+    "provider_trace_recorded": false,
+    "chain_of_thought_recorded": false
+  }
+}
