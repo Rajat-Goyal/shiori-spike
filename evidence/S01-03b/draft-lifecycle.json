@@ -1,0 +1,157 @@
+{
+  "story_id": "S01-03b",
+  "captured_at": "2026-07-24T17:24:47Z",
+  "source_commits": [
+    "2ac8cda",
+    "afdace4",
+    "ad3f82f"
+  ],
+  "result": "pass",
+  "evidence_basis": [
+    "controlled_conversation_tests",
+    "controlled_repository_tests",
+    "telegram_replay_tests",
+    "clean_isolated_database_integration",
+    "migration_and_source_inspection"
+  ],
+  "bounded_draft_shape": {
+    "field_count": 8,
+    "fields": [
+      "definitionOfDone",
+      "durationMinutes",
+      "offerWorkWindowHelp",
+      "possibleWorkSession",
+      "simpleAction",
+      "targetAt",
+      "targetTimeZone",
+      "timingConstraints"
+    ],
+    "phases": [
+      "awaiting_definition",
+      "awaiting_target",
+      "complete"
+    ],
+    "durable_metadata": [
+      "id",
+      "version",
+      "phase",
+      "last_update_id",
+      "expires_at",
+      "created_at",
+      "updated_at"
+    ],
+    "raw_owner_input_field_present": false,
+    "transcript_field_present": false,
+    "provider_material_field_present": false
+  },
+  "question_order": {
+    "when_definition_and_target_missing": {
+      "phase": "awaiting_definition",
+      "copy_id": "missingDefinition",
+      "copy": "What will count as done?",
+      "question_count": 1
+    },
+    "when_definition_present_and_target_missing": {
+      "phase": "awaiting_target",
+      "copy_id": "missingTarget",
+      "copy": "When should this be done? Please include a date and time in Singapore time.",
+      "question_count": 1
+    },
+    "target_policy": {
+      "time_zone": "Asia/Singapore",
+      "absolute_offset": "+08:00",
+      "ambiguous_invalid_or_past_target_accepted": false,
+      "work_session_shaped_candidate_accepted": false
+    }
+  },
+  "restart_safety": {
+    "fresh_repository_instance_restores_active_draft": true,
+    "restored_field_count": 8,
+    "restored_version_preserved": true,
+    "restored_expiry_preserved": true,
+    "draft_lifetime_seconds": 86400,
+    "consequential_records_created": 0
+  },
+  "complete_state": {
+    "phase": "complete",
+    "copy_id": "collectedDraftCopy.complete",
+    "copy": "I have the details. Nothing has been saved yet.",
+    "confirm_action_present": false,
+    "cancel_action_present": false,
+    "inline_action_present": false,
+    "commitment_created": false
+  },
+  "correction_cas": {
+    "initial_active_drafts": 1,
+    "initial_version": 1,
+    "concurrent_winners": 1,
+    "concurrent_stale_results": 1,
+    "final_active_drafts": 1,
+    "final_version": 2,
+    "increments_applied": 1,
+    "second_increment_from_stale_peer": false,
+    "accepted_correction_copy_complete": "Updated. I have the details. Nothing has been saved yet."
+  },
+  "replay": {
+    "same_telegram_update_claimed_more_than_once": false,
+    "second_engine_call": false,
+    "second_state_mutation": false,
+    "second_send": false,
+    "version_increment_from_replay": 0
+  },
+  "collisions": {
+    "active_draft_overwritten": false,
+    "returned_candidate_fields_merged": false,
+    "equal_returned_candidate_treated_as_correction": false,
+    "different_returned_candidate_treated_as_correction": false,
+    "incomplete_copy_id": "collisionCopy.incomplete",
+    "incomplete_copy_prefix": "You already have a draft in progress. I didn’t replace it.",
+    "complete_copy_id": "collisionCopy.complete",
+    "complete_copy": "You already have a complete draft. I didn’t replace it.\n\nI have the details. Nothing has been saved yet."
+  },
+  "expiry": {
+    "isolated_controlled_transition": {
+      "repository_status": "expired",
+      "completed": true,
+      "telegram_processing_result": "conversation_expired",
+      "active_draft_count_after": 0,
+      "expired_draft_count_after": 1,
+      "commitment_count_after": 0
+    },
+    "engine_called_after_terminal_expiry": false,
+    "copy_id": "expired",
+    "copy": "That draft expired after 24 hours of inactivity. Nothing was saved. Please send the promise again to start over."
+  },
+  "acceptance_criteria": {
+    "AC1": {
+      "result": "pass",
+      "proved_by": [
+        "question_order",
+        "restart_safety",
+        "complete_state"
+      ]
+    },
+    "AC4": {
+      "result": "pass",
+      "proved_by": [
+        "correction_cas",
+        "replay",
+        "collisions"
+      ]
+    },
+    "AC5": {
+      "result": "pass",
+      "proved_by": [
+        "complete_state",
+        "expiry"
+      ]
+    },
+    "AC6": {
+      "result": "pass",
+      "proved_by": [
+        "bounded_draft_shape",
+        "restart_safety"
+      ]
+    }
+  }
+}

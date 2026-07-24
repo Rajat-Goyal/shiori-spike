@@ -1,0 +1,152 @@
+{
+  "story_id": "S01-03b",
+  "captured_at": "2026-07-24T17:24:47Z",
+  "source_commits": [
+    "2ac8cda",
+    "afdace4",
+    "ad3f82f"
+  ],
+  "result": "pass",
+  "evidence_basis": [
+    "controlled_permission_tests",
+    "clean_isolated_database_integration",
+    "database_schema_inspection",
+    "retention_scan"
+  ],
+  "implied_intention": {
+    "copy_id": "impliedPermission",
+    "copy": "Would you like me to help turn that into a promise? Reply yes or no.",
+    "permission_requested_before_draft": true,
+    "active_draft_count": 0,
+    "permission_candidate_count": 1,
+    "commitment_count": 0,
+    "candidate_is_non_actionable": true,
+    "candidate_lifetime_seconds": 86400
+  },
+  "exact_next_correlation": {
+    "source_update_identity_retained": true,
+    "next_claimed_owner_update_correlated_atomically": true,
+    "correlated_update_must_equal_current_update": true,
+    "acceptance_requires_relation": "permission_accepted",
+    "acceptance_requires_input_class": "explicit_commitment",
+    "acceptance_requires_all_eight_fields_equal": true,
+    "candidate_fields_resent_as_mutation_authority": false,
+    "candidate_count_before_acceptance": 1,
+    "candidate_count_after_acceptance": 0,
+    "active_draft_count_before_acceptance": 0,
+    "active_draft_count_after_acceptance": 1,
+    "commitment_count_after_acceptance": 0
+  },
+  "candidate_field_contract": {
+    "field_count": 8,
+    "fields": [
+      "definitionOfDone",
+      "durationMinutes",
+      "offerWorkWindowHelp",
+      "possibleWorkSession",
+      "simpleAction",
+      "targetAt",
+      "targetTimeZone",
+      "timingConstraints"
+    ],
+    "raw_owner_input_retained": false,
+    "model_response_retained": false,
+    "provider_payload_retained": false
+  },
+  "permission_alternatives": {
+    "decline": {
+      "action": "terminate_permission",
+      "copy_id": "decline",
+      "copy": "Okay — I won’t turn it into a promise.",
+      "draft_created": false,
+      "commitment_created": false
+    },
+    "unclear": {
+      "action": "rearm_permission",
+      "copy_id": "permissionUnclear",
+      "copy": "Please reply yes or no: would you like me to help turn that into a promise?",
+      "candidate_replaced": false
+    },
+    "separate_request": {
+      "action": "rearm_permission",
+      "copy_id": "permissionCollision",
+      "copy": "I’m still waiting for your answer about the current intention. I didn’t start another promise.\n\nPlease reply yes or no: would you like me to help turn that into a promise?",
+      "returned_candidate_fields_ignored": true,
+      "candidate_replaced": false
+    },
+    "expired_or_missing_correlation": {
+      "engine_called": false,
+      "copy_id": "interrupted",
+      "copy": "I no longer have the permission request. Nothing was saved. Please send the promise again to start over.",
+      "draft_created": false,
+      "commitment_created": false
+    }
+  },
+  "model_decisions_storage": {
+    "column_count": 8,
+    "columns": [
+      "created_at",
+      "decision_payload",
+      "draft_id",
+      "id",
+      "input_class",
+      "model_id",
+      "prompt_version",
+      "update_id"
+    ],
+    "decision_payload_key_count": 11,
+    "decision_payload_keys": [
+      "definitionOfDone",
+      "durationMinutes",
+      "missingFields",
+      "nextAction",
+      "offerWorkWindowHelp",
+      "possibleWorkSession",
+      "simpleAction",
+      "targetAt",
+      "targetTimeZone",
+      "timingConstraints",
+      "turnRelation"
+    ],
+    "response_key_present": false,
+    "owner_text_key_present": false,
+    "transcript_key_present": false,
+    "provider_payload_key_present": false,
+    "provider_trace_key_present": false,
+    "chain_of_thought_key_present": false
+  },
+  "consequential_state": {
+    "commitments_created": 0,
+    "sessions_created": 0,
+    "scheduled_messages_created": 0,
+    "calendar_events_created": 0,
+    "google_calendar_state_changed": false,
+    "oauth_attempts_changed": false,
+    "oauth_outcomes_changed": false,
+    "credentials_read_or_changed": false
+  },
+  "acceptance_criteria": {
+    "AC2": {
+      "result": "pass",
+      "proved_by": [
+        "implied_intention",
+        "exact_next_correlation",
+        "permission_alternatives"
+      ]
+    },
+    "AC5": {
+      "result": "pass",
+      "proved_by": [
+        "permission_alternatives"
+      ]
+    },
+    "AC6": {
+      "result": "pass",
+      "proved_by": [
+        "candidate_field_contract",
+        "model_decisions_storage",
+        "consequential_state"
+      ]
+    }
+  }
+}

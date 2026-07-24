@@ -1,0 +1,97 @@
+S01-03b independent QA gate
+Captured: 2026-07-24T17:24:47Z
+Source commits:
+- 2ac8cda feat(S01-03b): persist bounded conversation state
+- afdace4 feat(S01-03b): orchestrate restart-safe draft turns
+- ad3f82f feat(S01-03b): route authorized Telegram turns
+Verified frozen tree: HEAD ad3f82f
+Result: PASS
+
+Provenance note
+- The source commit association was added after the identical verified tree was
+  committed. The retained capture time truthfully identifies the verification
+  of that same content.
+
+Execution results
+- Conversation service and repository focused verification: PASS, 37/37.
+- Conversation repository contract verification: PASS, 12/12.
+- Telegram webhook boundary verification: PASS, 7/7.
+- Full server verification: PASS, 213/213.
+- Clean isolated local-Supabase migrations: PASS.
+- Conversation database integration: PASS, 1/1.
+- Full database integration: PASS, 5/5.
+- Server typecheck: PASS.
+- Web typecheck: PASS.
+- Server production build: PASS.
+- Web production build: PASS.
+- Full browser verification: PASS, 46/46.
+- Provider calls made by this story gate: 0.
+
+Exact re-runnable story commands
+1. npm run test --workspace @shiori/server -- src/telegram/conversation.test.ts
+   PASS.
+2. npm run test:db
+   PASS against a clean isolated local Supabase reset.
+3. BASE_URL=http://127.0.0.1:4174 npm run check
+   PASS with 213 server tests, both production builds, and 46 browser tests.
+
+Independent review
+- Architecture found no source blocker. The conversation relation remains
+  descriptive and non-authorizing; deterministic application code owns every
+  transition.
+- QA inspected the migration, repository, orchestration, Telegram boundary,
+  exact copy, database results, and sanitized artifacts independently of the
+  implementer.
+- The implementation remained frozen at HEAD ad3f82f while these evidence
+  files were prepared.
+- Sensitive-value and forbidden-retention scans passed.
+- Evidence JSON parsing and exact-evidence-file-count checks passed.
+
+Acceptance-criterion sign-off
+- AC1 PASS: explicit simple-action collection asks one question per turn in
+  definition-then-target order; a restart restores the bounded active draft;
+  the isolated database contains no commitment after collection.
+- AC2 PASS: an implied intention creates at most one bounded permission
+  candidate; only the exactly correlated next update and an exact eight-field
+  candidate match can replace candidate count 1 with draft count 1.
+- AC3 PASS: ordinary questions return the bounded answer while preserve leaves
+  the active draft version, expiry, and all product state unchanged.
+- AC4 PASS: one CAS winner changes draft version 1 to 2; its concurrent stale
+  peer and Telegram replay produce no second mutation; separate-request
+  collisions ignore every returned candidate field.
+- AC5 PASS: complete copy exposes no action, all bounded failure classes
+  preserve state, and isolated expiry produces terminal expired/completed
+  state with processing result conversation_expired.
+- AC6 PASS: database schema, model-decision rows, logs, tests, and evidence
+  retain no raw owner input, transcript, model response, provider material,
+  commitment, session, event, or scheduled message.
+
+Controlled database observations
+- Permission candidate count: 1 before exact-next acceptance, 0 after.
+- Active draft count: 0 before exact-next acceptance, 1 after.
+- Draft lifetime bound: 86400 seconds.
+- Expiration probe final counts: active drafts 0, expired drafts 1,
+  commitments 0.
+- Google Calendar state: unchanged throughout isolated conversation probes.
+- No credential, OAuth attempt, OAuth outcome, commitment, or consequential
+  state was read or mutated by the isolated story flow.
+
+Historical test-isolation deviation
+- Before the lead confirmed that S01-07 owned the shared local database, the
+  implementer applied the then-uncommitted additive conversation migration
+  once and ran its synthetic database integration flow once.
+- That run added the conversation schema plus synthetic conversation and
+  permission-cycle metadata and Telegram test rows. Exact row counts were not
+  asserted.
+- The implementer reported no read or mutation of Google/OAuth tables,
+  commitments, credentials, OAuth attempts/outcomes, or S01-07 files. No
+  further shared-database call was made after the stop instruction.
+- Canonical evidence is the later clean isolated reset, full migration
+  sequence, full 5/5 database suite, and deterministic probes recorded above.
+  No acceptance criterion or product behavior was changed.
+
+Evidence index
+- evidence/S01-03b/npm-check.txt
+- evidence/S01-03b/draft-lifecycle.json
+- evidence/S01-03b/pre-confirmation-state.json
+- evidence/S01-03b/conversation-failures.json

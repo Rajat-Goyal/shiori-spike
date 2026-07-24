@@ -1,0 +1,183 @@
+{
+  "story_id": "S01-03b",
+  "captured_at": "2026-07-24T17:24:47Z",
+  "source_commits": [
+    "2ac8cda",
+    "afdace4",
+    "ad3f82f"
+  ],
+  "result": "pass",
+  "evidence_basis": [
+    "controlled_failure_matrix",
+    "controlled_cas_matrix",
+    "telegram_replay_tests",
+    "clean_isolated_expiry_probe",
+    "copy_and_retention_inspection"
+  ],
+  "bounded_decision_failures": {
+    "classes": [
+      "http",
+      "provider_error",
+      "incomplete",
+      "refusal",
+      "missing_output",
+      "non_json",
+      "schema",
+      "semantic",
+      "timeout"
+    ],
+    "classes_verified": 9,
+    "with_active_draft": {
+      "action": "preserve",
+      "processing_result": "conversation_failed",
+      "copy_id": "failureWithDraft",
+      "copy": "I couldn’t safely process that. Your current draft is unchanged. Please try saying it another way.",
+      "version_changed": false,
+      "expiry_changed": false,
+      "audit_row_written": false
+    },
+    "without_active_draft": {
+      "action": "preserve",
+      "processing_result": "conversation_failed",
+      "copy_id": "failureNoDraft",
+      "copy": "I couldn’t safely process that. Nothing was changed. Please try saying it another way.",
+      "draft_created": false,
+      "audit_row_written": false
+    }
+  },
+  "semantically_invalid_success": {
+    "invalid_relation_for_phase": {
+      "state_preserved": true,
+      "processing_result": "conversation_failed",
+      "candidate_fields_applied": false
+    },
+    "work_session_shaped_candidate": {
+      "state_preserved": true,
+      "draft_created": false,
+      "candidate_fields_applied": false
+    },
+    "past_or_invalid_target": {
+      "state_preserved": true,
+      "draft_created": false,
+      "candidate_fields_applied": false
+    },
+    "permission_candidate_not_exactly_equal": {
+      "state_preserved": true,
+      "draft_created": false,
+      "candidate_fields_resent": false
+    }
+  },
+  "ordinary_question": {
+    "without_draft": {
+      "copy_source": "bounded decision response",
+      "state_action": "preserve",
+      "draft_created": false,
+      "other_product_state_changed": false,
+      "response_retained_in_audit": false
+    },
+    "with_draft": {
+      "copy_id": "ordinaryWithDraftCopy",
+      "copy_suffix": "Your current draft is unchanged.",
+      "state_action": "preserve",
+      "version_changed": false,
+      "expiry_changed": false,
+      "other_product_state_changed": false,
+      "response_retained_in_audit": false
+    }
+  },
+  "cas_and_collision_failures": {
+    "stale_cas": {
+      "status": "stale",
+      "completed": true,
+      "state_changed": false,
+      "copy_id": "failureWithDraft"
+    },
+    "separate_request_with_active_draft": {
+      "state_action": "preserve",
+      "active_draft_replaced": false,
+      "version_changed": false,
+      "expiry_changed": false,
+      "all_returned_candidate_fields_ignored": true
+    },
+    "permission_phase_separate_request": {
+      "state_action": "rearm_permission",
+      "permission_candidate_replaced": false,
+      "all_returned_candidate_fields_ignored": true
+    },
+    "telegram_replay": {
+      "engine_calls_after_first_claim": 0,
+      "state_mutations_after_first_claim": 0,
+      "outbound_sends_after_first_claim": 0
+    }
+  },
+  "terminal_states": {
+    "expired_draft": {
+      "repository_status": "expired",
+      "completed": true,
+      "processing_result": "conversation_expired",
+      "engine_called": false,
+      "active_draft_count_after": 0,
+      "expired_draft_count_after": 1,
+      "commitment_count_after": 0,
+      "copy_id": "expired",
+      "copy": "That draft expired after 24 hours of inactivity. Nothing was saved. Please send the promise again to start over."
+    },
+    "interrupted_permission": {
+      "repository_status": "interrupted",
+      "completed": true,
+      "engine_called": false,
+      "draft_created": false,
+      "copy_id": "interrupted",
+      "copy": "I no longer have the permission request. Nothing was saved. Please send the promise again to start over."
+    },
+    "busy_permission": {
+      "repository_kind": "busy",
+      "completed": true,
+      "engine_called": false,
+      "candidate_replaced": false,
+      "copy_id": "permissionCollision"
+    }
+  },
+  "retention_and_side_effects": {
+    "raw_owner_input_retained": false,
+    "transcript_retained": false,
+    "decision_response_retained": false,
+    "provider_payload_retained": false,
+    "provider_trace_retained": false,
+    "chain_of_thought_retained": false,
+    "commitments_created": 0,
+    "sessions_created": 0,
+    "scheduled_messages_created": 0,
+    "calendar_events_created": 0,
+    "google_calendar_state_changed": false,
+    "provider_calls_during_verification": 0
+  },
+  "acceptance_criteria": {
+    "AC3": {
+      "result": "pass",
+      "proved_by": [
+        "ordinary_question"
+      ]
+    },
+    "AC4": {
+      "result": "pass",
+      "proved_by": [
+        "cas_and_collision_failures"
+      ]
+    },
+    "AC5": {
+      "result": "pass",
+      "proved_by": [
+        "bounded_decision_failures",
+        "semantically_invalid_success",
+        "terminal_states"
+      ]
+    },
+    "AC6": {
+      "result": "pass",
+      "proved_by": [
+        "retention_and_side_effects"
+      ]
+    }
+  }
+}
