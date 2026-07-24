@@ -6,6 +6,9 @@ import {
 
 type TelegramServiceOptions = {
   client: TelegramClient;
+  conversationService: {
+    handle(updateId: number, ownerText: string): Promise<string>;
+  };
   ownerUserId: number;
   repository: TelegramRepository;
 };
@@ -72,11 +75,13 @@ function parseUpdate(value: unknown): ParsedUpdate | undefined {
 
 export class TelegramService {
   readonly #client: TelegramClient;
+  readonly #conversationService: TelegramServiceOptions["conversationService"];
   readonly #ownerUserId: number;
   readonly #repository: TelegramRepository;
 
   constructor(options: TelegramServiceOptions) {
     this.#client = options.client;
+    this.#conversationService = options.conversationService;
     this.#ownerUserId = options.ownerUserId;
     this.#repository = options.repository;
   }
@@ -124,11 +129,15 @@ export class TelegramService {
         await this.#client.sendText(update.chatId, "No active promises.");
         result = "status_empty";
       } else {
+        const response = await this.#conversationService.handle(
+          update.updateId,
+          update.text,
+        );
         await this.#client.sendText(
           update.chatId,
-          "Send /status to view active promises.",
+          response,
         );
-        result = "unsupported";
+        return;
       }
 
       await this.#repository.completeUpdate(update.updateId, result);

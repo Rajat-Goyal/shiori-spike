@@ -12,6 +12,9 @@ import {
   type DashboardRepository,
   SupabaseDashboardRepository,
 } from "./dashboard.js";
+import { OpenAIDecisionEngine } from "./decision/engine.js";
+import { SupabaseConversationRepository } from "./conversation/repository.js";
+import { ConversationService } from "./conversation/service.js";
 import {
   type GoogleCalendarService,
   GoogleOAuthService,
@@ -81,6 +84,20 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     new TelegramService({
       client: new TelegramBotClient({
         botToken: options.config.telegramBotToken,
+      }),
+      conversationService: new ConversationService({
+        decisionEngine: new OpenAIDecisionEngine({
+          apiKey: options.config.openaiApiKey,
+          model: options.config.openaiModel,
+          now,
+          promptVersion: options.config.openaiPromptVersion,
+        }),
+        modelId: options.config.openaiModel,
+        promptVersion: options.config.openaiPromptVersion,
+        repository: new SupabaseConversationRepository({
+          supabaseSecretKey: options.config.supabaseSecretKey,
+          supabaseUrl: options.config.supabaseUrl,
+        }),
       }),
       ownerUserId: options.config.telegramOwnerUserId,
       repository: new SupabaseTelegramRepository({

@@ -78,6 +78,16 @@ class ControlledClient implements TelegramClient {
   }
 }
 
+class ControlledConversation {
+  readonly turns: Array<{ ownerText: string; updateId: number }> = [];
+  response = "Bounded conversation response.";
+
+  async handle(updateId: number, ownerText: string): Promise<string> {
+    this.turns.push({ ownerText, updateId });
+    return this.response;
+  }
+}
+
 const openApps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
 afterEach(async () => {
@@ -108,11 +118,14 @@ async function appWith(
 function serviceWith() {
   const repository = new ControlledRepository();
   const client = new ControlledClient();
+  const conversation = new ControlledConversation();
   return {
     client,
+    conversation,
     repository,
     service: new TelegramService({
       client,
+      conversationService: conversation,
       ownerUserId,
       repository,
     }),
@@ -218,6 +231,7 @@ describe("POST /api/telegram/webhook", () => {
       { result: "refused", updateId: update.update_id },
     ]);
     expect(controlled.repository.activeReads).toBe(0);
+    expect(controlled.conversation.turns).toHaveLength(0);
   });
 
   it("captures the owner private chat and returns a factual empty status", async () => {
@@ -246,9 +260,10 @@ describe("POST /api/telegram/webhook", () => {
     expect(controlled.repository.completions).toEqual([
       { result: "status_empty", updateId: 3001 },
     ]);
+    expect(controlled.conversation.turns).toHaveLength(0);
   });
 
-  it("guides unsupported owner text without retaining it", async () => {
+  it("routes authorized owner text through the atomic conversation boundary", async () => {
     const controlled = serviceWith();
     const app = await appWith(controlled.service);
     const response = await app.inject({
@@ -266,24 +281,28 @@ describe("POST /api/telegram/webhook", () => {
     expect(controlled.client.sends).toEqual([
       {
         chatId: ownerUserId,
-        text: "Send /status to view active promises.",
+        text: "Bounded conversation response.",
+      },
+    ]);
+    expect(controlled.conversation.turns).toEqual([
+      {
+        ownerText: "private material that must not be persisted",
+        updateId: 4001,
       },
     ]);
     expect(controlled.repository.claims).toEqual([
       { ownerChatId: ownerUserId, updateId: 4001 },
     ]);
-    expect(controlled.repository.completions).toEqual([
-      { result: "unsupported", updateId: 4001 },
-    ]);
+    expect(controlled.repository.completions).toEqual([]);
   });
 
-  it("returns opaque success and sends only once for concurrent replay", async () => {
+  it("stops replay before the conversation engine and sends only once", async () => {
     const controlled = serviceWith();
     const app = await appWith(controlled.service);
     const request = {
       headers: validHeaders,
       method: "POST" as const,
-      payload: textUpdate({ text: "/status", updateId: 5001 }),
+      payload: textUpdate({ text: "Create a promise", updateId: 5001 }),
       url: "/api/telegram/webhook",
     };
 
@@ -298,7 +317,10 @@ describe("POST /api/telegram/webhook", () => {
       { ok: true },
     ]);
     expect(controlled.client.sends).toHaveLength(1);
-    expect(controlled.repository.completions).toHaveLength(1);
+    expect(controlled.conversation.turns).toEqual([
+      { ownerText: "Create a promise", updateId: 5001 },
+    ]);
+    expect(controlled.repository.completions).toHaveLength(0);
   });
 
   it("redacts failures from HTTP state and service errors", async () => {
@@ -320,6 +342,9 @@ describe("POST /api/telegram/webhook", () => {
               `${sensitiveText}:${ownerUserId}:${webhookSecret}:unit-test-bot-token`,
             ),
           ),
+      },
+      conversationService: {
+        handle: vi.fn().mockResolvedValue("Bounded safe response."),
       },
       ownerUserId,
       repository,
