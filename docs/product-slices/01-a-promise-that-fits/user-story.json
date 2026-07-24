@@ -559,7 +559,7 @@
           "server/test/openai-decision.smoke.ts"
         ]
       },
-      "status": "todo",
+      "status": "in_progress",
       "open_questions": []
     },
     {
