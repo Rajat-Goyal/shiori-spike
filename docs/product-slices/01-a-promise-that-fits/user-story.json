@@ -789,7 +789,7 @@
       ],
       "blocks": [
         "S01-04",
-        "S01-09"
+        "S01-09b"
       ],
       "squad": {
         "type": "transactional-confirmation",
@@ -1042,8 +1042,8 @@
         "S01-04"
       ],
       "blocks": [
-        "S01-09",
-        "S01-10",
+        "S01-09c",
+        "S01-10a",
         "S01-12"
       ],
       "squad": {
@@ -1169,7 +1169,7 @@
         "S01-04"
       ],
       "blocks": [
-        "S01-10",
+        "S01-10a",
         "S01-11"
       ],
       "squad": {
@@ -1192,7 +1192,12 @@
         ]
       },
       "status": "todo",
-      "open_questions": []
+      "open_questions": [
+        "S01-06 requires a second explicit saved-commitment cancellation but does not define durable intent lifetime or replay semantics. PM recommends one restart-safe current opaque intent per commitment, superseded by a newer Cancel prompt and resolved by Keep, Done, or cancellation, with no wall-clock expiry and callback `x:<uuid>:<version>:confirm_cancel|keep`. Owner approval is required.",
+        "S01-06 AC1 requires actual next-work-session and Calendar-check state, but S01-06 currently depends only on simple-reminder S01-04. PM recommends adding S01-09c to depends_on, producing the acyclic S01-04 → S01-05 → S01-09a → S01-09b → S01-09c → S01-06 sequence. Owner approval is required.",
+        "S01-05 and S01-06 both affect scheduled-message states, cancellation predicates, migrations, and database tests. PM recommends serializing S01-05, S01-09c, then S01-06 instead of concurrent shared-schema implementation. Owner approval is required.",
+        "Scope requires target-ordered status results with Done and Cancel only but does not define repeated-label action binding. Designer recommends one `Promise i of N` Telegram message per commitment with one ordered Done/Cancel row, deterministic equal-target ordering, and `No active promises.` for empty state. Owner approval is required."
+      ]
     },
     {
       "id": "S01-07",
@@ -1433,7 +1438,7 @@
         "S01-07"
       ],
       "blocks": [
-        "S01-09"
+        "S01-09a"
       ],
       "squad": {
         "type": "scheduling-core",
@@ -1457,279 +1462,818 @@
       "open_questions": []
     },
     {
-      "id": "S01-09",
-      "title": "Confirm one Calendar-aware work session",
-      "user_story": "As the owner, I want to choose and explicitly confirm one realistic work session around Calendar constraints, so that my promise has one durable next action without changing Google Calendar.",
-      "why_now": "Decision, draft, availability, Google connection, and durable scheduler contracts are stable; this story joins them into the central Calendar-aware confirmation vertical.",
+      "id": "S01-09a",
+      "title": "Make live Calendar checks consumable",
+      "user_story": "As the commitment flow, I want a secure deterministic Calendar boundary, so that work-session suggestions can use live owner availability without exposing Calendar data or credentials.",
+      "why_now": "S01-08 supplies the deterministic engine, but production token access and timing-constraint normalization must be joined before the owner flow can consume it.",
       "scope_refs": [
         "Scope §Main user journeys — Explicit one-off commitment with work time",
-        "Scope §Confirmation contract",
-        "Scope §Calendar policy — Availability rules and Alternative ranking",
-        "Scope §Rabbit holes and patches — A Calendar suggestion becomes stale",
-        "ADR Decisions 3–5 and 8–11"
+        "Scope §Calendar policy",
+        "ADR Decisions 7–9"
       ],
       "in_scope": [
-        "Offer work-time help only when work appears needed before the target and no window was supplied.",
-        "Collect one supported duration and owner timing constraints.",
-        "Present free windows or a sanitized conflict with at most two valid alternatives.",
-        "Require a new explicit confirmation to keep a conflicting time.",
-        "Bind suggestions and buttons to the current draft version.",
-        "Recheck Calendar availability at final confirmation and block a newly introduced conflict.",
-        "Offer and explicitly confirm an unverified save when Calendar is unavailable.",
-        "Atomically create one commitment, one future work session, one start reminder, one end check-in, and append-only events."
+        "Provide the server-only token capability required by the completed S01-08 Calendar adapter.",
+        "Refresh, decrypt, and use Google credentials only inside the Calendar boundary.",
+        "Normalize explicitly supported owner timing constraints into S01-08 effective-day windows.",
+        "Return typed available, unavailable, authorization-expired, and provider-failure outcomes.",
+        "Preserve the primary-only read-only and no-event-detail privacy boundary."
       ],
       "out_of_scope": [
-        "Sending the start or end messages.",
-        "Continuation, recovery, or more than one future session.",
-        "Calendar writes or post-save conflict monitoring.",
-        "Automatic target movement or constraint relaxation."
+        "Owner-facing choices or work-session confirmation.",
+        "Commitment, session, schedule, action, or event persistence.",
+        "Calendar writes, delivery, continuation, recovery, or dashboard behavior."
       ],
       "acceptance_criteria": [
         {
           "id": "AC1",
-          "given": "a possible duration-based commitment with no supplied work window",
-          "when": "the validated decision is processed",
-          "then": "Shiori offers help and collects one supported duration, while simple actions do not receive that offer."
+          "given": "a valid connected owner account",
+          "when": "an eligible interval is checked",
+          "then": "credentials remain server-side and only the bounded primary-Calendar read is performed."
         },
         {
           "id": "AC2",
-          "given": "a free selected window",
-          "when": "the summary is shown",
-          "then": "definition of done, target, start/end, duration, check result/time, and the no-Calendar-write statement are explicit."
+          "given": "the connection, refresh grant, authorization, or provider is unavailable",
+          "when": "availability is requested",
+          "then": "a typed failure is returned and no consequential product row is created."
         },
         {
           "id": "AC3",
-          "given": "a busy proposed window",
-          "when": "availability is checked",
-          "then": "Shiori explains the conflict without unrelated event exposure and offers no more than two correctly ranked valid alternatives."
+          "given": "a supported explicit timing constraint",
+          "when": "it is normalized",
+          "then": "the same input produces the same effective-day windows and unsupported input fails explicitly."
         },
         {
           "id": "AC4",
-          "given": "the owner chooses to keep a conflict",
-          "when": "the flow continues",
-          "then": "a new explicit confirmation is required and the saved session records conflict-kept."
+          "given": "a live Calendar check",
+          "when": "the provider request is inspected",
+          "then": "only the primary Calendar and minimum approved read-only fields are requested."
         },
         {
           "id": "AC5",
-          "given": "a previously free slot becomes busy before Confirm",
-          "when": "the version-bound final recheck runs",
-          "then": "saving is blocked and new choices are produced."
+          "given": "credentials and Calendar responses",
+          "when": "model context, persistence, browser output, logs, and evidence are inspected",
+          "then": "no credential, event title, attendee, description, or raw provider response is present."
         },
         {
           "id": "AC6",
-          "given": "Calendar is unavailable at confirmation",
-          "when": "the owner explicitly confirms Save without Calendar check",
-          "then": "the session is saved as unverified and is never described as free."
+          "given": "a restart or repeated read",
+          "when": "availability is checked again",
+          "then": "the result remains deterministic and creates no durable product consequence."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/google/token-provider.test.ts src/work-sessions/availability-integration.test.ts",
+          "npm run test:db -- server/test/google-calendar-db.integration.ts",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-09a/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09a/token-provider-boundary.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09a/timing-constraint-normalization.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09a/calendar-failure-matrix.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09a/provider-privacy-audit.md"
+          }
+        ],
+        "done_when": "A reviewer can prove S01-08 availability is production-consumable with typed failures, deterministic constraints, and no leaked or consequential provider data."
+      },
+      "depends_on": [
+        "S01-08"
+      ],
+      "blocks": [
+        "S01-09b"
+      ],
+      "squad": {
+        "type": "calendar-boundary",
+        "members": [
+          "pm",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "This security-sensitive provider boundary needs deterministic integration and independent privacy verification."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#calendar-policy",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-8-deterministic-calendar-boundary",
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "server/src/google/calendar.ts",
+          "server/src/scheduling/availability.ts",
+          "server/src/google/",
+          "server/src/conversation/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": [
+        "Which exact timing-constraint forms are supported and how does each map deterministically into effective-day windows? S01-08 deliberately left raw-input normalization undefined. Owner approval is required before implementation."
+      ]
+    },
+    {
+      "id": "S01-09b",
+      "title": "Orchestrate one versioned work-session choice",
+      "user_story": "As the owner, I want to choose and recheck one suitable work session, so that nothing consequential is saved before my explicit version-current confirmation.",
+      "why_now": "The confirmation and live Calendar boundaries can now support the owner-facing flow behind one injected consequence interface.",
+      "scope_refs": [
+        "Scope §Main user journeys — Explicit one-off commitment with work time",
+        "Scope §Confirmation contract",
+        "ADR Decisions 3, 5 and 9"
+      ],
+      "in_scope": [
+        "Offer planning help only for eligible possible-work intentions without a supplied window.",
+        "Collect one supported duration and normalized owner constraints.",
+        "Present no more than two deterministic version-bound choices or an explicit keep-conflict path.",
+        "Invalidate superseded actions after corrections.",
+        "Perform the final read-only Calendar recheck.",
+        "Offer a distinct version-bound save-without-check action when availability is unavailable.",
+        "Delegate the accepted consequence through one injected work-session committer."
+      ],
+      "out_of_scope": [
+        "Creating a commitment, work session, scheduled message, or event.",
+        "Scheduler delivery, retry, continuation, recovery, or Calendar writes."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a simple, ineligible, incomplete, or already-windowed intention",
+          "when": "the flow evaluates it",
+          "then": "work-session planning is not offered."
+        },
+        {
+          "id": "AC2",
+          "given": "an eligible possible-work intention",
+          "when": "the owner accepts planning help",
+          "then": "duration and supported timing constraints are collected before availability."
+        },
+        {
+          "id": "AC3",
+          "given": "checked availability",
+          "when": "valid windows exist",
+          "then": "at most two deterministic version-bound choices are shown without private event details."
+        },
+        {
+          "id": "AC4",
+          "given": "a conflict or relevant correction",
+          "when": "the flow continues",
+          "then": "keep-conflict requires a new explicit confirmation and superseded actions are stale."
+        },
+        {
+          "id": "AC5",
+          "given": "a current selected or kept window",
+          "when": "the final recheck succeeds",
+          "then": "one version-bound commit request is sent to the injected committer."
+        },
+        {
+          "id": "AC6",
+          "given": "a new conflict or unavailable final recheck",
+          "when": "confirmation is attempted",
+          "then": "a new conflict blocks saving while unavailable offers a distinct save-without-check action."
         },
         {
           "id": "AC7",
-          "given": "a current acceptable final check",
-          "when": "Confirm is accepted or replayed",
-          "then": "exactly one commitment, one future session, one start item, one end item, and their events are created atomically, and replay creates no duplicate."
+          "given": "a stale, replayed, unauthorized, or inspected action",
+          "when": "it is processed",
+          "then": "it creates no consequence, exposes no event detail, and accepts no model-generated authority."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/work-sessions/flow.test.ts",
+          "npm run test:db -- server/test/work-session-draft-db.integration.ts",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-09b/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09b/help-duration-flow.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09b/free-proposal.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09b/busy-alternatives.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09b/final-recheck.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09b/versioned-actions.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09b/unverified-offer.json"
+          }
+        ],
+        "done_when": "A reviewer can exercise every versioned planning, correction, conflict, recheck, and unavailable state through an injected committer without a product consequence."
+      },
+      "depends_on": [
+        "S01-03c",
+        "S01-09a"
+      ],
+      "blocks": [
+        "S01-09c"
+      ],
+      "squad": {
+        "type": "ux-flow",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "The story owns one user-facing versioned state machine while excluding the final transaction."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#explicit-one-off-commitment-with-work-time",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-9-final-availability-recheck",
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "server/src/confirmation.ts",
+          "server/src/conversation/",
+          "server/src/scheduling/availability.ts",
+          "server/src/work-sessions/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": [
+        "When the owner declines planning help, should the original intention return unchanged to ordinary explicit confirmation?",
+        "Should authorization_expired offer only Reconnect, or also save without Calendar verification?",
+        "Which durable representation owns two version-bound alternatives without colliding with the single active conversation draft?",
+        "If a kept conflict is free at final recheck, which audit state should the commit request carry?"
+      ]
+    },
+    {
+      "id": "S01-09c",
+      "title": "Atomically save one confirmed work session",
+      "user_story": "As the owner, I want one explicitly confirmed work session saved exactly once, so that its start and end messages are durable without changing Calendar.",
+      "why_now": "The owner flow is frozen behind a committer and the completed scheduler contract can now supply exact message consequences.",
+      "scope_refs": [
+        "Scope §Main user journeys — Explicit one-off commitment with work time",
+        "Scope §Confirmation contract",
+        "ADR Decisions 9 and 10"
+      ],
+      "in_scope": [
+        "Implement the work-session committer used by S01-09b.",
+        "Atomically create one active commitment, one future sequence-one session, and one start and end schedule.",
+        "Persist verified-free, conflict-kept, or unverified Calendar audit state.",
+        "Reuse S01-05 scheduled-message states and logical keys without changing delivery.",
+        "Resolve the Telegram action exactly once and roll back every consequence on failure."
+      ],
+      "out_of_scope": [
+        "Sending or retrying messages.",
+        "Scheduler leases or failure handling.",
+        "Continuation, recovery, outcomes, dashboard behavior, or Calendar writes."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a current authorized commit request whose final check was free",
+          "when": "the committer succeeds",
+          "then": "one commitment, one sequence-one session, two pending messages, four required events, and one resolved action exist."
+        },
+        {
+          "id": "AC2",
+          "given": "an explicitly kept conflict",
+          "when": "the committer succeeds",
+          "then": "the same cardinality exists and the Calendar audit records the owner-kept conflict."
+        },
+        {
+          "id": "AC3",
+          "given": "an explicit save without verification",
+          "when": "the committer succeeds",
+          "then": "the same cardinality exists and the Calendar audit is unverified, never free."
+        },
+        {
+          "id": "AC4",
+          "given": "the two new schedules",
+          "when": "they are inspected",
+          "then": "due times, kinds, pending states, aggregate references, and logical keys match S01-05."
+        },
+        {
+          "id": "AC5",
+          "given": "replay or concurrent submission",
+          "when": "all attempts finish",
+          "then": "only one transaction creates consequences and later attempts return resolved or stale."
+        },
+        {
+          "id": "AC6",
+          "given": "a failure at any write",
+          "when": "the transaction aborts",
+          "then": "no partial commitment, session, schedule, event, or resolved action remains."
+        },
+        {
+          "id": "AC7",
+          "given": "a successful Telegram confirmation",
+          "when": "data and response are inspected",
+          "then": "the frozen success copy is returned with no Calendar write, credential, or private event detail."
         }
       ],
       "verification": {
         "method": "automated-test",
         "commands": [
           "npm run test --workspace @shiori/server -- src/work-sessions/confirm.test.ts",
+          "npm run test:db -- server/test/work-session-confirmation-db.integration.ts",
           "npm run test:db",
           "npm run check"
         ],
         "evidence": [
           {
             "type": "test-output",
-            "path": "evidence/S01-09/npm-check.txt"
+            "path": "evidence/S01-09c/npm-check.txt"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-09/free-proposal.json"
+            "path": "evidence/S01-09c/atomic-session-confirmation.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-09/busy-alternatives.json"
+            "path": "evidence/S01-09c/conflict-kept.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-09/final-recheck.json"
+            "path": "evidence/S01-09c/unverified-save.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-09/unverified-save.json"
+            "path": "evidence/S01-09c/replay-concurrency.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-09/atomic-session-confirmation.json"
+            "path": "evidence/S01-09c/rollback-matrix.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09c/scheduler-compatibility.json"
           }
         ],
-        "done_when": "A reviewer can exercise free, busy, kept-conflict, newly changed, and unavailable Calendar timelines and observe only the explicitly confirmed single work session and two durable messages."
+        "done_when": "A reviewer can prove every accepted Calendar outcome creates the exact scheduler-compatible graph once and rolls back completely on failure."
       },
       "depends_on": [
-        "S01-03c",
         "S01-05",
-        "S01-08"
+        "S01-09b"
       ],
       "blocks": [
-        "S01-10",
+        "S01-10a",
         "S01-11"
       ],
       "squad": {
-        "type": "calendar-integration",
+        "type": "transaction-integration",
         "members": [
           "pm",
-          "designer",
           "staff-engineer",
           "qa"
         ],
-        "rationale": "This is the slice's central user flow, joining deterministic Calendar policy, consequential copy and confirmation, atomic persistence, and scheduling under independent QA."
+        "rationale": "This story owns one atomic consequence boundary requiring concurrency and rollback verification."
       },
       "context": {
         "read_first": [
           "docs/product-slices/01-a-promise-that-fits/scope.md#explicit-one-off-commitment-with-work-time",
           "docs/product-slices/01-a-promise-that-fits/adr.md#decision-9-final-availability-recheck",
-          "server/src/conversation/",
-          "server/src/scheduling/",
-          "server/src/scheduler/"
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "server/src/work-sessions/",
+          "server/src/scheduler/",
+          "server/src/confirmation.ts",
+          "server/src/telegram/",
+          "supabase/migrations/"
         ]
       },
       "status": "todo",
-      "open_questions": []
+      "open_questions": [
+        "S01-05 must publish its stable schedule-creation states and logical-key contract before this story begins.",
+        "For an unverified save, should calendar_checked_at be null or record the failed-attempt time?",
+        "When a kept conflict is free at final recheck, should persistence retain the keep audit, the final free observation, or both?"
+      ]
     },
     {
-      "id": "S01-10",
-      "title": "Continue or recover after a work session",
-      "user_story": "As the owner, I want one start reminder, one end check-in, and an explicit option for one more attempt, so that Shiori records what happened without creating an open-ended plan.",
-      "why_now": "A single work session and durable message pair can now be confirmed; this completes its outcome, continuation, and recovery loop.",
+      "id": "S01-10a",
+      "title": "Deliver and resolve one work session",
+      "user_story": "As the owner, I want one start reminder and one end check-in with bounded outcome actions, so that one work attempt is recorded without repeated notifications.",
+      "why_now": "Delivery, status, and confirmed-session contracts can now close one attempt end to end.",
       "scope_refs": [
-        "Scope §Core concepts — Recovery session",
         "Scope §Main user journeys — Missed or incomplete work session",
-        "Scope §Telegram behavior — Inline actions",
         "Scope §Reminder and check-in rules",
-        "Scope §Rabbit holes and patches — Work-session continuation becomes an unbounded plan",
         "ADR Decisions 3–5 and 10–11"
       ],
       "in_scope": [
-        "Deliver exactly one start reminder with Done and one end check-in with Done, Need more time, and Missed this session.",
-        "Suppress the end check-in when the commitment is already done or cancelled.",
-        "Record Done, partial work without a percentage, or missed work exactly once.",
-        "Ask for remaining duration after Need more time and whether another window is wanted after Missed.",
-        "Create no next session until the owner explicitly opts in, selects a Calendar-checked window, and confirms it.",
-        "Enforce at most one future planned session and preserve ordered past-session history.",
-        "After no pre-target slot fits, allow a recovery slot to be offered before the target passes, require it to start after the target within the seven-day recovery range, keep the target immutable, and derive overdue only after the target passes.",
-        "Create no additional notification after non-response."
+        "Deliver one start reminder with Done and one end check-in with Done, Need more time, and Missed this session.",
+        "Suppress unsent end and future messages after completion or cancellation.",
+        "Accept Done from start, end, or status once.",
+        "Record Need more time as partial work without a percentage and ask remaining duration.",
+        "Record Missed as no work and ask whether another window is wanted.",
+        "Create no next session from an outcome.",
+        "Preserve idempotency across non-response, restart, retry, replay, and concurrency."
       ],
       "out_of_scope": [
-        "Automatic continuation, automatic recovery, multiple planned sessions, or target movement.",
-        "Progress percentages, coaching, behavioral inference, Snooze, or Skip.",
-        "Calendar writes or ongoing conflict monitoring."
+        "Selecting or creating another session.",
+        "Recovery evaluation.",
+        "Automatic continuation, percentages, coaching, Calendar writes, or monitoring."
       ],
       "acceptance_criteria": [
         {
           "id": "AC1",
           "given": "a due planned session",
-          "when": "start and end times arrive",
-          "then": "one start reminder is delivered and, if the commitment remains active, one end check-in is delivered with the exact allowed actions."
+          "when": "start and end arrive",
+          "then": "one start with Done and, if still active, one end with Done, Need more time, and Missed this session are delivered."
         },
         {
           "id": "AC2",
-          "given": "Done at the start, end, or /status",
-          "when": "it is accepted",
-          "then": "the session and commitment close once and any unsent end or future messages are cancelled."
+          "given": "the commitment is done or cancelled before an unsent message",
+          "when": "due work is claimed",
+          "then": "the message is cancelled and no notification is attempted."
         },
         {
           "id": "AC3",
-          "given": "Need more time",
-          "when": "it is accepted",
-          "then": "partial work is recorded without a percentage, the commitment remains active, and Shiori asks for remaining duration without creating a future session."
+          "given": "current Done from start, end, or status",
+          "when": "accepted",
+          "then": "the commitment and applicable session close once and unsent end or future messages are cancelled."
         },
         {
           "id": "AC4",
-          "given": "Missed this session",
-          "when": "it is accepted",
-          "then": "no work is recorded, the commitment remains active, and Shiori asks whether another window is wanted without creating one automatically."
+          "given": "current Need more time",
+          "when": "accepted",
+          "then": "partial work is recorded once, the commitment stays active, one duration question is sent, and no session is created."
         },
         {
           "id": "AC5",
-          "given": "the owner explicitly requests another attempt",
-          "when": "a version-current Calendar-checked window is confirmed",
-          "then": "exactly one next session and its two messages are added while all past results remain append-only."
+          "given": "current Missed this session",
+          "when": "accepted",
+          "then": "no work is recorded once, the commitment stays active, one another-window question is sent, and no session is created."
         },
         {
           "id": "AC6",
-          "given": "no fitting pre-target window remains",
-          "when": "recovery is evaluated before or after the target and a recovery session is confirmed",
-          "then": "it may be offered immediately, begins after the target within the seven-day recovery range, leaves the target unchanged, and the commitment becomes or remains overdue only after the target passes."
+          "given": "no response",
+          "when": "time advances",
+          "then": "start non-response does not suppress the end check-in and end non-response creates no follow-up."
         },
         {
           "id": "AC7",
-          "given": "no response, restart, or replay of a start, end, or outcome action",
-          "when": "the schedule and ledger are inspected",
-          "then": "no additional notification, duplicate logical delivery, duplicate session, or duplicate outcome exists."
+          "given": "restart, replay, concurrency, known-safe retry, or ambiguous delivery",
+          "when": "state is inspected",
+          "then": "one logical start, one logical end, at most one outcome, and no unsafe resend or duplicate event exist."
         }
       ],
       "verification": {
         "method": "automated-test",
         "commands": [
           "npm run test --workspace @shiori/server -- src/work-sessions/outcomes.test.ts",
-          "npm run test:db",
+          "npm run test:db -- server/test/work-session-outcomes-db.integration.ts",
           "npm run check"
         ],
         "evidence": [
           {
             "type": "test-output",
-            "path": "evidence/S01-10/npm-check.txt"
+            "path": "evidence/S01-10a/npm-check.txt"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-10/start-and-end-delivery.json"
+            "path": "evidence/S01-10a/start-and-end-delivery.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-10/done-transition.json"
+            "path": "evidence/S01-10a/done-transition.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-10/more-time-flow.json"
+            "path": "evidence/S01-10a/more-time-flow.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-10/missed-flow.json"
+            "path": "evidence/S01-10a/missed-flow.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-10/recovery-session.json"
+            "path": "evidence/S01-10a/replay-and-non-response.json"
           }
         ],
-        "done_when": "A reviewer can drive start, end, Done, Need more time, Missed, decline, continuation, proactive recovery, non-response, and replay paths while observing at most one future session, an immutable target, and time-derived overdue state."
+        "done_when": "A reviewer can drive start, end, every outcome, cancellation, non-response, restart, and replay with one logical message of each kind and at most one outcome."
       },
       "depends_on": [
         "S01-05",
         "S01-06",
-        "S01-09"
+        "S01-09c"
       ],
       "blocks": [
-        "S01-11"
+        "S01-10b"
       ],
       "squad": {
-        "type": "outcome-flow",
+        "type": "outcome-delivery",
         "members": [
           "pm",
           "designer",
           "staff-engineer",
           "qa"
         ],
-        "rationale": "The story completes a user-visible state machine across timed delivery, nuanced outcome copy, Calendar reuse, uniqueness constraints, and recovery semantics."
+        "rationale": "The story combines exact actions, scheduler idempotency, and atomic outcome transitions."
       },
       "context": {
         "read_first": [
           "docs/product-slices/01-a-promise-that-fits/scope.md#missed-or-incomplete-work-session",
           "docs/product-slices/01-a-promise-that-fits/adr.md#decision-11-work-session-notification-model",
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
           "server/src/work-sessions/",
           "server/src/scheduler/",
-          "server/src/scheduling/"
+          "server/src/telegram/"
         ]
       },
       "status": "todo",
-      "open_questions": []
+      "open_questions": [
+        "What exact text accompanies the start reminder, end check-in, remaining-duration question, and another-window question?",
+        "When status Done is accepted before a session starts, does that session become cancelled rather than done?",
+        "Does permanent or ambiguous start delivery affect end-check-in eligibility?",
+        "Can a claimed but not externally sent end message be cancelled atomically?",
+        "Which exact ledger event types represent Done, partial work, missed work, and message cancellation?"
+      ]
+    },
+    {
+      "id": "S01-10b",
+      "title": "Confirm one explicit continuation",
+      "user_story": "As the owner, I want to explicitly choose and confirm one more work attempt, so that continuation remains bounded and Calendar-aware.",
+      "why_now": "The prior attempt is durably resolved and S01-09 confirmation can now add one next session without rewriting history.",
+      "scope_refs": [
+        "Scope §Main user journeys — Missed or incomplete work session",
+        "Scope §Confirmation contract",
+        "ADR Decisions 3, 5, 8–9 and 11"
+      ],
+      "in_scope": [
+        "Continue from Need more time or Missed without editing the past attempt.",
+        "Require explicit opt-in before searching.",
+        "Collect supported remaining duration and reuse normalized constraints.",
+        "Bind choices to durable continuation state and version.",
+        "Reuse S01-09 conflict, unverified, and final-recheck behavior.",
+        "Atomically add one sequence-next session and its two messages.",
+        "Preserve history and enforce one future planned session."
+      ],
+      "out_of_scope": [
+        "Proactive recovery.",
+        "Editing past results.",
+        "Automatic continuation, Calendar writes, target movement, or percentages."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "more work is needed",
+          "when": "remaining duration is supplied without explicit continuation opt-in",
+          "then": "duration is retained and no Calendar search, session, or message is created."
+        },
+        {
+          "id": "AC2",
+          "given": "a missed or partial session",
+          "when": "the owner declines another attempt",
+          "then": "the commitment stays active, history is unchanged, and no future session exists."
+        },
+        {
+          "id": "AC3",
+          "given": "explicit continuation with supported duration",
+          "when": "availability is evaluated",
+          "then": "only version-bound checked choices are offered and nothing is created before confirmation."
+        },
+        {
+          "id": "AC4",
+          "given": "a current continuation choice",
+          "when": "confirmed",
+          "then": "S01-09 final recheck and conflict or unavailable behavior is reused."
+        },
+        {
+          "id": "AC5",
+          "given": "a continuation passes final confirmation",
+          "when": "the transaction commits",
+          "then": "one sequence-next session and two pending uniquely keyed messages are created."
+        },
+        {
+          "id": "AC6",
+          "given": "past sessions",
+          "when": "the next session is created",
+          "then": "history remains append-only and at most one future planned session exists."
+        },
+        {
+          "id": "AC7",
+          "given": "stale choice, replay, restart, or concurrency",
+          "when": "state is inspected",
+          "then": "no duplicate session, message, event, or success response exists."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/work-sessions/continuation.test.ts",
+          "npm run test:db -- server/test/work-session-continuation-db.integration.ts",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-10b/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10b/explicit-continuation.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10b/calendar-final-recheck.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10b/next-session-transaction.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10b/append-only-history.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10b/continuation-replay.json"
+          }
+        ],
+        "done_when": "A reviewer can decline or explicitly confirm one checked continuation with immutable history, one future session, two messages, and replay-safe final recheck."
+      },
+      "depends_on": [
+        "S01-10a"
+      ],
+      "blocks": [
+        "S01-10c"
+      ],
+      "squad": {
+        "type": "continuation-flow",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "The story joins durable continuation state to the existing Calendar confirmation transaction."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#missed-or-incomplete-work-session",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-9-final-availability-recheck",
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "server/src/work-sessions/",
+          "server/src/scheduling/",
+          "server/src/conversation/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": [
+        "After Need more time, must a separate consent question occur before Calendar search?",
+        "Which durable state owns continuation without colliding with the one active commitment draft?",
+        "What exact copy and actions represent continue, decline, select, correct, and confirm?",
+        "Does declining continuation require a separate ledger event?",
+        "The timing-constraint normalization contract must be complete before this story starts."
+      ]
+    },
+    {
+      "id": "S01-10c",
+      "title": "Offer one bounded recovery session",
+      "user_story": "As the owner, I want one explicitly confirmed recovery option when no pre-target window fits, so that I can try again without moving the original target.",
+      "why_now": "Ordinary continuation is bounded; recovery can now be added after its time-range conflict with S01-08 is resolved.",
+      "scope_refs": [
+        "Scope §Core concepts — Recovery session",
+        "Scope §Calendar policy — Availability rules",
+        "ADR Decisions 3, 8–9 and 11"
+      ],
+      "in_scope": [
+        "Evaluate recovery after a deterministic pre-target no-fit result.",
+        "Permit a recovery offer before or after target under the approved range contract.",
+        "Offer only a session strictly after target within the approved seven-day ceiling.",
+        "Require explicit selection, final recheck, and confirmation.",
+        "Create one recovery session and two messages through continuation.",
+        "Keep target immutable and derive overdue only from time.",
+        "Preserve replay, concurrency, non-response, and one-future-session guarantees."
+      ],
+      "out_of_scope": [
+        "Guessing or changing S01-08 recovery semantics without approval.",
+        "Target movement, automatic or repeated recovery, Calendar writes, monitoring, or relaxed constraints."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "pre-target no fit before target",
+          "when": "recovery is evaluated through the approved boundary",
+          "then": "a bounded post-target choice may be offered without marking overdue or creating a session."
+        },
+        {
+          "id": "AC2",
+          "given": "pre-target no fit after target",
+          "when": "recovery is evaluated",
+          "then": "a bounded choice may be offered while the active commitment is derived overdue."
+        },
+        {
+          "id": "AC3",
+          "given": "an offered recovery choice",
+          "when": "its range is inspected",
+          "then": "start is strictly after target and within the approved seven-day ceiling."
+        },
+        {
+          "id": "AC4",
+          "given": "a current recovery choice",
+          "when": "final confirmation succeeds",
+          "then": "one is_recovery session and two pending messages are created."
+        },
+        {
+          "id": "AC5",
+          "given": "an offer or confirmed recovery",
+          "when": "time crosses target",
+          "then": "target is byte-identical and overdue changes only from active status and current time."
+        },
+        {
+          "id": "AC6",
+          "given": "decline or non-response",
+          "when": "state is inspected",
+          "then": "no recovery session, message, follow-up, or target change exists."
+        },
+        {
+          "id": "AC7",
+          "given": "stale action, replay, restart, or concurrency",
+          "when": "state is inspected",
+          "then": "no duplicate recovery session, message, event, or success response exists."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/work-sessions/recovery.test.ts",
+          "npm run test:db -- server/test/work-session-recovery-db.integration.ts",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-10c/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10c/recovery-session.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10c/proactive-recovery-range.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10c/recovery-target-invariants.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10c/recovery-replay.json"
+          }
+        ],
+        "done_when": "A reviewer can evaluate recovery before and after target, decline it, or confirm one checked option with the approved bound, immutable target, and no duplicate continuation."
+      },
+      "depends_on": [
+        "S01-10b"
+      ],
+      "blocks": [
+        "S01-11"
+      ],
+      "squad": {
+        "type": "recovery-policy",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "Recovery owns one distinct unresolved time-range contract and should not destabilize completed outcomes and continuation."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#recovery-session",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-8-deterministic-calendar-boundary",
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "server/src/scheduling/availability.ts",
+          "server/src/work-sessions/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": [
+        "BLOCKING: Which approved API change permits post-target recovery evaluation before target when S01-08 currently returns recovery_not_due?",
+        "BLOCKING: Is the seven-day recovery ceiling target_at plus seven days or evaluation time plus seven days?",
+        "What exact copy and actions offer, decline, select, and confirm recovery?"
+      ]
     },
     {
       "id": "S01-11",
@@ -1841,8 +2385,8 @@
       "depends_on": [
         "S01-06",
         "S01-07",
-        "S01-09",
-        "S01-10"
+        "S01-09c",
+        "S01-10c"
       ],
       "blocks": [
         "S01-12"
