@@ -500,7 +500,9 @@ describe("GoogleOAuthService", () => {
     h.repository.readFailure = true;
     await expect(h.service.readState(sessionToken)).resolves.toEqual({
       action: "reconnect",
+      lastSuccessfulCheckAt: null,
       state: "unavailable",
+      verifiedEmail: ownerEmail,
     });
   });
 });

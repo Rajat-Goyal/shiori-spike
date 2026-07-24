@@ -42,8 +42,10 @@ export type GoogleConnectionState =
     }>
   | Readonly<{
       action: "reconnect";
+      lastSuccessfulCheckAt?: string | null;
       outcome?: GoogleOAuthOutcome;
       state: "unavailable";
+      verifiedEmail?: string;
     }>;
 
 export interface GoogleCalendarService {
@@ -158,6 +160,7 @@ export class GoogleOAuthService implements GoogleCalendarService {
   readonly #publicAppBaseUrl: string;
   readonly #randomBytes: (size: number) => Buffer;
   readonly #repository: GoogleOAuthRepository;
+  #lastKnownConnection?: GoogleConnectionRecord;
 
   constructor(options: GoogleOAuthServiceOptions) {
     this.#clientId = options.clientId;
@@ -423,8 +426,19 @@ export class GoogleOAuthService implements GoogleCalendarService {
     let connection: GoogleConnectionRecord | undefined;
     try {
       connection = await this.#repository.readConnection();
+      this.#lastKnownConnection = connection;
     } catch {
-      return { action: "reconnect", state: "unavailable" };
+      return {
+        action: "reconnect",
+        ...(this.#lastKnownConnection
+          ? {
+              lastSuccessfulCheckAt:
+                this.#lastKnownConnection.lastSuccessfulCheckAt,
+              verifiedEmail: this.#lastKnownConnection.verifiedEmail,
+            }
+          : {}),
+        state: "unavailable",
+      };
     }
 
     let outcome: GoogleOAuthOutcome | undefined;
