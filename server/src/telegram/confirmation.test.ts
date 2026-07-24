@@ -418,6 +418,46 @@ function callbackUpdate(options: {
 }
 
 describe("authorized Telegram callback boundary", () => {
+  it.each([
+    `w:${draft.id}:4:help`,
+    `s:${draft.id}:4:done`,
+    `c:${draft.id}:4:duration_60`,
+  ])("routes %s through the work-session lifecycle boundary", async (data) => {
+    const client = new ControlledTelegramClient();
+    const repository = new ControlledTelegramRepository();
+    const workSession = {
+      handle: vi.fn(async () => ({ text: "Work-session result" })),
+    };
+    const confirmation = { handle: vi.fn() };
+    const service = new TelegramService({
+      client,
+      confirmationService: confirmation,
+      conversationService: { handle: vi.fn() },
+      ownerUserId: ownerId,
+      repository,
+      workSessionActionService: workSession,
+    });
+
+    await service.handle(
+      callbackUpdate({ data, updateId: 9090 }),
+    );
+
+    expect(workSession.handle).toHaveBeenCalledWith(
+      9090,
+      ownerId,
+      data,
+    );
+    expect(confirmation.handle).not.toHaveBeenCalled();
+    expect(client.answers).toEqual(["callback-9090"]);
+    expect(client.sends).toEqual([
+      {
+        actions: undefined,
+        chatId: ownerId,
+        text: "Work-session result",
+      },
+    ]);
+  });
+
   it("delegates owner-private authority once, clears the spinner, and sends one visible result", async () => {
     const client = new ControlledTelegramClient();
     const repository = new ControlledTelegramRepository();

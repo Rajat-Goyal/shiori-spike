@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readServerConfig } from "../src/config.js";
 import {
   type DecisionAudit,
@@ -14,6 +14,16 @@ import type {
   WorkSessionDraftSnapshot,
 } from "../src/work-sessions/flow.js";
 import { SupabaseWorkSessionFlowRepository } from "../src/work-sessions/flow-repository.js";
+import {
+  SupabaseWorkSessionOutcomeRepository,
+} from "../src/work-sessions/outcomes.js";
+import {
+  SupabaseWorkSessionContinuationRepository,
+  WorkSessionContinuationService,
+} from "../src/work-sessions/continuation.js";
+import {
+  SupabaseWorkSessionMessageRepository,
+} from "../src/work-sessions/notifications.js";
 
 function localConfig() {
   const config = readServerConfig();
@@ -487,5 +497,457 @@ describe("atomic work-session confirmation on local Supabase", () => {
         "confirming",
       ),
     ).resolves.toMatchObject({ kind: "applied" });
+  });
+});
+
+describe("atomic work-session outcome and continuation on local Supabase", () => {
+  it("claims each start message once and safely reclaims an unstarted expired lease", async () => {
+    const baseUpdateId =
+      9_690_000_000 + randomInt(10_000_000);
+    const prepared = await preparedDraft("free", baseUpdateId);
+    await committer(prepared).commit(prepared.request);
+    const repository = () =>
+      new SupabaseWorkSessionMessageRepository({
+        supabaseSecretKey: prepared.config.supabaseSecretKey,
+        supabaseUrl: prepared.config.supabaseUrl,
+      });
+    const dueAt = new Date(
+      prepared.request.selectedWindow.startAt,
+    );
+    const [commitment] = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "commitments",
+      `&source_draft_id=eq.${prepared.snapshot.id}`,
+    );
+
+    const concurrent = await Promise.all([
+      repository().claimDue(dueAt, 20),
+      repository().claimDue(dueAt, 20),
+    ]);
+    const ownClaims = concurrent
+      .flat()
+      .filter(
+        (message) =>
+          message.commitmentId === String(commitment.id) &&
+          message.kind === "work_session_start",
+      );
+    expect(ownClaims).toHaveLength(1);
+    const first = ownClaims[0];
+    expect(first).toMatchObject({
+      attemptCount: 1,
+      kind: "work_session_start",
+    });
+
+    const reclaimed = await repository().claimDue(
+      new Date(dueAt.getTime() + 31_000),
+      20,
+    );
+    const ownReclaimed = reclaimed.find(
+      (message) => message.id === first.id,
+    );
+    expect(ownReclaimed).toMatchObject({
+      attemptCount: 1,
+      id: first.id,
+    });
+    expect(ownReclaimed!.leaseToken).not.toBe(first.leaseToken);
+
+    const current = repository();
+    await current.beginDelivery(
+      ownReclaimed!,
+      new Date(dueAt.getTime() + 32_000),
+    );
+    await current.recordResult({
+      attemptCount: ownReclaimed!.attemptCount,
+      leaseToken: ownReclaimed!.leaseToken,
+      messageId: ownReclaimed!.id,
+      recordedAt: new Date(dueAt.getTime() + 33_000),
+      result: "delivered",
+      telegramMessageId: 991,
+    });
+
+    const [session] = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "work_sessions",
+      `&commitment_id=eq.${commitment.id}`,
+    );
+    expect(session.status).toBe("started");
+  });
+
+  it("Done before a planned session closes once and suppresses both unsent messages", async () => {
+    const baseUpdateId =
+      9_695_000_000 + randomInt(10_000_000);
+    const prepared = await preparedDraft("free", baseUpdateId);
+    await committer(prepared).commit(prepared.request);
+    const [commitment] = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "commitments",
+      `&source_draft_id=eq.${prepared.snapshot.id}`,
+    );
+    const [session] = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "work_sessions",
+      `&commitment_id=eq.${commitment.id}`,
+    );
+    const outcome = new SupabaseWorkSessionOutcomeRepository({
+      ownerId: prepared.config.telegramOwnerUserId,
+      supabaseSecretKey: prepared.config.supabaseSecretKey,
+      supabaseUrl: prepared.config.supabaseUrl,
+    });
+
+    await expect(
+      outcome.resolve({
+        action: "done",
+        chatId: prepared.config.telegramOwnerUserId,
+        sessionId: String(session.id),
+        updateId: baseUpdateId + 3,
+        version: 1,
+      }),
+    ).resolves.toMatchObject({ kind: "done" });
+    await expect(
+      outcome.resolve({
+        action: "done",
+        chatId: prepared.config.telegramOwnerUserId,
+        sessionId: String(session.id),
+        updateId: baseUpdateId + 3,
+        version: 1,
+      }),
+    ).resolves.toEqual({ kind: "replay" });
+
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "commitments",
+        `&id=eq.${commitment.id}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        completed_at: expect.any(String),
+        status: "done",
+      }),
+    ]);
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "work_sessions",
+        `&id=eq.${session.id}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        outcome_at: expect.any(String),
+        status: "cancelled",
+      }),
+    ]);
+    expect(
+      (
+        await rows(
+          prepared.config.supabaseUrl,
+          prepared.config.supabaseSecretKey,
+          "scheduled_messages",
+          `&work_session_id=eq.${session.id}`,
+        )
+      ).map((message) => message.state),
+    ).toEqual(["cancelled", "cancelled"]);
+  });
+
+  it("records partial work first, then appends exactly one confirmed next session", async () => {
+    const baseUpdateId =
+      9_700_000_000 + randomInt(10_000_000);
+    const prepared = await preparedDraft("free", baseUpdateId);
+    await expect(
+      committer(prepared).commit(prepared.request),
+    ).resolves.toEqual({ kind: "applied" });
+    const [commitment] = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "commitments",
+      `&source_draft_id=eq.${prepared.snapshot.id}`,
+    );
+    const commitmentId = String(commitment.id);
+    const originalTarget = String(commitment.target_at);
+    const [sourceSession] = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "work_sessions",
+      `&commitment_id=eq.${commitmentId}`,
+    );
+    const outcome = new SupabaseWorkSessionOutcomeRepository({
+      ownerId: prepared.config.telegramOwnerUserId,
+      supabaseSecretKey: prepared.config.supabaseSecretKey,
+      supabaseUrl: prepared.config.supabaseUrl,
+    });
+    const outcomeResult = await outcome.resolve({
+      action: "more",
+      chatId: prepared.config.telegramOwnerUserId,
+      sessionId: String(sourceSession.id),
+      updateId: baseUpdateId + 3,
+      version: 1,
+    });
+    expect(outcomeResult).toMatchObject({ kind: "more" });
+    if (outcomeResult.kind !== "more") {
+      throw new Error("partial outcome was not persisted");
+    }
+
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "commitments",
+        `&id=eq.${commitmentId}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({ status: "active" }),
+    ]);
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "work_sessions",
+        `&commitment_id=eq.${commitmentId}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        outcome_at: expect.any(String),
+        status: "more_work_needed",
+      }),
+    ]);
+
+    const nextStartMillis = nextBoundary(Date.now() + 12 * 60 * 60_000);
+    const nextWindow = {
+      endAt: singaporeInstant(nextStartMillis + 60 * 60_000),
+      startAt: singaporeInstant(nextStartMillis),
+    };
+    const checkedAt = new Date().toISOString();
+    const availability = vi
+      .fn()
+      .mockResolvedValueOnce({
+        alternatives: [nextWindow],
+        checkedAt,
+        proposed: null,
+        status: "available",
+      })
+      .mockResolvedValueOnce({
+        alternatives: [],
+        checkedAt,
+        proposed: { status: "free", window: nextWindow },
+        status: "available",
+      });
+    const continuation = new WorkSessionContinuationService({
+      availability,
+      repository: new SupabaseWorkSessionContinuationRepository({
+        ownerId: prepared.config.telegramOwnerUserId,
+        supabaseSecretKey: prepared.config.supabaseSecretKey,
+        supabaseUrl: prepared.config.supabaseUrl,
+      }),
+    });
+    const intentId = outcomeResult.continuationId;
+
+    await expect(
+      continuation.handle(
+        baseUpdateId + 4,
+        prepared.config.telegramOwnerUserId,
+        `c:${intentId}:1:duration_60`,
+      ),
+    ).resolves.toMatchObject({
+      actions: [expect.objectContaining({ text: "Choose option 1" }), expect.anything()],
+    });
+    await expect(
+      continuation.handle(
+        baseUpdateId + 5,
+        prepared.config.telegramOwnerUserId,
+        `c:${intentId}:2:option_1`,
+      ),
+    ).resolves.toMatchObject({
+      actions: [expect.objectContaining({ text: "Confirm" }), expect.anything()],
+    });
+    await expect(
+      continuation.handle(
+        baseUpdateId + 6,
+        prepared.config.telegramOwnerUserId,
+        `c:${intentId}:3:confirm`,
+      ),
+    ).resolves.toMatchObject({
+      text: expect.stringMatching(/Next work session scheduled/),
+    });
+
+    const sessions = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "work_sessions",
+      `&commitment_id=eq.${commitmentId}`,
+    );
+    expect(sessions).toHaveLength(2);
+    expect(
+      sessions.map((session) => session.sequence_number).sort(),
+    ).toEqual([1, 2]);
+    const nextSession = sessions.find(
+      (session) => session.sequence_number === 2,
+    )!;
+    expect(nextSession).toMatchObject({
+      is_recovery: false,
+      source_session_id: sourceSession.id,
+      status: "planned",
+    });
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "scheduled_messages",
+        `&work_session_id=eq.${nextSession.id}`,
+      ),
+    ).toHaveLength(2);
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "commitments",
+        `&id=eq.${commitmentId}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({ target_at: originalTarget }),
+    ]);
+
+    await continuation.handle(
+      baseUpdateId + 7,
+      prepared.config.telegramOwnerUserId,
+      `c:${intentId}:3:confirm`,
+    );
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "work_sessions",
+        `&commitment_id=eq.${commitmentId}`,
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("offers and confirms one recovery only inside the immutable target-relative cap", async () => {
+    const baseUpdateId =
+      9_720_000_000 + randomInt(10_000_000);
+    const prepared = await preparedDraft("free", baseUpdateId);
+    await committer(prepared).commit(prepared.request);
+    const [commitment] = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "commitments",
+      `&source_draft_id=eq.${prepared.snapshot.id}`,
+    );
+    const [sourceSession] = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "work_sessions",
+      `&commitment_id=eq.${commitment.id}`,
+    );
+    const outcome = new SupabaseWorkSessionOutcomeRepository({
+      ownerId: prepared.config.telegramOwnerUserId,
+      supabaseSecretKey: prepared.config.supabaseSecretKey,
+      supabaseUrl: prepared.config.supabaseUrl,
+    });
+    const missed = await outcome.resolve({
+      action: "missed",
+      chatId: prepared.config.telegramOwnerUserId,
+      sessionId: String(sourceSession.id),
+      updateId: baseUpdateId + 3,
+      version: 1,
+    });
+    expect(missed.kind).toBe("missed");
+    if (missed.kind !== "missed") {
+      throw new Error("missed outcome was not persisted");
+    }
+
+    const targetMillis = Date.parse(String(commitment.target_at));
+    const recoveryWindow = {
+      endAt: singaporeInstant(
+        nextBoundary(targetMillis + 60 * 60_000) + 60 * 60_000,
+      ),
+      startAt: singaporeInstant(
+        nextBoundary(targetMillis + 60 * 60_000),
+      ),
+    };
+    const checkedAt = new Date().toISOString();
+    const availability = vi
+      .fn()
+      .mockResolvedValueOnce({
+        alternatives: [],
+        checkedAt,
+        proposed: null,
+        status: "no_fit",
+      })
+      .mockResolvedValueOnce({
+        alternatives: [recoveryWindow],
+        checkedAt,
+        proposed: null,
+        status: "available",
+      })
+      .mockResolvedValueOnce({
+        alternatives: [],
+        checkedAt,
+        proposed: { status: "free", window: recoveryWindow },
+        status: "available",
+      });
+    const continuation = new WorkSessionContinuationService({
+      availability,
+      repository: new SupabaseWorkSessionContinuationRepository({
+        ownerId: prepared.config.telegramOwnerUserId,
+        supabaseSecretKey: prepared.config.supabaseSecretKey,
+        supabaseUrl: prepared.config.supabaseUrl,
+      }),
+    });
+
+    await continuation.handle(
+      baseUpdateId + 4,
+      prepared.config.telegramOwnerUserId,
+      `c:${missed.continuationId}:1:another`,
+    );
+    await continuation.handle(
+      baseUpdateId + 5,
+      prepared.config.telegramOwnerUserId,
+      `c:${missed.continuationId}:2:option_1`,
+    );
+    await continuation.handle(
+      baseUpdateId + 6,
+      prepared.config.telegramOwnerUserId,
+      `c:${missed.continuationId}:3:confirm`,
+    );
+
+    const sessions = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "work_sessions",
+      `&commitment_id=eq.${commitment.id}`,
+    );
+    expect(sessions).toHaveLength(2);
+    expect(sessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          is_recovery: true,
+          sequence_number: 2,
+          source_session_id: sourceSession.id,
+          status: "planned",
+        }),
+      ]),
+    );
+    expect(Date.parse(String(sessions[1].start_at))).toBeGreaterThanOrEqual(
+      targetMillis,
+    );
+    expect(Date.parse(String(sessions[1].end_at))).toBeLessThanOrEqual(
+      targetMillis + 7 * 24 * 60 * 60_000,
+    );
+    expect(
+      (
+        await rows(
+          prepared.config.supabaseUrl,
+          prepared.config.supabaseSecretKey,
+          "commitments",
+          `&id=eq.${commitment.id}`,
+        )
+      )[0].target_at,
+    ).toBe(commitment.target_at);
   });
 });
