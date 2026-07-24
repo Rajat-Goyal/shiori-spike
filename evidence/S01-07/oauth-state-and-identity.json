@@ -1,10 +1,11 @@
 {
-  "schema": "shiori.evidence.oauth-state-and-identity.v1",
+  "schema": "shiori.evidence.oauth-state-and-identity.v2",
   "story": "S01-07",
   "commit": "670a5c21101deb93ff8fbe09ed1f871bc39bb8d1",
-  "generated_at": "2026-07-24T15:03:45Z",
+  "generated_at": "2026-07-24T18:21:36Z",
   "controlled_gate": "pass",
-  "uses_real_google_credentials": false,
+  "controlled_gate_uses_real_google_credentials": false,
+  "owner_assisted_real_google_completed": true,
   "oauth_state": {
     "attempt_lifetime_seconds": 600,
     "owner_session_required": true,
@@ -136,22 +137,53 @@
     "plaintext_refresh_token_persisted": false,
     "controlled_sentinel_matches": 0
   },
+  "final_verification": {
+    "clean_checkout_head": "3d0fa12de123b4eb62a6d24a00bf7c5fe6294340",
+    "oauth_tests_passed": 19,
+    "chromium_tests_passed": 13,
+    "database_tests_passed": 5,
+    "full_server_tests_passed": 213,
+    "full_browser_tests_passed": 46,
+    "disposable_database_project": "shiori-s01-07-qa",
+    "shared_database_rows_modified": false,
+    "shared_gateway_restored": true,
+    "shared_gateway_health_http_status": 200,
+    "evidence_artifacts_scanned": 5,
+    "loaded_sensitive_values_scanned": 11,
+    "sensitive_value_matches": 0,
+    "text_recognizable_credential_or_identity_patterns": 0,
+    "screenshot_configured_owner_value_present": false,
+    "screenshot_uses_synthetic_fixture": true
+  },
   "owner_assisted_google": {
-    "status": "blocked",
-    "connect_result": "blocked",
-    "reconnect_result": "pending",
-    "verified_owner_match": null,
-    "bounded_failure_class": "redirect_uri_mismatch",
-    "consent_reached": false,
-    "token_exchange_reached": false,
-    "callback_reached": false,
-    "connection_rows_created": 0,
-    "post_attempt_database_reset": true,
-    "post_attempt_row_counts": {
+    "status": "pass",
+    "connect_result": "pass",
+    "reconnect_result": "pass",
+    "verified_owner_match": true,
+    "consent_reached": true,
+    "token_exchange_reached": true,
+    "callback_reached": true,
+    "clean_dashboard_return": true,
+    "visible_reconnected_outcome": true,
+    "independent_connected_state_check": true,
+    "owner_identity_value_recorded": false,
+    "provider_material_recorded": false,
+    "post_smoke_database": {
       "google_oauth_attempts": 0,
+      "active_google_oauth_attempts": 0,
       "google_oauth_outcomes": 0,
-      "google_calendar_connection": 0
+      "google_calendar_connection": 1,
+      "authenticated_encryption_envelope_valid": true,
+      "exact_approved_scope_policy": true,
+      "calendar_identifier_primary": true,
+      "configured_owner_nonempty": true,
+      "connection_status_connected": true,
+      "connection_timestamps_valid": true,
+      "commitments": 0,
+      "work_sessions_relation": "absent",
+      "scheduled_messages_relation": "absent",
+      "commitment_events_relation": "absent"
     },
-    "note": "The real Connect attempt was blocked before consent because the required local callback is not registered. Reconnect remains pending."
+    "note": "The owner completed real Connect and Reconnect. Evidence records only bounded results and sanitized database properties; it contains no identity value or provider material."
   }
 }

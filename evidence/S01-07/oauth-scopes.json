@@ -1,8 +1,8 @@
 {
-  "schema": "shiori.evidence.oauth-scopes.v1",
+  "schema": "shiori.evidence.oauth-scopes.v2",
   "story": "S01-07",
   "commit": "670a5c21101deb93ff8fbe09ed1f871bc39bb8d1",
-  "generated_at": "2026-07-24T15:03:45Z",
+  "generated_at": "2026-07-24T18:21:36Z",
   "controlled_gate": "pass",
   "requested_scopes": [
     "openid",
@@ -38,14 +38,24 @@
   "extra_scope_rejected": true,
   "calendar_write_scope_rejected": true,
   "owner_assisted_google": {
-    "status": "blocked",
-    "connect_result": "blocked",
-    "reconnect_result": "pending",
-    "bounded_failure_class": "redirect_uri_mismatch",
-    "consent_reached": false,
-    "grant_created": false,
-    "provider_granted_scopes": null,
-    "calendar_identifier": null,
-    "note": "No real Google grant exists. The Connect attempt was blocked before consent because the required local callback is not registered."
+    "status": "pass",
+    "connect_result": "pass",
+    "reconnect_result": "pass",
+    "consent_reached": true,
+    "grant_created": true,
+    "provider_response_scope_validation_result": "pass",
+    "provider_response_retained": false,
+    "persisted_normalized_policy_scopes": [
+      "openid",
+      "email",
+      "https://www.googleapis.com/auth/calendar.events.readonly",
+      "https://www.googleapis.com/auth/calendar.freebusy"
+    ],
+    "persisted_policy_exact_match": true,
+    "unexpected_scope_count": 0,
+    "calendar_write_scope_count": 0,
+    "calendar_identifier": "primary",
+    "connection_rows": 1,
+    "note": "The successful real callback passed the provider-scope validator and persisted exactly the approved normalized policy. Raw provider material was intentionally not retained or copied into evidence."
   }
 }

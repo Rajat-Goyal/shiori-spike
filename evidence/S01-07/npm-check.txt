@@ -1,10 +1,10 @@
 S01-07 — controlled verification transcript
 ============================================================
 Commit: 670a5c21101deb93ff8fbe09ed1f871bc39bb8d1
-Generated: 2026-07-24T15:03:45Z
+Generated: 2026-07-24T18:21:36Z
 Final controlled status: PASS
-Real Google owner-assisted Connect: BLOCKED
-Real Google owner-assisted Reconnect: PENDING
+Real Google owner-assisted Connect: PASS
+Real Google owner-assisted Reconnect: PASS
 
 Final host bridge
 ------------------------------------------------------------
@@ -99,6 +99,56 @@ Confirmed:
   success notices use status; failures use alert
   long configured emails wrap without mobile overflow
 
+Resumed final gate
+------------------------------------------------------------
+Clean-checkout HEAD: 3d0fa12de123b4eb62a6d24a00bf7c5fe6294340
+S01-07 source commit: 670a5c21101deb93ff8fbe09ed1f871bc39bb8d1
+
+$ npm run test --workspace @shiori/server -- src/google/oauth.test.ts
+Exit: 0
+Result: 1 file passed; 19/19 tests passed
+
+$ npm run test:e2e -- tests/e2e/google-connection.spec.ts --project=chromium
+Exit: 0
+Result: 13/13 Chromium tests passed
+
+$ npm run test:db
+Shared-stack preflight: NOT USED AS FINAL EVIDENCE
+Shared-stack result: Google 2/2 passed, but the command was 4/5 because a
+  separately disclosed S01-03b conversation fixture violated that test's
+  required empty initial state. No shared row was deleted or changed.
+
+Disposable isolation:
+  project=shiori-s01-07-qa
+  committed migrations only
+  distinct DB, Studio, and mail ports
+  shared DB, REST, and Auth containers remained running
+  only the shared gateway was briefly paused because the integration tests
+    intentionally require the local API to use port 54321
+$ npm run test:db
+Exit: 0
+Result: 4 files passed; 5/5 tests passed
+Google Calendar integration: 2/2 tests passed
+Cleanup: disposable stack removed; shared gateway restored
+Shared gateway restoration health: HTTP 200
+
+$ npm run check
+Exit: 0
+Result:
+  typecheck passed
+  213/213 server tests passed
+  web and server production builds passed
+  46/46 desktop/mobile isolated E2E tests passed
+
+Final evidence leakage scan:
+  artifacts scanned=5
+  loaded local sensitive values=11
+  exact matches=0
+  text-artifact email, token, client-id, JWT, and callback-query patterns=0
+  screenshot configured-owner value present=false
+  screenshot content=controlled synthetic fixture only
+  JSON parse and git diff checks=PASS
+
 Acceptance criteria
 ------------------------------------------------------------
 AC1 PASS — owner-session-bound, one-use PKCE flow; offline access; approved scopes
@@ -119,12 +169,37 @@ evidence/S01-07/google-connection-states.png
 
 Owner-assisted status
 ------------------------------------------------------------
-Connect: BLOCKED
-Reconnect: PENDING
-Bounded failure class: redirect_uri_mismatch
+Connect: PASS
+Reconnect: PASS
+Configured-owner match: PASS
+Final browser return clean: PASS
 
-The owner authenticated to the protected local dashboard and initiated Connect
-once. Google rejected before consent because the required local callback is not
-registered. There was no grant, provider API, callback, connection row, token,
-or Reconnect. The temporary server was stopped; disposable local Supabase was
-reset and attempts/outcomes/connection counts were confirmed as 0/0/0.
+The owner completed a real Connect and Reconnect through the protected local
+dashboard after the exact callback and Testing-mode account were configured.
+The original return visibly reported "Google Calendar reconnected.", Connected,
+Primary calendar · Read-only, and Calendar not checked yet. A fresh independent
+authenticated dashboard tab confirmed the clean root URL, Connected state,
+nonempty owner display without returning or recording the email, Primary
+calendar · Read-only, Calendar not checked yet, and the Reconnect action. The
+one-use Reconnect notice had already been consumed by the original tab.
+
+Sanitized post-smoke database inspection:
+  google_oauth_attempts=0
+  active_google_oauth_attempts=0
+  google_oauth_outcomes=0
+  google_calendar_connection=1
+  authenticated_encryption_envelope_valid=true
+  exact_approved_scope_policy=true
+  calendar_identifier_primary=true
+  configured_owner_nonempty=true
+  connection_status_connected=true
+  connection_timestamps_valid=true
+  commitments=0
+  work_sessions_relation=absent
+  scheduled_messages_relation=absent
+  commitment_events_relation=absent
+
+No email, authorization URL, callback query, state, code, token, client secret,
+provider payload, or encrypted credential material was copied into evidence.
+The four-state screenshot remains the controlled synthetic contact sheet because
+a live connected panel necessarily renders the configured owner email.

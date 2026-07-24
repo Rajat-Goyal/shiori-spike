@@ -1,10 +1,10 @@
 # S01-07 token exposure audit
 
 - Commit: `670a5c21101deb93ff8fbe09ed1f871bc39bb8d1`
-- Generated: `2026-07-24T15:03:45Z`
+- Generated: `2026-07-24T18:21:36Z`
 - Controlled gate: **PASS**
-- Real Google owner-assisted Connect: **BLOCKED**
-- Real Google owner-assisted Reconnect: **PENDING**
+- Real Google owner-assisted Connect: **PASS**
+- Real Google owner-assisted Reconnect: **PASS**
 
 ## Exposure matrix
 
@@ -17,6 +17,8 @@
 | Provider response retention | A controlled access token and unrelated provider field were discarded before replacement | 0 persisted matches |
 | Database schema | Three tables and 26 allowlisted columns inspected; eight forbidden plaintext/provider column names checked | 0 forbidden columns |
 | Database rows | Plaintext refresh-token sentinel absent; attempts/outcomes were one-use; failed reconnect snapshots remained byte-for-byte unchanged | PASS |
+| Real browser return | Original tab visibly reported Reconnect success; independent tab confirmed a clean root URL and connected read-only primary-Calendar state without returning the identity value | PASS |
+| Real database row | Attempts/outcomes drained; singleton connection has a valid authenticated-encryption envelope, exact approved scope policy, literal `primary`, connected status, and valid timestamps | PASS |
 | Evidence files | Loaded secret values and controlled sentinel values scanned after artifact generation | 0 matches |
 
 The public OAuth client identifier, opaque OAuth state, nonce, and PKCE challenge necessarily travel through the authorization request. They are not credentials. The callback renders no JavaScript and redirects immediately to a clean URL.
@@ -72,18 +74,51 @@ With the Google service forced unavailable through controlled injection:
 
 This proves isolation for every currently implemented non-Calendar surface. S01-03b/S01-03c and release verification must retest the same invariant when later commitment-write behavior exists.
 
+## Final clean-checkout verification
+
+- Focused OAuth: 19/19 passed.
+- Focused Chromium: 13/13 passed.
+- Full check: typecheck, 213/213 server tests, both production builds, and
+  46/46 desktop/mobile browser tests passed.
+- Exact database command: 5/5 passed against a fresh disposable
+  `shiori-s01-07-qa` stack containing only committed migrations.
+- The disclosed shared S01-03b conversation fixture was not used as final
+  evidence and was not deleted or changed.
+- Because the database tests deliberately require API port 54321, only the
+  shared gateway was briefly paused. Shared DB, REST, and Auth stayed running;
+  the disposable stack was removed afterward, the shared gateway was restored,
+  and its health check returned HTTP 200.
+- All five evidence artifacts were scanned against 11 loaded local sensitive
+  values: zero matches. The four text artifacts contain zero recognizable
+  email, token, client-id, JWT, or callback-query patterns. Independent visual
+  inspection confirms the screenshot contains only the controlled synthetic
+  identity fixture, never the configured owner value.
+
 ## Owner-assisted follow-up
 
-The owner authenticated to the protected local dashboard and initiated Connect once. Google rejected the request before consent with the bounded failure class `redirect_uri_mismatch` because the required local callback is not registered.
+After the exact local callback and Testing-mode account were configured, the
+owner completed real Connect and Reconnect through the protected dashboard.
 
-The attempt produced:
+The bounded browser proof confirmed:
 
-- no consent or scope grant;
-- no provider API or token exchange;
-- no application callback;
-- no Google connection row or token;
-- no Reconnect attempt.
+- a clean application-root return with no query or fragment;
+- the one-use `Google Calendar reconnected.` success notice in the original tab;
+- Connected state, a nonempty owner display, `Primary calendar · Read-only`,
+  `Calendar not checked yet`, and the Reconnect action;
+- the same connected state in a fresh independent authenticated tab after the
+  one-use outcome had been consumed.
 
-The temporary local server was stopped. Disposable local Supabase was reset, and attempts/outcomes/connection counts were confirmed as `0/0/0`.
+Sanitized post-smoke database inspection confirmed zero attempts, zero active
+attempts, zero outcomes, and exactly one connection. The singleton connection
+has a valid authenticated-encryption envelope, the exact approved normalized
+scope policy, literal Calendar identifier `primary`, nonempty configured-owner
+metadata, connected status, and valid timestamps. Commitments remained at zero.
+The later-slice `work_sessions`, `scheduled_messages`, and `commitment_events`
+relations do not yet exist in this pre-S01-03c schema, so the OAuth smoke could
+not have created rows in them.
 
-Connect remains **BLOCKED** on callback registration. Reconnect remains **PENDING**. A later sanitized owner-assisted run must confirm matching identity, the provider-returned granted scopes, successful Connect and Reconnect, singleton replacement, and the clean browser return without recording URLs, state, client identifiers, codes, tokens, email, or encrypted credential material in evidence.
+The evidence intentionally records no email, authorization URL, callback query,
+OAuth state, authorization code, token, client secret, raw provider payload, or
+encrypted credential material. The screenshot remains the controlled synthetic
+four-state contact sheet because a live connected panel necessarily renders the
+configured owner email.
