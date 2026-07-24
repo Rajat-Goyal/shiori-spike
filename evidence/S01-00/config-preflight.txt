@@ -1,0 +1,37 @@
+Shiori Slice 01 — S01-00 configuration preflight
+
+Timestamp (UTC): 2026-07-24T10:09:10Z
+Commit under test: 2da3e42907d7ce56842d4629dc7d94fed12633a3
+Result: PASS
+
+Recorded-data policy
+- This record contains configuration key names, categories, and pass/fail results only.
+- No environment values, value lengths, value fragments, credential hashes, tokens, or connection details were recorded.
+- The Supabase category is intentionally deferred to S01-01 by the S01-00 contract.
+
+Required configuration categories and keys
+- Telegram: TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TELEGRAM_OWNER_USER_ID
+- OpenAI: OPENAI_API_KEY, OPENAI_MODEL, OPENAI_PROMPT_VERSION
+- Google OAuth and token protection: GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OWNER_EMAIL, GOOGLE_TOKEN_ENCRYPTION_KEY, GOOGLE_TOKEN_KEY_VERSION
+- Owner dashboard: DASHBOARD_PASSWORD_HASH, DASHBOARD_SESSION_SECRET
+- Fixed slice configuration: OWNER_TIME_ZONE, PUBLIC_APP_BASE_URL
+
+Exact story verification command summary
+- Required-key non-empty/non-placeholder preflight: PASS (exit 0)
+- Non-empty .env.local check: PASS (exit 0)
+- Git ignore-rule check for .env.local: PASS (exit 0)
+
+Additional independent QA checks
+- Clean-environment required-key preflight: PASS
+- OWNER_TIME_ZONE policy equality check: PASS
+- Git cached/tracked-file check for .env.local: PASS
+- Git staged-diff check for .env.local: PASS
+- Current-commit file-presence check for .env.local: PASS
+- Git status visibility check for ignored .env.local: PASS
+
+Acceptance-criterion signoff
+- AC1: PASS — every required pre-Supabase key was present, non-empty, and non-placeholder when loaded from .env.local in a clean process environment. The fixed owner-time-zone policy check also passed.
+- AC2: PASS — .env.local is ignored, untracked, absent from the staged diff, absent from the current commit, and omitted from normal Git status output.
+
+Independent QA signoff: PASS
+Deviations or failures: None.
