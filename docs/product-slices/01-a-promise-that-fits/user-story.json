@@ -1,6 +1,6 @@
 {
   "slice": "01-a-promise-that-fits",
-  "generated_at": "2026-07-24T20:46:10Z",
+  "generated_at": "2026-07-24T21:22:43Z",
   "source_docs": [
     "docs/product-slices/01-a-promise-that-fits/scope.md",
     "docs/product-slices/01-a-promise-that-fits/adr.md",
@@ -1169,7 +1169,8 @@
         "done_when": "A reviewer can inspect an ordered /status response, complete once, cancel only after the second confirmation, and replay every action without changing counts."
       },
       "depends_on": [
-        "S01-04"
+        "S01-04",
+        "S01-09c"
       ],
       "blocks": [
         "S01-10a1",
@@ -1839,7 +1840,8 @@
       ],
       "blocks": [
         "S01-10a1",
-        "S01-11"
+        "S01-11",
+        "S01-06"
       ],
       "squad": {
         "type": "transaction-integration",
@@ -1862,7 +1864,7 @@
           "supabase/migrations/"
         ]
       },
-      "status": "todo",
+      "status": "in_progress",
       "open_questions": [
         "S01-05 must publish a stable schedule-creation handoff before this story begins. PM recommends logicalKey, commitmentId, optional workSessionId, kind, and dueAt as creation inputs; pending state, attempt zero, and null lease/provider/error fields as defaults; kinds work_session_start and work_session_end; and keys ws:<session-uuid>:start|end. The dependency's actual output must be checked before implementation.",
         "For an unverified save, PM recommends calendar_checked_at remain null and a separate calendar_attempted_at record the failed-attempt time, so failed verification is never represented as a successful check. Owner approval is required.",
