@@ -1,9 +1,11 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap");
+
 :root {
   color: #202721;
   background: #eee8dc;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+    "Manrope", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -82,7 +84,7 @@ input:focus-visible {
 }
 
 .login-card {
-  width: min(100%, 610px);
+  width: min(100%, 760px);
   padding: clamp(30px, 6vw, 64px);
   border-radius: 28px;
 }
@@ -191,12 +193,12 @@ p {
   margin-top: 6px;
   padding: 0 22px;
   color: #fffaf2;
-  background: #dd6747;
+  background: #b84c32;
 }
 
 .primary-button:hover:not(:disabled) {
-  background: #c75538;
-  box-shadow: 0 12px 24px rgb(221 103 71 / 22%);
+  background: #9f3e28;
+  box-shadow: 0 12px 24px rgb(184 76 50 / 22%);
   transform: translateY(-1px);
 }
 
@@ -241,6 +243,10 @@ p {
   padding: clamp(42px, 8vw, 76px);
   border-radius: 28px;
   text-align: center;
+}
+
+.state-card > .eyebrow {
+  justify-self: center;
 }
 
 .brand-mark,
@@ -364,18 +370,46 @@ p {
 
 .last-updated {
   margin: 0;
-  color: #717a74;
+  color: #5d6761;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.72rem;
   text-align: right;
 }
 
+.refresh-status {
+  min-height: 1.25rem;
+  margin: 20px 0 -20px;
+  color: #5d6761;
+  font-size: 0.82rem;
+  text-align: right;
+}
+
 .notice--refresh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   margin: 30px 0 0;
   padding: 13px 16px;
   border: 1px solid rgb(179 86 58 / 22%);
   color: #8c4938;
   background: rgb(221 103 71 / 7%);
+}
+
+.inline-retry-button {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid rgb(49 91 73 / 28%);
+  border-radius: 10px;
+  color: #315b49;
+  background: #f8f3e9;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.inline-retry-button:hover {
+  background: #eee7da;
 }
 
 .count-grid {
@@ -486,7 +520,7 @@ p {
 @media (max-width: 680px) {
   .page-shell,
   .dashboard-shell {
-    padding: 12px;
+    padding: 14px;
   }
 
   .login-card,
@@ -497,7 +531,7 @@ p {
 
   .login-card,
   .state-card {
-    min-height: calc(100vh - 24px);
+    min-height: calc(100vh - 28px);
   }
 
   .login-card {
@@ -516,7 +550,7 @@ p {
   }
 
   .dashboard-frame {
-    min-height: calc(100vh - 24px);
+    min-height: calc(100vh - 28px);
     padding: 30px 20px;
   }
 
@@ -538,6 +572,20 @@ p {
 
   .last-updated {
     text-align: right;
+  }
+
+  .refresh-status {
+    margin-top: 14px;
+    text-align: left;
+  }
+
+  .notice--refresh {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .inline-retry-button {
+    width: 100%;
   }
 
   .count-grid {

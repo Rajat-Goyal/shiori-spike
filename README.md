@@ -94,8 +94,10 @@ npm run check
 ```
 
 The local database must be running and migrated for `npm run test:db`. Browser
-tests use controlled HTTP responses for explicit UI states and never introduce
-runtime fallback data into the application.
+state tests use controlled HTTP responses for explicit failure conditions and
+never introduce runtime fallback data into the application. `npm run check`
+keeps those isolated tests repeatable; the focused `owner-dashboard.spec.ts`
+command above is the real browser → Fastify → local Supabase acceptance path.
 
 ## Production build
 

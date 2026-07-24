@@ -1,247 +1,94 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { loadEnvFile } from "node:process";
 
-const firstSummary = {
-  commitments: [],
-  counts: {
-    active: 0,
-    dueToday: 0,
-    overdue: 0,
-  },
-  updatedAt: "2026-07-24T10:34:56.000Z",
-};
+const ownerPassword = "playwright-owner-password";
 
-const refreshedSummary = {
-  ...firstSummary,
-  updatedAt: "2026-07-24T10:35:07.000Z",
-};
+test.beforeAll(() => {
+  try {
+    loadEnvFile(".env.local");
+  } catch {
+    throw new Error(
+      "Live owner-dashboard E2E requires an ignored .env.local and Docker-local Supabase",
+    );
+  }
 
-async function beginAtLogin(page: Page) {
-  await page.route("**/api/owner/session", (route) =>
-    route.fulfill({ json: { error: "unauthenticated" }, status: 401 }),
-  );
+  const configuredUrl = process.env.SUPABASE_URL;
+  if (!configuredUrl) {
+    throw new Error(
+      "Live owner-dashboard E2E requires the Docker-local Supabase API URL",
+    );
+  }
+
+  const url = new URL(configuredUrl);
+  if (
+    !["127.0.0.1", "localhost"].includes(url.hostname) ||
+    url.port !== "54321"
+  ) {
+    throw new Error(
+      "Live owner-dashboard E2E is restricted to Docker-local Supabase on port 54321",
+    );
+  }
+});
+
+test("real owner walking skeleton uses Fastify session and live local Supabase @live", async ({
+  context,
+  page,
+}) => {
+  const browserFetches: string[] = [];
+  page.on("request", (request) => {
+    if (request.resourceType() === "fetch") {
+      browserFetches.push(request.url());
+    }
+  });
+
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: "Open your dashboard" }),
   ).toBeVisible();
-}
 
-async function openEmptyDashboard(page: Page) {
-  await beginAtLogin(page);
-  await page.route("**/api/owner/login", (route) =>
-    route.fulfill({ json: { authenticated: true } }),
-  );
-  await page.route("**/api/dashboard/summary", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    await route.fulfill({ json: firstSummary });
-  });
+  const refused = await page.request.get("/api/dashboard/summary");
+  expect(refused.status()).toBe(401);
 
-  await page.getByLabel("Password").fill("owner password");
+  await page.getByLabel("Password").fill(ownerPassword);
   await page.getByRole("button", { name: "Open dashboard" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Loading live dashboard…" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Your promises" }),
-  ).toBeVisible();
-}
-
-test("opens the live empty dashboard after owner login", async ({ page }) => {
-  await beginAtLogin(page);
-  let loginAttempts = 0;
-  await page.route("**/api/owner/login", async (route) => {
-    loginAttempts += 1;
-    if (loginAttempts === 1) {
-      await route.fulfill({ json: { error: "invalid_password" }, status: 401 });
-    } else {
-      await route.fulfill({ json: { authenticated: true } });
-    }
-  });
-  await page.route("**/api/dashboard/summary", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    await route.fulfill({ json: firstSummary });
-  });
-
-  await expect(page.getByText("Shiori · Private dashboard")).toBeVisible();
-  await expect(
-    page.getByText("Enter the owner password to continue."),
-  ).toBeVisible();
-  await page.getByLabel("Password").fill("wrong");
-  await page.getByRole("button", { name: "Open dashboard" }).click();
-  await expect(
-    page.getByText("That password wasn’t accepted. Try again."),
-  ).toBeVisible();
-
-  await page.getByLabel("Password").fill("right");
-  await page.getByRole("button", { name: "Open dashboard" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Loading live dashboard…" }),
-  ).toBeVisible();
-  await expect(page.getByText("Reading the latest saved state.")).toBeVisible();
 
   await expect(
     page.getByRole("heading", { name: "Your promises" }),
   ).toBeVisible();
-  await expect(page.getByText("Shiori · Owner dashboard")).toBeVisible();
-  await expect(page.getByText("Active", { exact: true })).toBeVisible();
-  await expect(page.getByText("Due today", { exact: true })).toBeVisible();
-  await expect(page.getByText("Overdue", { exact: true })).toBeVisible();
   await expect(page.locator(".count-card strong")).toHaveText(["0", "0", "0"]);
   await expect(
     page.getByRole("heading", { name: "No active promises" }),
   ).toBeVisible();
-  await expect(
-    page.getByText("Confirmed promises will appear here."),
-  ).toBeVisible();
 
-  const updatedAt = page.locator("time");
-  await expect(updatedAt).toHaveAttribute("datetime", firstSummary.updatedAt);
-  await expect(updatedAt).toContainText(/18:34:56/);
-});
-
-test("shows rate-limit and sign-in failure guidance", async ({ page }) => {
-  await beginAtLogin(page);
-  let responseStatus = 429;
-  await page.route("**/api/owner/login", (route) =>
-    route.fulfill({
-      json:
-        responseStatus === 429
-          ? { error: "too_many_attempts" }
-          : { error: "unavailable" },
-      status: responseStatus,
+  const cookies = await context.cookies();
+  const ownerCookie = cookies.find(
+    (cookie) => cookie.name === "shiori_owner_session",
+  );
+  expect(ownerCookie).toEqual(
+    expect.objectContaining({
+      httpOnly: true,
+      sameSite: "Lax",
+      secure: true,
     }),
   );
+  expect(ownerCookie!.expires).toBeGreaterThan(Date.now() / 1_000);
+  expect(ownerCookie!.expires).toBeLessThan(Date.now() / 1_000 + 14_500);
 
-  await page.getByLabel("Password").fill("password");
-  await page.getByRole("button", { name: "Open dashboard" }).click();
-  await expect(
-    page.getByText("Too many attempts. Wait a moment, then try again."),
-  ).toBeVisible();
+  const session = await page.request.get("/api/owner/session");
+  expect(session.status()).toBe(200);
+  await expect(session.json()).resolves.toEqual({ authenticated: true });
 
-  responseStatus = 503;
-  await page.getByRole("button", { name: "Open dashboard" }).click();
-  await expect(
-    page.getByText("We couldn’t sign you in. Try again."),
-  ).toBeVisible();
-});
-
-test("shows a useful initial error when the live summary is unavailable", async ({
-  page,
-}) => {
-  await page.route("**/api/owner/session", (route) =>
-    route.fulfill({ json: { authenticated: true } }),
-  );
-  await page.route("**/api/dashboard/summary", (route) =>
-    route.fulfill({ json: { error: "dashboard_unavailable" }, status: 503 }),
-  );
-
-  await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "Dashboard unavailable" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("We couldn’t load the live dashboard. Try again."),
-  ).toBeVisible();
-});
-
-test("refreshes the API timestamp and preserves the last success on failure", async ({
-  page,
-}) => {
-  await beginAtLogin(page);
-  await page.route("**/api/owner/login", (route) =>
-    route.fulfill({ json: { authenticated: true } }),
-  );
-  let reads = 0;
-  await page.route("**/api/dashboard/summary", async (route) => {
-    reads += 1;
-    await new Promise((resolve) => setTimeout(resolve, 120));
-
-    if (reads === 1) {
-      await route.fulfill({ json: firstSummary });
-    } else if (reads === 2) {
-      await route.fulfill({ json: refreshedSummary });
-    } else {
-      await route.fulfill({
-        json: { error: "dashboard_unavailable" },
-        status: 503,
-      });
-    }
-  });
-
-  await page.getByLabel("Password").fill("password");
-  await page.getByRole("button", { name: "Open dashboard" }).click();
-  await expect(page.locator("time")).toHaveAttribute(
-    "datetime",
-    firstSummary.updatedAt,
-  );
-
+  const timestamp = page.locator("time");
+  const initialUpdatedAt = await timestamp.getAttribute("datetime");
+  expect(initialUpdatedAt).toBeTruthy();
+  await page.waitForTimeout(1_100);
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Refreshing", exact: true }),
-  ).toBeDisabled();
-  await expect(page.locator("time")).toHaveAttribute(
-    "datetime",
-    refreshedSummary.updatedAt,
-  );
-  await expect(page.locator("time")).toContainText(/18:35:07/);
+  await expect(timestamp).not.toHaveAttribute("datetime", initialUpdatedAt!);
 
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect(
-    page.getByText("Couldn’t refresh. Showing the last successful update."),
-  ).toBeVisible();
-  await expect(page.locator("time")).toHaveAttribute(
-    "datetime",
-    refreshedSummary.updatedAt,
-  );
-});
-
-test("returns to login with a notice when the owner session expires", async ({
-  page,
-}) => {
-  await beginAtLogin(page);
-  await page.route("**/api/owner/login", (route) =>
-    route.fulfill({ json: { authenticated: true } }),
-  );
-  let reads = 0;
-  await page.route("**/api/dashboard/summary", (route) => {
-    reads += 1;
-    return reads === 1
-      ? route.fulfill({ json: firstSummary })
-      : route.fulfill({ json: { error: "session_expired" }, status: 401 });
-  });
-
-  await page.getByLabel("Password").fill("password");
-  await page.getByRole("button", { name: "Open dashboard" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Your promises" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
-
-  await expect(
-    page.getByRole("heading", { name: "Open your dashboard" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Your session expired. Enter the owner password to continue."),
-  ).toBeVisible();
-});
-
-test("uses three desktop count columns and stacked mobile count cards", async ({
-  page,
-}) => {
-  await openEmptyDashboard(page);
-  const cards = page.locator(".count-card");
-  const first = await cards.nth(0).boundingBox();
-  const second = await cards.nth(1).boundingBox();
-  const viewport = page.viewportSize();
-
-  expect(first).not.toBeNull();
-  expect(second).not.toBeNull();
-  expect(viewport).not.toBeNull();
-
-  if (viewport!.width <= 680) {
-    expect(Math.abs(first!.x - second!.x)).toBeLessThan(2);
-    expect(second!.y).toBeGreaterThan(first!.y + first!.height);
-  } else {
-    expect(Math.abs(first!.y - second!.y)).toBeLessThan(2);
-    expect(second!.x).toBeGreaterThan(first!.x + first!.width);
+  const appOrigin = new URL(page.url()).origin;
+  expect(browserFetches.length).toBeGreaterThanOrEqual(4);
+  for (const requestUrl of browserFetches) {
+    expect(new URL(requestUrl).origin).toBe(appOrigin);
+    expect(requestUrl.toLowerCase()).not.toContain("supabase");
   }
 });

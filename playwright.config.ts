@@ -53,8 +53,6 @@ export default defineConfig({
           OWNER_TIME_ZONE: "Asia/Singapore",
           PORT: "4173",
           PUBLIC_APP_BASE_URL: "http://127.0.0.1:4173",
-          SUPABASE_SECRET_KEY: "playwright-local-only-key",
-          SUPABASE_URL: "http://127.0.0.1:54321",
         },
         url: "http://127.0.0.1:4173/api/health",
         reuseExistingServer: !process.env.CI,

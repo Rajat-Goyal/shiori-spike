@@ -71,6 +71,29 @@ async function readSummary(): Promise<
   }
 }
 
+function SessionCheckState() {
+  return (
+    <main className="page-shell page-shell--centered">
+      <section
+        className="state-card"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <div className="eyebrow">
+          <span className="status-dot" aria-hidden="true" />
+          Shiori · Private dashboard
+        </div>
+        <div className="loading-orbit" aria-hidden="true">
+          <span />
+        </div>
+        <h1>Opening your dashboard…</h1>
+        <p>Checking your private session.</p>
+      </section>
+    </main>
+  );
+}
+
 function LoadingState() {
   return (
     <main className="page-shell page-shell--centered">
@@ -121,7 +144,7 @@ function LoginView({ expired, loginError, onSubmit, opening }: LoginViewProps) {
 
         {expired && (
           <p className="notice notice--session" role="alert">
-            Your session expired. Enter the owner password to continue.
+            Your session ended. Enter your password to continue.
           </p>
         )}
 
@@ -230,7 +253,7 @@ function DashboardView({
               <span className="refresh-icon" aria-hidden="true">
                 ↻
               </span>
-              {refreshing ? "Refreshing" : "Refresh"}
+              {refreshing ? "Refreshing…" : "Refresh"}
             </button>
             <p className="last-updated" aria-live="polite">
               Last updated{" "}
@@ -241,10 +264,26 @@ function DashboardView({
           </div>
         </header>
 
+        <p
+          className="refresh-status"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {refreshing ? "Refreshing live data…" : ""}
+        </p>
+
         {refreshFailed && (
-          <p className="notice notice--refresh" role="alert">
-            Couldn’t refresh. Showing the last successful update.
-          </p>
+          <div className="notice notice--refresh" role="alert">
+            <span>Couldn’t refresh. Showing the last successful update.</span>
+            <button
+              className="inline-retry-button"
+              onClick={() => void onRefresh()}
+              type="button"
+            >
+              Try again
+            </button>
+          </div>
         )}
 
         <section className="count-grid" aria-label="Promise counts">
@@ -375,7 +414,11 @@ export function App() {
     setRefreshing(false);
   };
 
-  if (view === "checking-session" || view === "loading") {
+  if (view === "checking-session") {
+    return <SessionCheckState />;
+  }
+
+  if (view === "loading") {
     return <LoadingState />;
   }
 
