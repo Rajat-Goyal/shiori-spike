@@ -1,7 +1,41 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-24T10:05:28Z",
-  "current_story": "S01-00",
-  "summary": "0/13 done",
-  "log": []
+  "updated_at": "2026-07-24T10:11:59Z",
+  "current_story": null,
+  "summary": "1/13 done",
+  "log": [
+    {
+      "story_id": "S01-00",
+      "started_at": "2026-07-24T10:05:28Z",
+      "finished_at": "2026-07-24T10:11:59Z",
+      "squad": "owner-prerequisite",
+      "outcome": "done",
+      "commits": [
+        "2da3e42 chore(S01-00): start story",
+        "257c5b4 test(S01-00): verify private configuration"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-00/config-preflight.txt"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-00/config-preflight.txt"
+        }
+      ],
+      "decisions": [
+        "S01-00 validates the owner-supplied and fixed pre-Supabase configuration only; S01-01 remains responsible for the Docker-generated local Supabase pair.",
+        "The fixed OWNER_TIME_ZONE policy was verified as exactly Asia/Singapore without recording any environment value.",
+        "Configuration verification is value-redacted and does not imply live authentication against external providers."
+      ],
+      "deviations_from_plan": [],
+      "follow_ups": [
+        "S01-01: start the local Supabase stack and install its Docker-generated HTTP API URL and server credential in .env.local."
+      ],
+      "context_for_next": "All 15 pre-Supabase configuration keys required by S01-00 are present and non-placeholder in ignored .env.local.\nThe fixed owner time zone policy passed without recording its value.\n.env.local is ignored, untracked, unstaged, and absent from commits.\nDo not assume the current Supabase pair is local; S01-01 owns starting local Supabase and installing its generated pair.\nNo external-provider authentication was attempted in S01-00.\nThe full npm run check gate passed; Playwright needs permission to bind its local test port in restricted environments."
+    }
+  ]
 }
