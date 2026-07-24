@@ -473,5 +473,19 @@ describe("atomic work-session confirmation on local Supabase", () => {
         work_session_stage: "confirming",
       }),
     ]);
+
+    const cleanup = new SupabaseWorkSessionFlowRepository({
+      ownerId: prepared.config.telegramOwnerUserId,
+      supabaseSecretKey: prepared.config.supabaseSecretKey,
+      supabaseUrl: prepared.config.supabaseUrl,
+    });
+    await expect(
+      cleanup.cancel(
+        prepared.request.updateId + 1,
+        prepared.request.chatId,
+        prepared.request.draft,
+        "confirming",
+      ),
+    ).resolves.toMatchObject({ kind: "applied" });
   });
 });
