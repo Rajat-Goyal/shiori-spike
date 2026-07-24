@@ -1,4 +1,5 @@
 import { buildApp } from "./app.js";
+import { readServerConfig } from "./config.js";
 
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 
@@ -6,7 +7,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65_535) {
   throw new Error(`PORT must be an integer between 1 and 65535; received ${process.env.PORT}.`);
 }
 
-const app = await buildApp({ logger: true });
+const app = await buildApp({ config: readServerConfig(), logger: true });
 
 const shutdown = async (signal: NodeJS.Signals) => {
   app.log.info({ signal }, "shutdown requested");
