@@ -1179,12 +1179,9 @@
       "squad": {
         "type": "telegram-management",
         "members": [
-          "pm",
-          "designer",
-          "staff-engineer",
-          "qa"
+          "staff-engineer"
         ],
-        "rationale": "The story is a user-facing consequential-action flow whose copy, double confirmation, state transitions, and idempotency need all four roles."
+        "rationale": "The owner requested engineer-only implementation first; PM, Design, and QA are consolidated after all slice implementation."
       },
       "context": {
         "read_first": [
@@ -1195,13 +1192,8 @@
           "server/src/scheduler/"
         ]
       },
-      "status": "todo",
-      "open_questions": [
-        "S01-06 requires a second explicit saved-commitment cancellation but does not define durable intent lifetime or replay semantics. PM recommends one restart-safe current opaque intent per commitment, superseded by a newer Cancel prompt and resolved by Keep, Done, or cancellation, with no wall-clock expiry and callback `x:<uuid>:<version>:confirm_cancel|keep`. Owner approval is required.",
-        "S01-06 AC1 requires actual next-work-session and Calendar-check state, but S01-06 currently depends only on simple-reminder S01-04. PM recommends adding S01-09c to depends_on, producing the acyclic S01-04 → S01-05 → S01-09a → S01-09b → S01-09c → S01-06 sequence. Owner approval is required.",
-        "S01-05 and S01-06 both affect scheduled-message states, cancellation predicates, migrations, and database tests. PM recommends serializing S01-05, S01-09c, then S01-06 instead of concurrent shared-schema implementation. Owner approval is required.",
-        "Scope requires target-ordered status results with Done and Cancel only but does not define repeated-label action binding. Designer recommends one `Promise i of N` Telegram message per commitment with one ordered Done/Cancel row, deterministic equal-target ordering, and `No active promises.` for empty state. Owner approval is required."
-      ]
+      "status": "in_progress",
+      "open_questions": []
     },
     {
       "id": "S01-07",
