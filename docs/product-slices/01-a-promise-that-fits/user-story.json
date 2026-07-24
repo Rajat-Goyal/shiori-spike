@@ -1449,10 +1449,7 @@
         ]
       },
       "status": "in_progress",
-      "open_questions": [
-        "The simple-action draft stores timingConstraints as natural-language strings, but scope defines no deterministic grammar for converting them into date/time windows. PM recommends that S01-08 accept already-normalized effective windows and leave raw-text conversion to an explicitly defined upstream contract. Owner approval is required before implementation.",
-        "The Google repository exposes connection metadata but no server-only access-token capability. PM recommends keeping the S01-08 Calendar adapter behind an injected token-provider interface without adding refresh-token decryption or provider token-exchange wiring to this story. Owner approval is required before implementation."
-      ]
+      "open_questions": []
     },
     {
       "id": "S01-09",
