@@ -1,7 +1,7 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-24T14:33:13Z",
-  "current_story": "S01-07",
+  "updated_at": "2026-07-24T15:05:24Z",
+  "current_story": null,
   "summary": "4/16 done",
   "log": [
     {
@@ -273,6 +273,50 @@
         "S01-07 remains dependency-eligible and has completed read-only PM, design, architecture, credential-key, and overlap preflight."
       ],
       "context_for_next": "S01-03b has no source implementation; the worktree was clean at its review point.\nThe frozen DecisionResult cannot distinguish correction from a separate request or permission agreement from an unrelated turn.\nDo not infer intent from raw wording or field differences and do not amend completed S01-03a commits.\nEvidence reproduces two identical structured decisions requiring mutually exclusive transitions.\nPM proposes an explicit /correct command; architecture recommends a narrow S01-03a1 context-and-relation contract.\nThe owner must select the product contract before S01-03b resumes.\nS01-07 is independently eligible but must not write migrations/app/config concurrently with S01-03b."
+    },
+    {
+      "story_id": "S01-07",
+      "started_at": "2026-07-24T14:09:44Z",
+      "finished_at": "2026-07-24T15:05:24Z",
+      "squad": "oauth-integration",
+      "outcome": "blocked",
+      "commits": [
+        "64d40c1 chore(S01-07): start story",
+        "82ec283 feat(S01-07): validate Google OAuth secrets",
+        "3579564 feat(S01-07): protect Google OAuth secrets",
+        "abdf49a feat(S01-07): persist bounded Google OAuth state",
+        "b653f3e fix(S01-07): harden OAuth origin and scopes",
+        "abaab82 feat(S01-07): verify Google OAuth callbacks",
+        "f800dc8 feat(S01-07): isolate Google OAuth routes",
+        "1bbc4d3 fix(S01-07): preserve known Calendar state",
+        "3e46c38 feat(S01-07): surface Calendar connection state",
+        "75e3804 test(S01-07): prove credential lifecycle bounds",
+        "107ec32 test(S01-07): assert mobile Calendar stacking",
+        "670a5c2 fix(S01-07): normalize Google Calendar boundaries",
+        "1e5d09e test(S01-07): record controlled OAuth evidence"
+      ],
+      "ac_results": [],
+      "decisions": [
+        "OAuth uses a short-lived one-use owner-session-bound state, PKCE S256, and nonce; the server validates the ID-token signature, issuer, audience, expiry, nonce, exact owner email, and email_verified before persistence.",
+        "The authorization request uses openid, email, calendar.events.readonly, and calendar.freebusy with offline access and consent; the provider's canonical userinfo.email alias normalizes to the approved policy while every extra or write scope is rejected.",
+        "Refresh tokens use AES-256-GCM with a fresh nonce, versioned authenticated context, and server-only singleton storage; an unknown key version fails closed to authorization-expired and Reconnect.",
+        "Primary-only means application calls use the literal primary identifier; the account-wide OAuth grant itself cannot be narrowed to one Calendar.",
+        "The callback consumes provider material server-side, logs no URL query, redirects to a clean dashboard URL, and exposes only a session-bound one-use bounded outcome.",
+        "Controlled AC1-AC7 tests, final architecture review, secret scans, Node 24 unit/browser/database/full gates, and the four-state UI contact sheet all pass at 670a5c2."
+      ],
+      "deviations_from_plan": [
+        "The QA sandbox denied local Playwright binding and loopback Supabase access, so the lead context ran the immutable Node 24 browser, database, and full-check commands while QA independently ran focused tests, reviewed source/contracts, and performed exposure scans; evidence records the split provenance.",
+        "Two architecture review cycles corrected remote-origin validation, scope persistence, canonical Google identity-scope handling, callback live-region semantics, and long-email mobile wrapping before the final PASS.",
+        "The first owner-assisted Connect attempt reached Google but was rejected before consent with redirect_uri_mismatch because the required local callback is not registered; no grant, callback, token exchange, connection, or Reconnect occurred, and the disposable database was reset to 0/0/0.",
+        "The real Connect and Reconnect requirement remains pending; no acceptance criterion or done condition was weakened or claimed complete."
+      ],
+      "follow_ups": [
+        "Owner: add http://127.0.0.1:4173/api/google-calendar/callback to the configured Google OAuth Web Application client's authorized redirect URIs and confirm.",
+        "S01-07 resume: rerun one sanitized matching-owner Connect and Reconnect, update the existing five evidence artifacts, independently verify the final gate, then close the story.",
+        "S01-08 and S01-11 remain blocked by S01-07 until that real gate passes.",
+        "S01-03a1 is independently dependency-eligible and has PM-approved relation semantics plus completed read-only architecture/staff preflight."
+      ],
+      "context_for_next": "S01-07 source is complete and controlled gates are green at 670a5c2; final architecture and QA reviews pass.\nOAuth state, PKCE, ID-token validation, AES-GCM storage, atomic Reconnect, sanitized logging, and dashboard states are stable.\nThe required four scopes normalize Google's userinfo.email alias while rejecting every extra/write scope; persisted policy remains the approved four.\nLiteral primary is the application Calendar identifier; Calendar failure remains isolated from dashboard summary, Telegram, and health.\nExactly five sanitized evidence artifacts exist and explicitly mark real Connect blocked and Reconnect pending.\nGoogle rejected the first local request before consent because the callback URI is not registered; no provider or product state remains.\nAfter owner callback registration, resume only the real Connect/Reconnect gate and evidence update; do not re-derive or rewrite the green implementation.\nS01-03a1 can proceed independently while this external configuration is pending."
     }
   ]
 }

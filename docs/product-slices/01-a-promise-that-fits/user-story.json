@@ -1317,8 +1317,10 @@
           "web/src/App.tsx"
         ]
       },
-      "status": "in_progress",
-      "open_questions": []
+      "status": "blocked",
+      "open_questions": [
+        "Owner task: register http://127.0.0.1:4173/api/google-calendar/callback as an authorized redirect URI on the configured Google OAuth Web Application client, then confirm so the sanitized real Connect and Reconnect gate can resume."
+      ]
     },
     {
       "id": "S01-08",
