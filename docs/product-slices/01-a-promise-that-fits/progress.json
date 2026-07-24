@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-24T18:03:28Z",
+  "updated_at": "2026-07-24T18:24:28Z",
   "current_story": "S01-03c",
-  "summary": "6/16 done",
+  "summary": "7/16 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -485,6 +485,72 @@
         "S01-12 must preserve the conversation raw-data prohibition and rerun the clean migration, restart, replay, and deployed release checks."
       ],
       "context_for_next": "S01-03b is complete at source head ad3f82f with evidence commit 4444e3f; all six ACs independently pass.\nSupabase persists at most one active 24-hour simple-action draft or one immediately correlated permission candidate.\nConversation transitions serialize on the owner singleton and atomically CAS state, write bounded model_decisions metadata, and complete the claimed Telegram update.\nThe stable draft has exactly eight fields plus phase, version, expiry, and activity timestamps; raw text and model response are absent.\nDefinition is collected before target; only accepted create, clarification, or correction extends expiry, and expiry is terminal by database time.\nSeparate_request never merges fields, ordinary questions preserve state, natural correction increments once, and replay stops before the engine.\nComplete state has exact no-save copy and no action; no commitment, session, event, scheduled message, Calendar, or dashboard write exists.\nClean isolated DB gates pass 5/5 and the full repository gate passes 213 server tests, both builds, and 46 E2E tests.\nS01-03c is now eligible; S01-08 additionally requires S01-07."
+    },
+    {
+      "story_id": "S01-07",
+      "started_at": "2026-07-24T16:03:12Z",
+      "finished_at": "2026-07-24T18:24:28Z",
+      "squad": "oauth-integration",
+      "outcome": "done",
+      "commits": [
+        "f81ffe2 chore(S01-07): resume owner-assisted gate",
+        "b96a747 test(S01-07): record real Google reconnect evidence"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-07/oauth-scopes.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-07/oauth-state-and-identity.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-07/token-exposure-audit.md"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-07/oauth-state-and-identity.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-07/google-connection-states.png"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-07/npm-check.txt"
+        },
+        {
+          "id": "AC7",
+          "result": "pass",
+          "evidence": "evidence/S01-07/oauth-scopes.json"
+        }
+      ],
+      "decisions": [
+        "The owner completed matching-account Connect and Reconnect through the protected dashboard; the final clean return showed Reconnected, Connected, Primary calendar, and Read-only while durable cardinality remained one connection row.",
+        "OAuth remains owner-session-bound and one-use with PKCE S256, nonce, offline access, exact identity validation, and only openid, email, calendar.events.readonly, and calendar.freebusy normalized into the persisted policy.",
+        "Provider exchange stays server-side; the refresh token is stored only as a valid authenticated-encryption envelope, and browser/evidence scans expose no token, authorization code, credential, callback query, or provider payload.",
+        "The controlled four-state screenshot remains canonical evidence because a live connected screenshot would unnecessarily retain the configured owner email."
+      ],
+      "deviations_from_plan": [
+        "This completion appends to the earlier blocked S01-07 record after the owner registered the exact callback and completed consent; no green implementation was re-derived or rewritten.",
+        "The live panel was independently inspected but not stored because it renders the owner email; the existing synthetic screenshot proves all four dashboard states without retaining identity data.",
+        "The shared local database contained unrelated S01-03b fixtures. The exact database command passed 5/5 on a disposable Supabase stack; only the shared gateway was briefly paused for the fixed 54321 test guard, shared rows and volumes remained untouched, and restored health returned HTTP 200.",
+        "Repository and browser gates ran from an isolated clean checkout of committed HEAD because S01-03c had overlapping uncommitted work in the shared worktree."
+      ],
+      "follow_ups": [
+        "S01-08 is dependency-eligible: consume the stable read-only primary-Calendar connection without adding Calendar writes or provider material retention.",
+        "S01-11 is dependency-eligible when its other dependencies are done; preserve authorization-expired and temporarily-unavailable isolation.",
+        "S01-12 must rerun owner-session, OAuth replacement, read-only scope, token-exposure, and deployed restart checks."
+      ],
+      "context_for_next": "S01-07 is complete at source head 670a5c2 with real-smoke evidence commit b96a747; AC1-AC7 pass.\nOAuth state is one-use, owner-session-bound, PKCE S256, nonce-protected, and requests only the approved offline identity/read-only Calendar scopes.\nThe exact owner email and ID-token claims are validated server-side; provider material never enters browser state or evidence.\nThe refresh token is AES-256-GCM protected in one primary-Calendar connection row and Reconnect atomically replaces it.\nDashboard states are disconnected, connected, authorization-expired, and temporarily unavailable; Google failure remains isolated from non-Calendar functions and health.\nReal owner Connect and Reconnect pass; final sanitized DB state is attempts 0, outcomes 0, connections 1, commitments 0.\nExact gates pass OAuth 19/19, focused Chromium 13/13, database 5/5, server 213/213, and full browser 46/46.\nS01-08 is now eligible; do not re-derive OAuth or add Calendar write access."
     }
   ]
 }
