@@ -246,11 +246,22 @@ describe("GoogleOAuthService", () => {
 
   it("validates identity and atomically stores one encrypted primary connection", async () => {
     const h = harness();
-    const { state } = await begin(h);
+    const started = await begin(h);
+    const discardedAccessToken = "discarded-access-token-sentinel";
+    const discardedProviderField = "discarded-provider-field-sentinel";
+    h.setTokenBody({
+      access_token: discardedAccessToken,
+      expires_in: 3_599,
+      id_token: jwt(String(started.url.searchParams.get("nonce"))),
+      provider_extra: discardedProviderField,
+      refresh_token: "private-refresh-token",
+      scope: googleOAuthScopes.join(" "),
+      token_type: "Bearer",
+    });
 
     await h.service.complete(sessionToken, {
       code: "private-authorization-code",
-      state,
+      state: started.state,
     });
 
     expect(h.repository.replacements).toHaveLength(1);
@@ -272,6 +283,12 @@ describe("GoogleOAuthService", () => {
       }),
     ).toBe("private-refresh-token");
     expect(h.repository.outcomes.get(digest(sessionToken))).toBe("connected");
+    expect(JSON.stringify(h.repository.replacements)).not.toContain(
+      discardedAccessToken,
+    );
+    expect(JSON.stringify(h.repository.replacements)).not.toContain(
+      discardedProviderField,
+    );
 
     const tokenRequest = h.fetchFromGoogle.mock.calls.find(
       ([url]) => String(url) === "https://oauth2.googleapis.com/token",
@@ -652,6 +669,9 @@ describe("Google OAuth HTTP boundary", () => {
     );
     expect(logs).not.toContain(privateCode);
     expect(logs).not.toContain(privateState);
+    expect(logs).not.toContain("/api/google-calendar/callback");
+    expect(logs).not.toContain("code=");
+    expect(logs).not.toContain("state=");
     await app.close();
   });
 

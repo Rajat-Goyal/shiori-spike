@@ -69,6 +69,55 @@ describe("Google credential crypto", () => {
     ).toThrow(/Google credential/);
   });
 
+  it("rejects tampering in every authenticated envelope field", () => {
+    const encrypted = encryptSecret({
+      ...context,
+      key,
+      plaintext: "private-refresh-token",
+      randomBytes: () => Buffer.alloc(12, 3),
+    });
+    const mutate = (value: string) =>
+      `${value[0] === "A" ? "B" : "A"}${value.slice(1)}`;
+
+    for (const changed of [
+      { ...encrypted, ciphertext: mutate(encrypted.ciphertext) },
+      { ...encrypted, nonce: mutate(encrypted.nonce) },
+      { ...encrypted, tag: mutate(encrypted.tag) },
+    ]) {
+      expect(() =>
+        decryptSecret(changed, {
+          ...context,
+          key,
+        }),
+      ).toThrow(/encrypted Google|Google credential/);
+    }
+  });
+
+  it("rejects malformed, empty, or wrongly-sized envelope fields", () => {
+    const encrypted = encryptSecret({
+      ...context,
+      key,
+      plaintext: "private-refresh-token",
+      randomBytes: () => Buffer.alloc(12, 4),
+    });
+
+    for (const malformed of [
+      { ...encrypted, ciphertext: "" },
+      { ...encrypted, ciphertext: "not-base64" },
+      { ...encrypted, nonce: Buffer.alloc(11).toString("base64") },
+      { ...encrypted, nonce: "not-base64" },
+      { ...encrypted, tag: Buffer.alloc(15).toString("base64") },
+      { ...encrypted, tag: "not-base64" },
+    ]) {
+      expect(() =>
+        decryptSecret(malformed, {
+          ...context,
+          key,
+        }),
+      ).toThrow(/encrypted Google|Google credential/);
+    }
+  });
+
   it("strictly decodes only a canonical 32-byte encryption key", () => {
     expect(
       decodeGoogleEncryptionKey(Buffer.alloc(32, 9).toString("base64")),

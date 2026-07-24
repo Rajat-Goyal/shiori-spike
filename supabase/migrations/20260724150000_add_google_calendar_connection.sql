@@ -166,6 +166,9 @@ begin
     raise exception 'invalid Google OAuth outcome expiry';
   end if;
 
+  delete from public.google_oauth_outcomes
+  where expires_at <= now();
+
   insert into public.google_oauth_outcomes (
     session_digest,
     outcome,
@@ -198,9 +201,11 @@ declare
   consumed text;
 begin
   delete from public.google_oauth_outcomes
+  where expires_at <= now();
+
+  delete from public.google_oauth_outcomes
   where
     session_digest = p_session_digest
-    and expires_at > now()
   returning outcome into consumed;
 
   return consumed;
