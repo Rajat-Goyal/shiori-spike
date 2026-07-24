@@ -317,7 +317,7 @@
         "S01-01"
       ],
       "blocks": [
-        "S01-03"
+        "S01-03a"
       ],
       "squad": {
         "type": "integration-security",
@@ -342,30 +342,30 @@
       "open_questions": []
     },
     {
-      "id": "S01-03",
-      "title": "Confirm one simple-action promise",
-      "user_story": "As the owner, I want Shiori to understand, clarify, and confirm one simple action before saving it, so that only the promise I explicitly approve becomes durable.",
-      "why_now": "Telegram ingress is safe and replay-aware; this story adds the first commitment vertical without exposing a Confirm action before its atomic transition works.",
+      "id": "S01-03a",
+      "title": "Understand and collect one simple-action promise",
+      "user_story": "As the owner, I want Shiori to distinguish my request and collect one clear simple-action draft, so that nothing consequential happens before my intent is understood.",
+      "why_now": "Telegram ingress is safe and replay-aware; this establishes the bounded language and restart-safe draft contract before any actionable confirmation is exposed.",
       "scope_refs": [
         "Scope §Main user journeys — Simple action",
         "Scope §Main user journeys — Implied intention",
         "Scope §Main user journeys — Ordinary question",
         "Scope §Input and decision contract",
         "Scope §Draft rules",
-        "Scope §Confirmation contract",
-        "ADR Decisions 2–5 and 13–14"
+        "ADR Decisions 2–4 and 13–14"
       ],
       "in_scope": [
-        "Introduce a provider-neutral DecisionEngine with strict structured output and an OpenAI implementation.",
+        "Introduce a provider-neutral DecisionEngine with strict structured output and an OpenAI Responses API implementation.",
         "Classify explicit commitments, implied intentions, and ordinary questions without giving the model authorization.",
         "Clarify one missing field at a time and validate definition of done, target, owner time zone, and simple-action mode.",
         "Persist one restart-safe, versioned active draft with 24-hour inactivity expiry.",
         "Ask permission before advancing an implied intention; before agreement, persist at most its validated non-actionable model-decision audit row and no draft, commitment, session, schedule, reminder, or raw transcript.",
         "Answer ordinary questions without actionable product-state mutation.",
-        "Accept corrections, re-render the complete summary, and stale previous actions.",
-        "Atomically confirm exactly one simple commitment, one pending reminder, and append-only creation events; allow draft cancellation without saving."
+        "Preserve an existing active draft when another request arrives, and accept bounded corrections by incrementing its version.",
+        "Reach a complete collected draft without exposing Confirm or Cancel until S01-03b lands the atomic transition."
       ],
       "out_of_scope": [
+        "Confirmation summary, inline Confirm or Cancel actions, commitment creation, or reminder creation.",
         "Reminder delivery or Done/cancel transitions on a saved commitment.",
         "Calendar access, work sessions, recurrence, or saved-commitment editing.",
         "Open-ended tool selection, chain-of-thought storage, or runtime decision mock data."
@@ -393,25 +393,19 @@
           "id": "AC4",
           "given": "one active draft, a correction, or a second commitment request",
           "when": "the turn is processed",
-          "then": "the draft is never silently overwritten, accepted corrections increment its version, and the full summary is shown again."
+          "then": "the draft is never silently overwritten, accepted corrections increment its version once, and replay does not increment it again."
         },
         {
           "id": "AC5",
-          "given": "a current complete simple-action draft",
-          "when": "the confirmation summary is rendered",
-          "then": "it shows definition of done, target/reminder time, check status, no-Calendar-write statement, Confirm, and Cancel."
+          "given": "a refused, timed-out, incomplete, schema-invalid, semantically invalid, expired, or unsupported work-session-shaped decision",
+          "when": "processing finishes",
+          "then": "no consequential transition occurs, the current draft is preserved when applicable, and the user receives a safe retry or expiry response."
         },
         {
           "id": "AC6",
-          "given": "the current Confirm action",
-          "when": "it is accepted",
-          "then": "one commitment, one pending simple reminder, and their creation events are stored atomically, while replay creates no duplicate."
-        },
-        {
-          "id": "AC7",
-          "given": "an expired, cancelled, stale, refused, timed-out, incomplete, schema-invalid, or semantically invalid decision",
-          "when": "processing finishes",
-          "then": "no consequential transition occurs and the user receives a safe retry or stale-state response."
+          "given": "any S01-03a conversation path",
+          "when": "persistence and logs are inspected",
+          "then": "no raw Telegram message, transcript, provider trace, chain-of-thought, commitment, session, or scheduled message has been retained."
         }
       ],
       "verification": {
@@ -424,34 +418,29 @@
         "evidence": [
           {
             "type": "test-output",
-            "path": "evidence/S01-03/npm-check.txt"
+            "path": "evidence/S01-03a/npm-check.txt"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-03/three-way-decisions.json"
+            "path": "evidence/S01-03a/three-way-decisions.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-03/draft-lifecycle.json"
+            "path": "evidence/S01-03a/draft-lifecycle.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-03/pre-confirmation-state.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-03/simple-confirmation-transaction.json"
+            "path": "evidence/S01-03a/pre-confirmation-state.json"
           }
         ],
-        "done_when": "A reviewer can prove all three input classes, restart-safe draft rules, no pre-agreement actionable state beyond the allowed audit row, and one atomic simple-action confirmation."
+        "done_when": "A reviewer can prove all three input classes, one-question restart-safe draft collection, no pre-permission actionable state beyond the allowed audit row, safe failures, and zero consequential records."
       },
       "depends_on": [
         "S01-02"
       ],
       "blocks": [
-        "S01-04",
-        "S01-08",
-        "S01-09"
+        "S01-03b",
+        "S01-08"
       ],
       "squad": {
         "type": "decision-flow",
@@ -461,18 +450,149 @@
           "staff-engineer",
           "qa"
         ],
-        "rationale": "The story joins language judgment, conversational copy, versioned persistence, and an atomic product transition, so PM and QA must independently bound the staff implementation and designer-owned flow."
+        "rationale": "This half isolates language judgment, safe conversational copy, and the restart-safe draft boundary so PM and QA can prove no consequential action precedes understanding."
       },
       "context": {
         "read_first": [
           "docs/product-slices/01-a-promise-that-fits/scope.md#input-and-decision-contract",
           "docs/product-slices/01-a-promise-that-fits/adr.md#decision-2-bounded-openai-decision-engine",
           "server/src/telegram/",
-          "server/src/persistence/",
-          "server/src/dashboard/"
+          "server/src/config.ts",
+          "supabase/migrations/20260724130000_add_telegram_ingress.sql"
         ]
       },
       "status": "in_progress",
+      "open_questions": []
+    },
+    {
+      "id": "S01-03b",
+      "title": "Confirm or cancel the current simple-action promise",
+      "user_story": "As the owner, I want to review and explicitly confirm or cancel the collected simple action, so that exactly the approved promise and reminder become durable.",
+      "why_now": "S01-03a establishes a validated versioned draft; this half can now expose actions only alongside their atomic, replay-safe transition.",
+      "scope_refs": [
+        "Scope §Main user journeys — Simple action",
+        "Scope §Draft rules",
+        "Scope §Confirmation contract",
+        "Scope §Telegram behavior — Inline actions and Idempotency",
+        "ADR Decisions 3–5 and 13–14"
+      ],
+      "in_scope": [
+        "Render the complete simple-action summary with definition of done, absolute SGT target/reminder time, Calendar not checked, and the no-Calendar-write statement.",
+        "Attach opaque draft ID, version, and action references for Confirm and Cancel without product text or secrets.",
+        "Preserve an active draft on a second request and rerender the current summary without silently overwriting it.",
+        "Accept corrections by incrementing the draft version and making all earlier actions stale.",
+        "Return safe current, stale, expired, cancelled, confirmed, and malformed action results.",
+        "Atomically confirm exactly one active commitment, one pending simple reminder, and bounded append-only creation events while terminating the draft.",
+        "Cancel the draft without creating commitment, session, schedule, or reminder state."
+      ],
+      "out_of_scope": [
+        "Reminder delivery or Done/cancel transitions on a saved commitment.",
+        "Calendar access, work sessions, recurrence, or saved-commitment editing.",
+        "Further decision-engine classification or provider prompt expansion."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a current complete simple-action draft",
+          "when": "the confirmation summary is rendered",
+          "then": "it shows definition of done, absolute SGT target/reminder time, Calendar not checked, the no-Calendar-write statement, Confirm, and Cancel."
+        },
+        {
+          "id": "AC2",
+          "given": "one active draft, a correction, or a second commitment request",
+          "when": "the turn is processed",
+          "then": "the draft is never silently overwritten, accepted corrections increment its version once, and the full current summary is shown."
+        },
+        {
+          "id": "AC3",
+          "given": "an old-version, malformed, expired, cancelled, or already-confirmed action",
+          "when": "it is received through the authorized Telegram boundary",
+          "then": "no consequential transition occurs and a safe stale or resolved response is returned."
+        },
+        {
+          "id": "AC4",
+          "given": "the current Confirm action",
+          "when": "it is accepted",
+          "then": "one commitment, one pending simple reminder, and their bounded creation events are stored atomically and the draft becomes confirmed."
+        },
+        {
+          "id": "AC5",
+          "given": "a replayed or concurrent current Confirm action",
+          "when": "the transaction is attempted",
+          "then": "no duplicate commitment, reminder, event, acknowledgement, or follow-up message is produced."
+        },
+        {
+          "id": "AC6",
+          "given": "the current Cancel action",
+          "when": "it is accepted",
+          "then": "the draft becomes cancelled and no commitment, session, schedule, reminder, or creation event is stored."
+        },
+        {
+          "id": "AC7",
+          "given": "a controlled database failure during Confirm",
+          "when": "the transition aborts",
+          "then": "no partial row is retained and the owner is not told the promise was saved."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/telegram/confirmation.test.ts",
+          "npm run test:db",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-03b/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03b/confirmation-summary.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03b/draft-versioning.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03b/simple-confirmation-transaction.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03b/callback-replay.json"
+          }
+        ],
+        "done_when": "A reviewer can inspect a current complete draft, confirm or cancel it, replay every action class, and prove one all-or-nothing simple commitment and reminder transition."
+      },
+      "depends_on": [
+        "S01-03a"
+      ],
+      "blocks": [
+        "S01-04",
+        "S01-09"
+      ],
+      "squad": {
+        "type": "transactional-confirmation",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "This half isolates the consequential user action, versioned callbacks, and multi-row transaction so implementer-independent QA can prove atomicity and replay safety."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#confirmation-contract",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-3-explicit-state-machines",
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "server/src/decision/",
+          "server/src/telegram/conversation.ts",
+          "supabase/migrations/"
+        ]
+      },
+      "status": "todo",
       "open_questions": []
     },
     {
@@ -570,7 +690,7 @@
         "done_when": "A reviewer can advance a due reminder, observe one logical delivery, press Done once, replay it safely, and inspect that non-response schedules no follow-up."
       },
       "depends_on": [
-        "S01-03"
+        "S01-03b"
       ],
       "blocks": [
         "S01-05",
@@ -1083,7 +1203,7 @@
         "done_when": "A reviewer can run fixed Calendar timelines through every availability and ranking rule and inspect that no event data crosses into the model or durable history."
       },
       "depends_on": [
-        "S01-03",
+        "S01-03a",
         "S01-07"
       ],
       "blocks": [
@@ -1218,7 +1338,7 @@
         "done_when": "A reviewer can exercise free, busy, kept-conflict, newly changed, and unavailable Calendar timelines and observe only the explicitly confirmed single work session and two durable messages."
       },
       "depends_on": [
-        "S01-03",
+        "S01-03b",
         "S01-05",
         "S01-08"
       ],
