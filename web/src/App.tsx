@@ -12,11 +12,59 @@ type DashboardSummary = {
 
 type LoginError = "failure" | "invalid" | "rate-limited";
 type View = "checking-session" | "dashboard" | "initial-error" | "loading" | "login";
+type GoogleOAuthOutcome =
+  | "connected"
+  | "denied"
+  | "failed"
+  | "identity_mismatch"
+  | "invalid_state"
+  | "reconnected";
+type CalendarConnectionState =
+  | {
+      action: "connect";
+      outcome?: GoogleOAuthOutcome;
+      state: "disconnected";
+    }
+  | {
+      action: "reconnect";
+      lastSuccessfulCheckAt: string | null;
+      outcome?: GoogleOAuthOutcome;
+      state: "authorization-expired" | "connected";
+      verifiedEmail: string;
+    }
+  | {
+      action: "reconnect";
+      lastSuccessfulCheckAt?: string | null;
+      outcome?: GoogleOAuthOutcome;
+      state: "unavailable";
+      verifiedEmail?: string;
+    };
+type CalendarNotice =
+  | "connected"
+  | "denied"
+  | "failed"
+  | "identity_mismatch"
+  | "invalid_state"
+  | "reconnected"
+  | "start_failed";
 
 const loginErrorCopy: Record<LoginError, string> = {
   failure: "We couldn’t sign you in. Try again.",
   invalid: "That password wasn’t accepted. Try again.",
   "rate-limited": "Too many attempts. Wait a moment, then try again.",
+};
+
+const calendarNoticeCopy: Record<CalendarNotice, string> = {
+  connected: "Google Calendar connected.",
+  denied: "Google Calendar wasn’t connected. Try again when you’re ready.",
+  failed: "Google Calendar wasn’t connected. Try again when you’re ready.",
+  identity_mismatch:
+    "That Google account doesn’t match the configured owner. Choose the configured account and try again.",
+  invalid_state:
+    "We couldn’t verify that Google connection attempt. Start again from this dashboard.",
+  reconnected: "Google Calendar reconnected.",
+  start_failed:
+    "We couldn’t start the Google Calendar connection. Try again.",
 };
 
 function isDashboardSummary(value: unknown): value is DashboardSummary {
@@ -68,6 +116,108 @@ async function readSummary(): Promise<
       : { kind: "unavailable" };
   } catch {
     return { kind: "unavailable" };
+  }
+}
+
+function isGoogleOAuthOutcome(value: unknown): value is GoogleOAuthOutcome {
+  return [
+    "connected",
+    "denied",
+    "failed",
+    "identity_mismatch",
+    "invalid_state",
+    "reconnected",
+  ].includes(String(value));
+}
+
+function isCalendarConnectionState(
+  value: unknown,
+): value is CalendarConnectionState {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const connection = value as Record<string, unknown>;
+  if (
+    connection.outcome !== undefined &&
+    !isGoogleOAuthOutcome(connection.outcome)
+  ) {
+    return false;
+  }
+  if (
+    connection.state === "disconnected" &&
+    connection.action === "connect"
+  ) {
+    return true;
+  }
+  if (
+    ["connected", "authorization-expired"].includes(
+      String(connection.state),
+    ) &&
+    connection.action === "reconnect"
+  ) {
+    return (
+      typeof connection.verifiedEmail === "string" &&
+      (connection.lastSuccessfulCheckAt === null ||
+        (typeof connection.lastSuccessfulCheckAt === "string" &&
+          !Number.isNaN(Date.parse(connection.lastSuccessfulCheckAt))))
+    );
+  }
+  return (
+    connection.state === "unavailable" &&
+    connection.action === "reconnect" &&
+    (connection.verifiedEmail === undefined ||
+      typeof connection.verifiedEmail === "string") &&
+    (connection.lastSuccessfulCheckAt === undefined ||
+      connection.lastSuccessfulCheckAt === null ||
+      (typeof connection.lastSuccessfulCheckAt === "string" &&
+        !Number.isNaN(Date.parse(connection.lastSuccessfulCheckAt))))
+  );
+}
+
+function knownCalendarDetails(
+  connection: CalendarConnectionState,
+): Pick<
+  Extract<CalendarConnectionState, { state: "unavailable" }>,
+  "lastSuccessfulCheckAt" | "verifiedEmail"
+> {
+  return connection.state === "disconnected"
+    ? {}
+    : {
+        lastSuccessfulCheckAt: connection.lastSuccessfulCheckAt,
+        verifiedEmail: connection.verifiedEmail,
+      };
+}
+
+async function readCalendarConnection(
+  previous: CalendarConnectionState,
+): Promise<
+  | { kind: "expired" }
+  | { connection: CalendarConnectionState; kind: "success" }
+> {
+  try {
+    const response = await fetch("/api/google-calendar/connection", {
+      headers: { Accept: "application/json" },
+    });
+    if (response.status === 401) {
+      return { kind: "expired" };
+    }
+    if (!response.ok) {
+      throw new Error("Calendar state unavailable");
+    }
+    const body: unknown = await response.json();
+    if (!isCalendarConnectionState(body)) {
+      throw new Error("Calendar state is invalid");
+    }
+    return { connection: body, kind: "success" };
+  } catch {
+    return {
+      connection: {
+        action: "reconnect",
+        ...knownCalendarDetails(previous),
+        state: "unavailable",
+      },
+      kind: "success",
+    };
   }
 }
 
@@ -201,6 +351,10 @@ function ErrorView({ onRetry }: ErrorViewProps) {
 }
 
 type DashboardViewProps = {
+  calendarConnection: CalendarConnectionState;
+  calendarInitiating: boolean;
+  calendarNotice: CalendarNotice | null;
+  onCalendarConnect: () => Promise<void>;
   onRefresh: () => Promise<void>;
   refreshFailed: boolean;
   refreshing: boolean;
@@ -219,7 +373,135 @@ const singaporeTimestamp = new Intl.DateTimeFormat("en-SG", {
   year: "numeric",
 });
 
+type CalendarPanelProps = Pick<
+  DashboardViewProps,
+  | "calendarConnection"
+  | "calendarInitiating"
+  | "calendarNotice"
+  | "onCalendarConnect"
+>;
+
+function CalendarPanel({
+  calendarConnection,
+  calendarInitiating,
+  calendarNotice,
+  onCalendarConnect,
+}: CalendarPanelProps) {
+  const noticeRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (calendarNotice) {
+      noticeRef.current?.focus();
+    }
+  }, [calendarNotice]);
+
+  const reconnecting = calendarConnection.action === "reconnect";
+  const status = calendarInitiating
+    ? reconnecting
+      ? "Reconnecting"
+      : "Connecting"
+    : calendarConnection.state === "disconnected"
+      ? "Not connected"
+      : calendarConnection.state === "connected"
+        ? "Connected"
+        : calendarConnection.state === "authorization-expired"
+          ? "Authorization expired"
+          : "Temporarily unavailable";
+  const body = calendarInitiating
+    ? "Redirecting to Google… You’ll return here when you’re done."
+    : calendarConnection.state === "disconnected"
+      ? "Connect your primary calendar so Shiori can check when you’re free."
+      : calendarConnection.state === "connected"
+        ? `Connected as ${calendarConnection.verifiedEmail}`
+        : calendarConnection.state === "authorization-expired"
+          ? "Google Calendar needs to be reconnected. Your promises and reminders still work."
+          : "Google Calendar can’t be reached right now. Your promises and reminders still work.";
+  const knownDetails =
+    calendarConnection.state === "authorization-expired" ||
+    calendarConnection.state === "unavailable"
+      ? knownCalendarDetails(calendarConnection)
+      : {};
+  const lastCheck =
+    calendarConnection.state === "connected"
+      ? calendarConnection.lastSuccessfulCheckAt
+      : knownDetails.lastSuccessfulCheckAt;
+
+  return (
+    <section
+      className="calendar-panel"
+      aria-busy={calendarInitiating}
+      aria-labelledby="google-calendar-title"
+    >
+      {calendarNotice && (
+        <p
+          className="notice calendar-notice"
+          ref={noticeRef}
+          role="alert"
+          tabIndex={-1}
+        >
+          {calendarNoticeCopy[calendarNotice]}
+        </p>
+      )}
+      <div className="calendar-panel__content">
+        <div className="calendar-panel__copy">
+          <div className="calendar-panel__heading">
+            <h2 id="google-calendar-title">Google Calendar</h2>
+            <span className={`calendar-badge calendar-badge--${calendarConnection.state}`}>
+              {status}
+            </span>
+          </div>
+          <p className="calendar-body" aria-live="polite">
+            {body}
+          </p>
+          {!calendarInitiating && (
+            <div className="calendar-meta">
+              {calendarConnection.state === "disconnected" ? (
+                <span>Read-only access</span>
+              ) : calendarConnection.state === "connected" ? (
+                <span>Primary calendar · Read-only</span>
+              ) : (
+                knownDetails.verifiedEmail && (
+                  <span>Connected as {knownDetails.verifiedEmail}</span>
+                )
+              )}
+              {calendarConnection.state !== "disconnected" && (
+                <span>
+                  {lastCheck ? (
+                    <>
+                      Last successful check:{" "}
+                      <time dateTime={lastCheck}>
+                        {singaporeTimestamp.format(new Date(lastCheck))}
+                      </time>
+                    </>
+                  ) : (
+                    "Calendar not checked yet"
+                  )}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <button
+          className="calendar-action"
+          disabled={calendarInitiating}
+          onClick={() => void onCalendarConnect()}
+          type="button"
+        >
+          {calendarInitiating
+            ? "Opening Google…"
+            : reconnecting
+              ? "Reconnect Google Calendar"
+              : "Connect Google Calendar"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function DashboardView({
+  calendarConnection,
+  calendarInitiating,
+  calendarNotice,
+  onCalendarConnect,
   onRefresh,
   refreshFailed,
   refreshing,
@@ -295,6 +577,13 @@ function DashboardView({
           ))}
         </section>
 
+        <CalendarPanel
+          calendarConnection={calendarConnection}
+          calendarInitiating={calendarInitiating}
+          calendarNotice={calendarNotice}
+          onCalendarConnect={onCalendarConnect}
+        />
+
         <section className="promise-panel" aria-labelledby="promises-empty-title">
           <div className="empty-illustration" aria-hidden="true">
             <span />
@@ -317,17 +606,40 @@ export function App() {
   const [sessionExpired, setSessionExpired] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
+  const [calendarConnection, setCalendarConnection] =
+    useState<CalendarConnectionState>({
+      action: "reconnect",
+      state: "unavailable",
+    });
+  const [calendarInitiating, setCalendarInitiating] = useState(false);
+  const [calendarNotice, setCalendarNotice] =
+    useState<CalendarNotice | null>(null);
 
   const showLogin = (expired: boolean) => {
     setSummary(null);
     setSessionExpired(expired);
     setLoginError(null);
     setRefreshFailed(false);
+    setCalendarInitiating(false);
+    setCalendarNotice(null);
     setView("login");
+  };
+
+  const loadCalendarConnection = async (
+    previous: CalendarConnectionState = calendarConnection,
+  ) => {
+    const result = await readCalendarConnection(previous);
+    if (result.kind === "expired") {
+      showLogin(true);
+      return;
+    }
+    setCalendarConnection(result.connection);
+    setCalendarNotice(result.connection.outcome ?? null);
   };
 
   const loadInitialSummary = async () => {
     setView("loading");
+    void loadCalendarConnection();
     const result = await readSummary();
 
     if (result.kind === "success") {
@@ -406,7 +718,10 @@ export function App() {
   const refresh = async () => {
     setRefreshing(true);
     setRefreshFailed(false);
-    const result = await readSummary();
+    const [result, calendarResult] = await Promise.all([
+      readSummary(),
+      readCalendarConnection(calendarConnection),
+    ]);
 
     if (result.kind === "success") {
       setSummary(result.summary);
@@ -415,8 +730,51 @@ export function App() {
     } else {
       setRefreshFailed(true);
     }
+    if (calendarResult.kind === "expired") {
+      showLogin(true);
+    } else {
+      setCalendarConnection(calendarResult.connection);
+      setCalendarNotice(calendarResult.connection.outcome ?? null);
+    }
 
     setRefreshing(false);
+  };
+
+  const connectCalendar = async () => {
+    setCalendarInitiating(true);
+    setCalendarNotice(null);
+    try {
+      const response = await fetch("/api/google-calendar/connect", {
+        headers: { Accept: "application/json" },
+        method: "POST",
+      });
+      if (response.status === 401) {
+        showLogin(true);
+        return;
+      }
+      if (!response.ok) {
+        throw new Error("Calendar connection could not start");
+      }
+      const body: unknown = await response.json();
+      const authorizationUrl =
+        body && typeof body === "object"
+          ? (body as Record<string, unknown>).authorizationUrl
+          : undefined;
+      if (typeof authorizationUrl !== "string") {
+        throw new Error("Calendar authorization URL is invalid");
+      }
+      const url = new URL(authorizationUrl);
+      if (
+        url.protocol !== "https:" ||
+        url.origin !== "https://accounts.google.com"
+      ) {
+        throw new Error("Calendar authorization URL is invalid");
+      }
+      window.location.assign(url);
+    } catch {
+      setCalendarInitiating(false);
+      setCalendarNotice("start_failed");
+    }
   };
 
   if (view === "checking-session") {
@@ -448,6 +806,10 @@ export function App() {
 
   return (
     <DashboardView
+      calendarConnection={calendarConnection}
+      calendarInitiating={calendarInitiating}
+      calendarNotice={calendarNotice}
+      onCalendarConnect={connectCalendar}
       onRefresh={refresh}
       refreshFailed={refreshFailed}
       refreshing={refreshing}

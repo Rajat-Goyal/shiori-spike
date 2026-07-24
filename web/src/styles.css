@@ -452,6 +452,116 @@ p {
   color: #b25039;
 }
 
+.calendar-panel {
+  margin-top: 14px;
+  padding: clamp(22px, 4vw, 30px);
+  border: 1px solid rgb(66 112 92 / 22%);
+  border-radius: 20px;
+  background: rgb(66 112 92 / 6%);
+}
+
+.calendar-panel__content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.calendar-panel__copy {
+  min-width: 0;
+}
+
+.calendar-panel__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.calendar-panel h2 {
+  margin: 0;
+  font-size: clamp(1.3rem, 3vw, 1.65rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.calendar-badge {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid rgb(93 103 97 / 22%);
+  border-radius: 999px;
+  color: #58635c;
+  background: rgb(255 255 255 / 52%);
+  font-size: 0.73rem;
+  font-weight: 720;
+  letter-spacing: 0.015em;
+}
+
+.calendar-badge--connected {
+  border-color: rgb(49 91 73 / 24%);
+  color: #315b49;
+  background: rgb(66 112 92 / 11%);
+}
+
+.calendar-badge--authorization-expired {
+  border-color: rgb(179 86 58 / 24%);
+  color: #8c4938;
+  background: rgb(221 103 71 / 9%);
+}
+
+.calendar-body {
+  margin: 13px 0 0;
+  color: #414c45;
+  font-size: 0.94rem;
+  line-height: 1.55;
+}
+
+.calendar-meta {
+  display: grid;
+  gap: 4px;
+  margin-top: 9px;
+  color: #626d66;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.calendar-action {
+  flex: 0 0 auto;
+  min-height: 46px;
+  padding: 0 17px;
+  border: 1px solid rgb(49 91 73 / 28%);
+  border-radius: 12px;
+  color: #315b49;
+  background: #f8f3e9;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.calendar-action:hover:not(:disabled) {
+  background: #eee7da;
+}
+
+.calendar-action:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.calendar-notice {
+  margin: 0 0 20px;
+  padding: 13px 15px;
+  border: 1px solid rgb(66 112 92 / 22%);
+  color: #315b49;
+  background: rgb(255 255 255 / 54%);
+}
+
+.calendar-notice:focus {
+  outline: 3px solid rgb(55 101 82 / 32%);
+  outline-offset: 3px;
+}
+
 .promise-panel {
   display: grid;
   min-height: 305px;
@@ -597,6 +707,16 @@ p {
     min-height: 105px;
     flex-direction: row;
     align-items: center;
+  }
+
+  .calendar-panel__content {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .calendar-action {
+    width: 100%;
   }
 
   .promise-panel {

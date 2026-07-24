@@ -20,6 +20,17 @@ const retriedSummary = {
   updatedAt: "2026-07-24T10:35:18.000Z",
 };
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/google-calendar/connection", (route) =>
+    route.fulfill({
+      json: {
+        action: "connect",
+        state: "disconnected",
+      },
+    }),
+  );
+});
+
 function contrastRatio(foreground: string, background: string): number {
   const rgb = (value: string) => {
     const channels = value.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number);
