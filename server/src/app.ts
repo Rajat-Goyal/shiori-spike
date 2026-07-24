@@ -1,5 +1,8 @@
 import fastifyStatic from "@fastify/static";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyServerOptions,
+} from "fastify";
 import { access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,13 +17,21 @@ import {
   ownerSession,
   readCookie,
 } from "./owner-auth.js";
+import { TelegramBotClient } from "./telegram/client.js";
+import { SupabaseTelegramRepository } from "./telegram/repository.js";
+import { TelegramService } from "./telegram/service.js";
+import {
+  registerTelegramWebhook,
+  type TelegramUpdateHandler,
+} from "./telegram/webhook.js";
 
 export type AppOptions = {
   config: ServerConfig;
   dashboardRepository?: DashboardRepository;
-  logger?: boolean;
+  logger?: FastifyServerOptions["logger"];
   now?: () => Date;
   serveStatic?: boolean;
+  telegramService?: TelegramUpdateHandler;
   webRoot?: string;
 };
 
@@ -39,6 +50,18 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       ownerTimeZone: options.config.ownerTimeZone,
       supabaseSecretKey: options.config.supabaseSecretKey,
       supabaseUrl: options.config.supabaseUrl,
+    });
+  const telegramService =
+    options.telegramService ??
+    new TelegramService({
+      client: new TelegramBotClient({
+        botToken: options.config.telegramBotToken,
+      }),
+      ownerUserId: options.config.telegramOwnerUserId,
+      repository: new SupabaseTelegramRepository({
+        supabaseSecretKey: options.config.supabaseSecretKey,
+        supabaseUrl: options.config.supabaseUrl,
+      }),
     });
 
   function sessionToken(cookieHeader: string | undefined): string | undefined {
@@ -63,6 +86,10 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   app.get("/api/ping", async () => ({ message: "pong" }));
   app.get("/api/health", async () => ({ status: "ok" }));
+  registerTelegramWebhook(app, {
+    service: telegramService,
+    webhookSecret: options.config.telegramWebhookSecret,
+  });
 
   app.post<{ Body: { password?: unknown } }>("/api/owner/login", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
