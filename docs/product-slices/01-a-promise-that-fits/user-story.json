@@ -572,8 +572,10 @@
           "supabase/migrations/20260724130000_add_telegram_ingress.sql"
         ]
       },
-      "status": "in_progress",
-      "open_questions": []
+      "status": "blocked",
+      "open_questions": [
+        "Should correction and immediately-following permission intent use an owner-visible deterministic command contract, or should a narrow prerequisite story extend DecisionEngine with a strict non-authorizing draft-relative intent signal?"
+      ]
     },
     {
       "id": "S01-03c",

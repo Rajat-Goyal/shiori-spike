@@ -1,7 +1,7 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-24T13:52:57Z",
-  "current_story": "S01-03b",
+  "updated_at": "2026-07-24T14:08:00Z",
+  "current_story": null,
   "summary": "4/15 done",
   "log": [
     {
@@ -235,6 +235,44 @@
         "S01-12: exercise the configured provider adapter in deployed release verification without retaining provider material."
       ],
       "context_for_next": "DecisionEngine is stable under server/src/decision with one source for schema, inferred type, and runtime parsing.\nThe OpenAI adapter uses strict Responses text.format, store false, no tools, no provider conversation state, and a five-second timeout.\nSemantic validation is application-owned and returns only bounded success or failure results; it cannot mutate product state.\nNo Telegram orchestration, draft persistence, or commitment creation was introduced.\nOne sanitized live-provider request passed at 6697b6c; final response-handling corrections are covered deterministically at d80c3eb.\nAll 46 engine tests and the full Node 24 repository gate pass; final architecture and QA reviews are PASS.\nS01-03b and S01-07 are dependency-eligible; preserve the decision redaction and non-authorization boundary."
+    },
+    {
+      "story_id": "S01-03b",
+      "started_at": "2026-07-24T13:52:57Z",
+      "finished_at": "2026-07-24T14:08:00Z",
+      "squad": "conversation-state",
+      "outcome": "blocked",
+      "commits": [
+        "f2d658a chore(S01-03b): start story",
+        "55ba671 test(S01-03b): record decision contract gap"
+      ],
+      "ac_results": [
+        {
+          "id": "AC2",
+          "result": "fail",
+          "evidence": "evidence/S01-03b/dependency-gap.md"
+        },
+        {
+          "id": "AC4",
+          "result": "fail",
+          "evidence": "evidence/S01-03b/dependency-gap.md"
+        }
+      ],
+      "decisions": [
+        "No source implementation began after staff proved that the frozen string-only DecisionEngine contract can produce identical results for a correction and a separate commitment request.",
+        "Value comparison, phrase matching, and treating every complete-draft turn as either correction or collision were rejected because each would guess authorization or fail AC4.",
+        "PM recommends an explicit deterministic /correct command; architecture recommends a narrow prerequisite contract story with bounded draft context and a non-authorizing turn-relation signal."
+      ],
+      "deviations_from_plan": [
+        "The dependency's actual output lacks the draft-relative relation assumed by S01-03b for AC2 permission correlation and AC4 correction-versus-collision handling, triggering the mandatory stop condition before source edits.",
+        "All ACs remain unverified because the story stopped at contract review; they were not weakened or partially claimed."
+      ],
+      "follow_ups": [
+        "Owner decision required: approve the /correct product contract or approve a new S01-03a1 prerequisite story that extends the bounded DecisionEngine contract.",
+        "After the decision is recorded, update the DAG or story decision, return S01-03b to todo, and start a fresh run while preserving this blocked log entry.",
+        "S01-07 remains dependency-eligible and has completed read-only PM, design, architecture, credential-key, and overlap preflight."
+      ],
+      "context_for_next": "S01-03b has no source implementation; the worktree was clean at its review point.\nThe frozen DecisionResult cannot distinguish correction from a separate request or permission agreement from an unrelated turn.\nDo not infer intent from raw wording or field differences and do not amend completed S01-03a commits.\nEvidence reproduces two identical structured decisions requiring mutually exclusive transitions.\nPM proposes an explicit /correct command; architecture recommends a narrow S01-03a1 context-and-relation contract.\nThe owner must select the product contract before S01-03b resumes.\nS01-07 is independently eligible but must not write migrations/app/config concurrently with S01-03b."
     }
   ]
 }
