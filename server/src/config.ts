@@ -33,7 +33,10 @@ function required(environment: NodeJS.ProcessEnv, key: string): string {
 function httpUrl(
   value: string,
   key: string,
-  options: { requireHttpsOffLoopback?: boolean } = {},
+  options: {
+    originOnly?: boolean;
+    requireHttpsOffLoopback?: boolean;
+  } = {},
 ): string {
   let url: URL;
 
@@ -57,6 +60,14 @@ function httpUrl(
   ) {
     throw new Error(
       `Invalid server configuration: ${key} must use HTTPS outside loopback`,
+    );
+  }
+  if (
+    options.originOnly &&
+    (url.pathname !== "/" || url.search || url.hash)
+  ) {
+    throw new Error(
+      `Invalid server configuration: ${key} must be an origin without a path, query, or fragment`,
     );
   }
 
@@ -222,6 +233,7 @@ export function readServerConfig(
     publicAppBaseUrl: httpUrl(
       required(environment, "PUBLIC_APP_BASE_URL"),
       "PUBLIC_APP_BASE_URL",
+      { originOnly: true, requireHttpsOffLoopback: true },
     ),
     supabaseSecretKey: required(environment, "SUPABASE_SECRET_KEY"),
     supabaseUrl: httpUrl(

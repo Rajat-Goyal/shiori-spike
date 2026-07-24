@@ -35,7 +35,6 @@ export type ClaimedGoogleOAuthAttempt = Readonly<{
 export type StoredGoogleConnection = Readonly<{
   calendarId: "primary";
   encryptedRefreshToken: EncryptedSecret;
-  scopes: readonly string[];
   verifiedEmail: string;
 }>;
 
@@ -74,6 +73,14 @@ type SupabaseGoogleOAuthRepositoryOptions = {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function hasExactGoogleScopes(value: unknown): value is string[] {
+  return (
+    isStringArray(value) &&
+    value.length === googleOAuthScopes.length &&
+    value.every((scope, index) => scope === googleOAuthScopes[index])
+  );
 }
 
 function isClaimedAttempt(value: unknown): value is {
@@ -118,7 +125,7 @@ function isConnectionRecord(value: unknown): value is {
     (row.last_successful_check_at === null ||
       (typeof row.last_successful_check_at === "string" &&
         !Number.isNaN(Date.parse(row.last_successful_check_at)))) &&
-    isStringArray(row.scopes) &&
+    hasExactGoogleScopes(row.scopes) &&
     (row.status === "connected" || row.status === "authorization_expired") &&
     typeof row.verified_email === "string"
   );
@@ -246,7 +253,7 @@ export class SupabaseGoogleOAuthRepository implements GoogleOAuthRepository {
         connection.encryptedRefreshToken.ciphertext,
       p_refresh_token_nonce: connection.encryptedRefreshToken.nonce,
       p_refresh_token_tag: connection.encryptedRefreshToken.tag,
-      p_scopes: connection.scopes,
+      p_scopes: googleOAuthScopes,
       p_verified_email: connection.verifiedEmail,
     });
     if (result !== true) {

@@ -108,7 +108,6 @@ describe("SupabaseGoogleOAuthRepository", () => {
         nonce: Buffer.alloc(12, 1).toString("base64"),
         tag: Buffer.alloc(16, 2).toString("base64"),
       },
-      scopes: googleOAuthScopes,
       verifiedEmail: "owner@example.com",
     });
     await expect(repository.readConnection()).resolves.toEqual({
@@ -129,6 +128,27 @@ describe("SupabaseGoogleOAuthRepository", () => {
     });
     expect(fetchFromSupabase.mock.calls[1][0]).toContain(
       "/rpc/read_google_calendar_connection_state",
+    );
+  });
+
+  it.each([
+    [...googleOAuthScopes, "profile"],
+    googleOAuthScopes.slice(0, 3),
+    [...googleOAuthScopes].reverse(),
+  ])("rejects non-exact stored scope set %j", async (scopes) => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({
+        calendar_id: "primary",
+        key_version: 2,
+        last_successful_check_at: null,
+        scopes,
+        status: "connected",
+        verified_email: "owner@example.com",
+      }),
+    );
+
+    await expect(repositoryWith(fetchFromSupabase).readConnection()).rejects.toThrow(
+      "Google connection persistence returned invalid data",
     );
   });
 });

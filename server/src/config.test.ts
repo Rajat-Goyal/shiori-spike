@@ -41,6 +41,33 @@ describe("readServerConfig", () => {
     ).toBe("https://database.example.com");
   });
 
+  it("requires an HTTPS-off-loopback origin for the public app", () => {
+    expect(readServerConfig(validEnvironment).publicAppBaseUrl).toBe(
+      "http://localhost:3000",
+    );
+
+    for (const publicAppBaseUrl of [
+      "http://app.example.com",
+      "https://app.example.com/path",
+      "https://app.example.com/?query=value",
+      "https://app.example.com/#fragment",
+    ]) {
+      expect(() =>
+        readServerConfig({
+          ...validEnvironment,
+          PUBLIC_APP_BASE_URL: publicAppBaseUrl,
+        }),
+      ).toThrow(/PUBLIC_APP_BASE_URL/);
+    }
+
+    expect(
+      readServerConfig({
+        ...validEnvironment,
+        PUBLIC_APP_BASE_URL: "https://app.example.com",
+      }).publicAppBaseUrl,
+    ).toBe("https://app.example.com");
+  });
+
   it("requires a canonical base64 session secret containing at least 32 bytes", () => {
     for (const invalidSecret of [
       "not-base64",
