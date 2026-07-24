@@ -2,7 +2,11 @@ import {
   generateKeyPairSync,
   sign,
 } from "node:crypto";
+import { Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
+import { buildApp, type AppOptions } from "../app.js";
+import type { ServerConfig } from "../config.js";
+import { ownerSession } from "../owner-auth.js";
 import { decryptSecret, digest, pkceChallenge } from "./crypto.js";
 import { GoogleOAuthService } from "./oauth.js";
 import {
@@ -498,5 +502,180 @@ describe("GoogleOAuthService", () => {
       action: "reconnect",
       state: "unavailable",
     });
+  });
+});
+
+const routeConfig: ServerConfig = {
+  dashboardPasswordHash:
+    "$argon2id$v=19$m=65536,t=3,p=1$c2hpb3JpLXRlc3Qtc2FsdA$YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ",
+  dashboardSessionSecret: Buffer.alloc(32, 9).toString("base64"),
+  googleOAuthClientId: clientId,
+  googleOAuthClientSecret: "unit-test-google-client-secret",
+  googleOwnerEmail: ownerEmail,
+  googleTokenEncryptionKey: encryptionKey.toString("base64"),
+  googleTokenKeyVersion: keyVersion,
+  openaiApiKey: "unit-test-openai-key",
+  openaiModel: "gpt-test-model",
+  openaiPromptVersion: "shiori-test-v1",
+  ownerTimeZone: "Asia/Singapore",
+  publicAppBaseUrl: "http://localhost:3000",
+  supabaseSecretKey: "unit-test-supabase-key",
+  supabaseUrl: "http://127.0.0.1:54321",
+  telegramBotToken: "unit-test-bot-token",
+  telegramOwnerUserId: 123456789,
+  telegramWebhookSecret: "unit-test-webhook-secret",
+};
+
+function ownerCookie(): string {
+  return `${ownerSession.cookieName}=${ownerSession.issue(
+    routeConfig.dashboardSessionSecret,
+    now,
+  )}`;
+}
+
+async function routeApp(
+  service: GoogleCalendarService,
+  logger: AppOptions["logger"] = false,
+) {
+  return buildApp({
+    config: routeConfig,
+    dashboardRepository: {
+      readSummary: vi.fn().mockResolvedValue({
+        commitments: [],
+        counts: { active: 0, dueToday: 0, overdue: 0 },
+        updatedAt: now.toISOString(),
+      }),
+    },
+    googleCalendarService: service,
+    logger,
+    now: () => now,
+    serveStatic: false,
+  });
+}
+
+describe("Google OAuth HTTP boundary", () => {
+  it("requires an owner session for start and connection state", async () => {
+    const service: GoogleCalendarService = {
+      complete: vi.fn(),
+      readState: vi.fn(),
+      start: vi.fn(),
+    };
+    const app = await routeApp(service);
+
+    for (const request of [
+      { method: "POST" as const, url: "/api/google-calendar/connect" },
+      { method: "GET" as const, url: "/api/google-calendar/connection" },
+    ]) {
+      const response = await app.inject(request);
+      expect(response.statusCode).toBe(401);
+    }
+    expect(service.start).not.toHaveBeenCalled();
+    expect(service.readState).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("starts OAuth and reads state only through the authenticated server", async () => {
+    const service: GoogleCalendarService = {
+      complete: vi.fn(),
+      readState: vi.fn().mockResolvedValue({
+        action: "connect",
+        state: "disconnected",
+      }),
+      start: vi.fn().mockResolvedValue({
+        authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      }),
+    };
+    const app = await routeApp(service);
+    const headers = { cookie: ownerCookie() };
+
+    const started = await app.inject({
+      headers,
+      method: "POST",
+      url: "/api/google-calendar/connect",
+    });
+    const state = await app.inject({
+      headers,
+      method: "GET",
+      url: "/api/google-calendar/connection",
+    });
+
+    expect(started.json()).toEqual({
+      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    });
+    expect(state.json()).toEqual({
+      action: "connect",
+      state: "disconnected",
+    });
+    expect(started.headers["cache-control"]).toBe("no-store");
+    expect(state.headers["cache-control"]).toBe("no-store");
+    await app.close();
+  });
+
+  it("consumes callback values server-side and redirects to a clean dashboard URL", async () => {
+    let logs = "";
+    const stream = new Writable({
+      write(chunk, _encoding, callback) {
+        logs += String(chunk);
+        callback();
+      },
+    });
+    const complete = vi.fn().mockResolvedValue(undefined);
+    const service: GoogleCalendarService = {
+      complete,
+      readState: vi.fn(),
+      start: vi.fn(),
+    };
+    const app = await routeApp(service, { level: "info", stream });
+    const privateCode = "private-authorization-code";
+    const privateState = "private-oauth-state";
+
+    const response = await app.inject({
+      headers: { cookie: ownerCookie() },
+      method: "GET",
+      url: `/api/google-calendar/callback?code=${privateCode}&state=${privateState}`,
+    });
+
+    expect(response.statusCode).toBe(303);
+    expect(response.headers.location).toBe("http://localhost:3000/");
+    expect(response.headers.location).not.toContain("?");
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers["referrer-policy"]).toBe("no-referrer");
+    expect(complete).toHaveBeenCalledWith(
+      expect.any(String),
+      {
+        code: privateCode,
+        error: undefined,
+        state: privateState,
+      },
+    );
+    expect(logs).not.toContain(privateCode);
+    expect(logs).not.toContain(privateState);
+    await app.close();
+  });
+
+  it("keeps health available when the Calendar state is unavailable", async () => {
+    const service: GoogleCalendarService = {
+      complete: vi.fn(),
+      readState: vi.fn().mockRejectedValue(new Error("private provider detail")),
+      start: vi.fn(),
+    };
+    const app = await routeApp(service);
+
+    const state = await app.inject({
+      headers: { cookie: ownerCookie() },
+      method: "GET",
+      url: "/api/google-calendar/connection",
+    });
+    const health = await app.inject({
+      method: "GET",
+      url: "/api/health",
+    });
+
+    expect(state.json()).toEqual({
+      action: "reconnect",
+      state: "unavailable",
+    });
+    expect(health.json()).toEqual({ status: "ok" });
+    await app.close();
   });
 });

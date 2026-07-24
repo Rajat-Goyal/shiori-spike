@@ -2,6 +2,7 @@ import fastifyStatic from "@fastify/static";
 import Fastify, {
   type FastifyInstance,
   type FastifyServerOptions,
+  LogController,
 } from "fastify";
 import { access } from "node:fs/promises";
 import path from "node:path";
@@ -11,6 +12,11 @@ import {
   type DashboardRepository,
   SupabaseDashboardRepository,
 } from "./dashboard.js";
+import {
+  type GoogleCalendarService,
+  GoogleOAuthService,
+} from "./google/oauth.js";
+import { SupabaseGoogleOAuthRepository } from "./google/repository.js";
 import {
   createPasswordVerifier,
   LoginRateLimiter,
@@ -28,6 +34,7 @@ import {
 export type AppOptions = {
   config: ServerConfig;
   dashboardRepository?: DashboardRepository;
+  googleCalendarService?: GoogleCalendarService;
   logger?: FastifyServerOptions["logger"];
   now?: () => Date;
   serveStatic?: boolean;
@@ -39,7 +46,10 @@ const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultWebRoot = path.resolve(currentDirectory, "../../web/dist");
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
-  const app = Fastify({ logger: options.logger ?? false });
+  const app = Fastify({
+    logController: new LogController({ disableRequestLogging: true }),
+    logger: options.logger ?? false,
+  });
   const now = options.now ?? (() => new Date());
   const verifyPassword = createPasswordVerifier(options.config.dashboardPasswordHash);
   const rateLimiter = new LoginRateLimiter();
@@ -50,6 +60,21 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       ownerTimeZone: options.config.ownerTimeZone,
       supabaseSecretKey: options.config.supabaseSecretKey,
       supabaseUrl: options.config.supabaseUrl,
+    });
+  const googleCalendarService =
+    options.googleCalendarService ??
+    new GoogleOAuthService({
+      clientId: options.config.googleOAuthClientId,
+      clientSecret: options.config.googleOAuthClientSecret,
+      encryptionKey: options.config.googleTokenEncryptionKey,
+      keyVersion: options.config.googleTokenKeyVersion,
+      now,
+      ownerEmail: options.config.googleOwnerEmail,
+      publicAppBaseUrl: options.config.publicAppBaseUrl,
+      repository: new SupabaseGoogleOAuthRepository({
+        supabaseSecretKey: options.config.supabaseSecretKey,
+        supabaseUrl: options.config.supabaseUrl,
+      }),
     });
   const telegramService =
     options.telegramService ??
@@ -146,6 +171,92 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
         `${ownerSession.cookieName}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`,
       )
       .send({ authenticated: false });
+  });
+
+  app.post("/api/google-calendar/connect", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    const token = sessionToken(request.headers.cookie);
+    if (
+      !token ||
+      !ownerSession.verify(
+        token,
+        options.config.dashboardSessionSecret,
+        now(),
+      )
+    ) {
+      return reply.code(401).send(unauthorizedError(request.headers.cookie));
+    }
+
+    try {
+      return await googleCalendarService.start(token);
+    } catch (error) {
+      request.log.error(
+        {
+          failureClass:
+            error instanceof Error
+              ? error.constructor.name
+              : "UnknownGoogleOAuthFailure",
+        },
+        "Google OAuth start failed",
+      );
+      return reply.code(503).send({ error: "google_oauth_unavailable" });
+    }
+  });
+
+  app.get<{
+    Querystring: {
+      code?: string;
+      error?: string;
+      state?: string;
+    };
+  }>("/api/google-calendar/callback", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    reply.header("Referrer-Policy", "no-referrer");
+    const cleanDashboardUrl = `${options.config.publicAppBaseUrl}/`;
+    const token = sessionToken(request.headers.cookie);
+    if (
+      !token ||
+      !ownerSession.verify(
+        token,
+        options.config.dashboardSessionSecret,
+        now(),
+      )
+    ) {
+      return reply.code(303).redirect(cleanDashboardUrl);
+    }
+
+    await googleCalendarService
+      .complete(token, {
+        code: request.query.code,
+        error: request.query.error,
+        state: request.query.state,
+      })
+      .catch(() => undefined);
+    return reply.code(303).redirect(cleanDashboardUrl);
+  });
+
+  app.get("/api/google-calendar/connection", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    const token = sessionToken(request.headers.cookie);
+    if (
+      !token ||
+      !ownerSession.verify(
+        token,
+        options.config.dashboardSessionSecret,
+        now(),
+      )
+    ) {
+      return reply.code(401).send(unauthorizedError(request.headers.cookie));
+    }
+
+    try {
+      return await googleCalendarService.readState(token);
+    } catch {
+      return {
+        action: "reconnect",
+        state: "unavailable",
+      };
+    }
   });
 
   app.get("/api/dashboard/summary", async (request, reply) => {
