@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-24T12:34:11Z",
-  "current_story": "S01-02",
-  "summary": "2/13 done",
+  "updated_at": "2026-07-24T13:06:19Z",
+  "current_story": null,
+  "summary": "3/13 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -108,6 +108,69 @@
         "S01-12: update the deprecated local Supabase inbucket configuration only if the release-verification toolchain requires it."
       ],
       "context_for_next": "The owner-only walking skeleton is stable: signed cookie login, protected Fastify owner APIs, and server-only Supabase REST reads.\nThe minimal Docker-local Supabase stack is healthy at its configured ignored .env.local pair, with the commitments migration applied and no seed data.\nThe dashboard summary contract returns active, due-today, overdue, commitments, and a server read timestamp.\nThe real acceptance path uses browser cookies, Fastify, and local Supabase without request interception.\nGenerated Supabase runtime state is ignored and excluded from Docker context.\nAll exact S01-01 commands and the full Node 24 repository gate pass.\nS01-02 and S01-07 are now dependency-eligible; do not re-derive the owner session or dashboard boundary."
+    },
+    {
+      "story_id": "S01-02",
+      "started_at": "2026-07-24T12:34:11Z",
+      "finished_at": "2026-07-24T13:06:19Z",
+      "squad": "integration-security",
+      "outcome": "done",
+      "commits": [
+        "22bdd56 chore(S01-02): start story",
+        "76985ff feat(S01-02): add durable Telegram ingress seam",
+        "4a37481 feat(S01-02): enforce Telegram webhook boundary",
+        "0264398 test(S01-02): verify durable Telegram replay claim",
+        "6907801 test(S01-02): record Telegram boundary evidence"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-02/telegram-owner-boundary.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-02/telegram-owner-boundary.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-02/persistence-redaction-audit.md"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-02/telegram-owner-boundary.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-02/webhook-replay-counts.json"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-02/persistence-redaction-audit.md"
+        }
+      ],
+      "decisions": [
+        "The webhook secret is timing-safe compared in Fastify onRequest before body parsing or any repository, owner-state, or Telegram call.",
+        "Only the configured numeric owner in the matching private chat is accepted; every unauthorized or non-private update receives the same generic Telegram refusal and an opaque HTTP acknowledgement.",
+        "A security-definer Postgres function atomically claims the unique update identity and captures the optional authenticated owner delivery chat; the persistence interface accepts no webhook payload or message text.",
+        "The controlled walking-skeleton responses are exactly 'No active promises.' for empty status and one bounded status-guidance line for other owner text; model and commitment behavior remain deferred.",
+        "A claimed update is never processed or sent twice, including concurrent replay; outbound Telegram is isolated behind an injectable server-only client."
+      ],
+      "deviations_from_plan": [
+        "The QA sandbox denied approved disposable-database mutation and local Playwright port binding, so the lead context executed the immutable Node 24 commands while QA independently reproduced the webhook test and reviewed the results, migration, tests, state, and redaction scans; evidence records this split provenance.",
+        "One self-cleaning test attempt was abandoned and fully restored because cleanup would have required broadening intentionally narrow production table permissions; the disposable local database was reset from committed migrations after QA instead."
+      ],
+      "follow_ups": [
+        "S01-03: replace the temporary unsupported-text guidance path with the bounded decision and draft flow while preserving the Telegram authorization, claim, and redaction seams.",
+        "S01-06: extend /status from the factual empty response to ordered active promises with versioned Done and Cancel actions.",
+        "S01-12: configure the deployed Telegram webhook and record a real owner/private, unauthorized, and replay-safe smoke without exposing identifiers or message text."
+      ],
+      "context_for_next": "Telegram ingress is stable at POST /api/telegram/webhook with secret validation before JSON parsing.\nTelegramService owns owner/private-chat checks and uses injected client and repository seams.\nThe exact generic refusal and empty-status responses are frozen; HTTP acknowledgements remain opaque.\nPostgres atomically claims unique update IDs and captures the single owner delivery chat without retaining payloads or message text.\nConcurrent replay produces one claim, send, and completion; later deliveries do nothing.\nThe local database has been reset from both committed migrations and contains no synthetic QA rows.\nAll exact S01-02 commands and the full Node 24 gate pass; evidence records the QA execution bridge.\nS01-03 and S01-07 are dependency-eligible; preserve the Telegram security and minimization boundary."
     }
   ]
 }
