@@ -61,6 +61,7 @@ describe("local Supabase Telegram ingress", () => {
       "processing_result",
       "processing_status",
       "received_at",
+      "resolved_action_key",
       "update_id",
     ]);
     expect(updateRecord.processing_status).toBe("processed");
