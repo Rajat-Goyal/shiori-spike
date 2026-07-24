@@ -19,7 +19,7 @@
     "dev:web": "npm run dev --workspace @shiori/web",
     "start": "npm run start --workspace @shiori/server",
     "test": "npm run test:api && npm run build && npm run test:e2e",
-    "test:db": "node --env-file=.env.local node_modules/vitest/vitest.mjs run server/test/dashboard-db.integration.ts",
+    "test:db": "node --env-file=.env.local node_modules/vitest/vitest.mjs run --config vitest.db.config.ts",
     "tests": "npm test",
     "test:api": "npm run test --workspace @shiori/server",
     "test:e2e": "playwright test",
