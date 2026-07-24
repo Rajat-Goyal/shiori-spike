@@ -807,15 +807,14 @@
           "docs/product-slices/01-a-promise-that-fits/adr.md#decision-3-explicit-state-machines",
           "docs/product-slices/01-a-promise-that-fits/progress.json",
           "server/src/decision/",
-          "server/src/telegram/conversation.ts",
+          "server/src/conversation/service.ts",
+          "server/src/conversation/repository.ts",
+          "server/src/conversation/copy.ts",
           "supabase/migrations/"
         ]
       },
       "status": "in_progress",
-      "open_questions": [
-        "AC4 requires bounded append-only creation events, but scope and ADR explicitly name commitment.created without defining a reminder-creation event or exact event count. PM recommends exactly two uniquely keyed events in the Confirm transaction: commitment.created and scheduled_message.created. Owner approval is required before implementation.",
-        "The S01-03b apply_conversation_turn result does not return the generated draft ID and version assumed by S01-03c callback rendering, and the S01-03c read_first path server/src/telegram/conversation.ts does not exist. PM recommends an atomic bounded resulting-draft reference/version in the conversation result and correcting read_first to the actual server/src/conversation modules; a second unauthenticated read is prohibited. Owner approval is required under the dependency-output stop condition."
-      ]
+      "open_questions": []
     },
     {
       "id": "S01-04",
