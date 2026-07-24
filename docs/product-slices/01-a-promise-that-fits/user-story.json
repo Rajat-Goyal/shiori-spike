@@ -572,7 +572,7 @@
           "supabase/migrations/20260724130000_add_telegram_ingress.sql"
         ]
       },
-      "status": "todo",
+      "status": "in_progress",
       "open_questions": []
     },
     {
