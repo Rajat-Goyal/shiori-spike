@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-03a1",
+  "generated_at": "2026-07-24T15:44:38Z",
+  "status": "blocked_pending_explicit_owner_authorization",
+  "story_complete": false,
+  "attempt_limit": 2,
+  "controlled_gate": {
+    "result": "pass",
+    "architecture_review": "pass",
+    "source_commit": "077f95515d888c21abf5a07c63bd7cdf574bf7ac",
+    "focused_tests": {
+      "passed": 103,
+      "failed": 0
+    },
+    "repository_check": {
+      "server_tests_passed": 164,
+      "server_tests_failed": 0,
+      "web_build": "pass",
+      "server_build": "pass",
+      "e2e_tests_passed": 46,
+      "e2e_tests_failed": 0
+    },
+    "independent_prompt_adapter": {
+      "passed": 21,
+      "failed": 0
+    },
+    "independent_adapter_fixtures": {
+      "passed": 4,
+      "failed": 0
+    }
+  },
+  "request_shape": {
+    "owner_text_kind": "synthetic_affirmative",
+    "phase": "awaiting_permission",
+    "candidate_shape": {
+      "has_definition": true,
+      "has_target": true,
+      "mode": "simple",
+      "duration_minutes": null,
+      "offer_work_window_help": false,
+      "timing_constraint_count": 0
+    },
+    "store": false,
+    "tools_count": 0,
+    "history_keys_present": false,
+    "previous_response_id_present": false,
+    "conversation_handle_present": false
+  },
+  "expected_predicate": {
+    "input_class": "explicit_commitment",
+    "relation": "permission_accepted",
+    "next_action": "ready",
+    "missing_field_count": 0,
+    "retained_candidate_exactly": true
+  },
+  "correction": {
+    "commit": "077f95515d888c21abf5a07c63bd7cdf574bf7ac",
+    "scope": "prompt contract and controlled adapter assertions only",
+    "normalization_added": false,
+    "semantic_bypass_added": false
+  },
+  "attempts": [
+    {
+      "attempt_number": 1,
+      "source_commit": "575f35ee90054430ea797fd0efded4b7b7805df3",
+      "attempted_at": null,
+      "attempted_at_reason": "not captured",
+      "command": "npm run test:openai:smoke",
+      "provider_called": true,
+      "provider_request_count": 1,
+      "retries": 0,
+      "exit_code": 1,
+      "status": "fail",
+      "safe_output": {
+        "ok": false,
+        "failure": "semantic"
+      },
+      "configured_presence": {
+        "model": true,
+        "prompt_version": true
+      },
+      "retained": {
+        "raw_input": false,
+        "raw_output": false,
+        "prompt": false,
+        "provider_id": false,
+        "trace": false
+      },
+      "side_effects": {
+        "product_mutation_count": 0,
+        "persistence_count": 0
+      }
+    },
+    {
+      "attempt_number": 2,
+      "source_commit": "077f95515d888c21abf5a07c63bd7cdf574bf7ac",
+      "attempted_at": null,
+      "attempted_at_reason": "pending explicit owner authorization",
+      "command": "npm run test:openai:smoke",
+      "provider_called": false,
+      "provider_request_count": 0,
+      "retries": 0,
+      "exit_code": null,
+      "status": "pending",
+      "safe_output": null,
+      "configured_presence": {
+        "model": true,
+        "prompt_version": true
+      },
+      "retained": {
+        "raw_input": false,
+        "raw_output": false,
+        "prompt": false,
+        "provider_id": false,
+        "trace": false
+      },
+      "side_effects": {
+        "product_mutation_count": 0,
+        "persistence_count": 0
+      }
+    }
+  ],
+  "sanitization_scan": {
+    "sensitive_env_values_scanned": 8,
+    "sensitive_env_value_matches": 0,
+    "raw_or_provider_material_payload_matches": 0,
+    "result": "pass"
+  }
+}

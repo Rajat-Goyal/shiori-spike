@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-03a1",
+  "source_commit": "077f95515d888c21abf5a07c63bd7cdf574bf7ac",
+  "generated_at": "2026-07-24T15:44:38Z",
+  "input_contract": {
+    "top_level_keys": [
+      "ownerText",
+      "context"
+    ],
+    "owner_text": {
+      "kind": "current_owner_turn",
+      "min_length": 1,
+      "max_length": 4096
+    },
+    "context_keys": [
+      "phase",
+      "fields"
+    ],
+    "phases": [
+      "none",
+      "awaiting_permission",
+      "awaiting_definition",
+      "awaiting_target",
+      "complete"
+    ],
+    "candidate_field_keys": [
+      "definitionOfDone",
+      "durationMinutes",
+      "offerWorkWindowHelp",
+      "possibleWorkSession",
+      "simpleAction",
+      "targetAt",
+      "targetTimeZone",
+      "timingConstraints"
+    ],
+    "bounds": {
+      "definitionOfDone": {
+        "nullable": true,
+        "min_length": 1,
+        "max_length": 500
+      },
+      "durationMinutes": {
+        "nullable": true,
+        "allowed": [
+          30,
+          60,
+          90,
+          120
+        ]
+      },
+      "targetAt": {
+        "nullable": true,
+        "exact_length": 25,
+        "format": "future RFC3339 with +08:00"
+      },
+      "targetTimeZone": {
+        "nullable": true,
+        "semantic_value": "Asia/Singapore",
+        "max_length": 64
+      },
+      "timingConstraints": {
+        "max_items": 4,
+        "item_min_length": 1,
+        "item_max_length": 200,
+        "order_significant": true
+      }
+    },
+    "excluded_keys": [
+      "commitment_id",
+      "draft_id",
+      "version",
+      "timestamps",
+      "database_state",
+      "prior_raw_message",
+      "history",
+      "transcript_payload",
+      "provider_output",
+      "response_id",
+      "authority"
+    ]
+  },
+  "phase_invariants": [
+    {
+      "phase": "none",
+      "rule": "fields is null"
+    },
+    {
+      "phase": "awaiting_permission",
+      "rule": "fields is a valid prior implied candidate; a false/false mode is allowed only while definition or target is missing and requires null duration plus false offerWorkWindowHelp"
+    },
+    {
+      "phase": "awaiting_definition",
+      "rule": "definitionOfDone is null; target pair may be null or valid"
+    },
+    {
+      "phase": "awaiting_target",
+      "rule": "definitionOfDone is populated and targetAt plus targetTimeZone are null"
+    },
+    {
+      "phase": "complete",
+      "rule": "definition and target pair are populated and exactly one mode is true"
+    }
+  ],
+  "mode_invariants": {
+    "both_true": "reject",
+    "complete_false_false": "reject",
+    "permission_false_false": "accept only while a core field is missing, durationMinutes is null, and offerWorkWindowHelp is false",
+    "permission_resolved_simple": "accept",
+    "permission_resolved_work": "accept only with durationMinutes null and offerWorkWindowHelp false",
+    "clarification_unresolved": "may stay unresolved only while core remains incomplete",
+    "clarification_resolution": "may resolve false/false while filling a null core field; completing core must resolve to exactly one mode",
+    "clarification_resolved_mode": "must remain unchanged"
+  },
+  "prefetch_cases": [
+    {
+      "id": "owner_text_over_maximum",
+      "expected_failure": "semantic",
+      "fetch_calls": 0,
+      "result": "pass"
+    },
+    {
+      "id": "definition_over_maximum",
+      "expected_failure": "semantic",
+      "fetch_calls": 0,
+      "result": "pass"
+    },
+    {
+      "id": "constraint_item_over_maximum",
+      "expected_failure": "semantic",
+      "fetch_calls": 0,
+      "result": "pass"
+    },
+    {
+      "id": "constraint_count_over_maximum",
+      "expected_failure": "semantic",
+      "fetch_calls": 0,
+      "result": "pass"
+    },
+    {
+      "id": "extra_top_level_key",
+      "expected_failure": "semantic",
+      "fetch_calls": 0,
+      "result": "pass"
+    },
+    {
+      "id": "extra_context_field",
+      "expected_failure": "semantic",
+      "fetch_calls": 0,
+      "result": "pass"
+    }
+  ],
+  "request_contract": {
+    "input_encoding": "JSON string of exactly the bounded current input",
+    "store": false,
+    "tools": [],
+    "history_keys_present": false,
+    "previous_response_id_present": false,
+    "conversation_handle_present": false,
+    "timeout_milliseconds": 5000,
+    "provider_request_count_per_smoke_attempt": 1
+  },
+  "failure_classes": [
+    "http",
+    "provider_error",
+    "incomplete",
+    "refusal",
+    "missing_output",
+    "non_json",
+    "schema",
+    "semantic",
+    "timeout"
+  ],
+  "mutation_check": {
+    "input_deep_equal_after_decision": true,
+    "persistence_interfaces_found": 0,
+    "calendar_interfaces_found": 0,
+    "telegram_interfaces_found": 0,
+    "authorization_interfaces_found": 0,
+    "result": "pass"
+  },
+  "verification": {
+    "exact_maximum_case": {
+      "passed": 1,
+      "failed": 0
+    },
+    "phase_invariant_cases": {
+      "passed": 18,
+      "failed": 0
+    },
+    "opaque_failure_class_cases": {
+      "passed": 9,
+      "failed": 0
+    },
+    "controlled_gate": "pass",
+    "architecture_review": "pass",
+    "provider_gate": "blocked_pending_explicit_owner_authorization",
+    "story_complete": false
+  }
+}
