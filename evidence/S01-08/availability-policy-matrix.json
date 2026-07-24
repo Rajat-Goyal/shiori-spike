@@ -1,0 +1,159 @@
+{
+  "story_id": "S01-08",
+  "generated_at": "2026-07-24T19:05:03Z",
+  "implementation_commits": [
+    "20d84f8",
+    "93e7988",
+    "27cb821"
+  ],
+  "owner_approved_boundary": {
+    "commit": "9d0c516",
+    "effective_windows": "Already-normalized per-date windows are accepted; raw natural-language constraint parsing remains upstream.",
+    "credentials": "Calendar access is supplied through an injected server-only token provider."
+  },
+  "matrix": [
+    {
+      "rule": "supported durations only",
+      "input": "30, 60, 90, 120 minutes",
+      "observed": "Each duration produced a fitting session with the exact requested length.",
+      "result": "pass",
+      "ac": [
+        "AC1"
+      ]
+    },
+    {
+      "rule": "reject unsupported durations before Calendar",
+      "input": "0, 15, 45, 121 minutes",
+      "observed": "Each returned invalid_request/invalid_duration and made zero busy-reader calls.",
+      "result": "pass",
+      "ac": [
+        "AC1",
+        "AC6"
+      ]
+    },
+    {
+      "rule": "Asia/Singapore 30-minute start boundaries",
+      "input": "now at 08:00 and 08:01 SGT",
+      "observed": "First candidates began at 08:00 and 08:30 SGT respectively.",
+      "result": "pass",
+      "ac": [
+        "AC1"
+      ]
+    },
+    {
+      "rule": "default hours and full-session fit",
+      "input": "08:00-20:00 default window",
+      "observed": "A session ending at 20:00 fit; a session beginning at 20:00 did not.",
+      "result": "pass",
+      "ac": [
+        "AC2"
+      ]
+    },
+    {
+      "rule": "normalized explicit constraints override defaults",
+      "input": "Per-date windows before 08:00, after 20:00, split windows, and a closed day",
+      "observed": "The explicit per-date windows narrowed, extended, split, or closed that date without falling back to default hours.",
+      "result": "pass",
+      "ac": [
+        "AC2"
+      ]
+    },
+    {
+      "rule": "sessions do not cross midnight",
+      "input": "A 30-minute 23:30-24:00 window and a 60-minute attempt from 23:30",
+      "observed": "Ending exactly at midnight fit; extending past midnight returned no fit.",
+      "result": "pass",
+      "ac": [
+        "AC2",
+        "AC6"
+      ]
+    },
+    {
+      "rule": "FreeBusy is blocking authority with no automatic buffer",
+      "input": "Overlapping, duplicate, and adjacent busy intervals",
+      "observed": "Overlaps blocked; intervals were normalized deterministically; exact adjacency remained free under half-open interval semantics.",
+      "result": "pass",
+      "ac": [
+        "AC2"
+      ]
+    },
+    {
+      "rule": "all-day, transparent, and cancelled behavior",
+      "input": "An all-day FreeBusy interval plus transparent and cancelled event summaries",
+      "observed": "The all-day FreeBusy interval blocked the entire suggestion day. Transparent/cancelled summaries did not independently alter availability because event summaries are separate from FreeBusy authority.",
+      "result": "pass",
+      "ac": [
+        "AC2",
+        "AC7"
+      ]
+    },
+    {
+      "rule": "generated pre-target cap",
+      "input": "Now 2026-08-01 08:01 SGT; target after one month",
+      "observed": "The busy read began at the next boundary and ended exactly 14 days after now.",
+      "read_range": {
+        "startAt": "2026-08-01T08:30:00+08:00",
+        "endAt": "2026-08-15T08:01:00+08:00"
+      },
+      "result": "pass",
+      "ac": [
+        "AC3"
+      ]
+    },
+    {
+      "rule": "exact owner proposal beyond generated cap",
+      "input": "Proposal begins at the immutable target more than 14 days away",
+      "observed": "Only the exact proposed interval was checked and returned free.",
+      "read_range": {
+        "startAt": "2026-08-20T10:00:00+08:00",
+        "endAt": "2026-08-20T11:00:00+08:00"
+      },
+      "result": "pass",
+      "ac": [
+        "AC3"
+      ]
+    },
+    {
+      "rule": "proposal target and boundary limits",
+      "input": "A proposal after target and an off-boundary proposal",
+      "observed": "Both returned invalid_request/invalid_proposal before Calendar.",
+      "result": "pass",
+      "ac": [
+        "AC1",
+        "AC3"
+      ]
+    },
+    {
+      "rule": "recovery only when overdue and capped at seven days",
+      "input": "One minute overdue and one minute before target",
+      "observed": "The overdue search read exactly seven days; the pre-target request returned recovery_not_due before Calendar.",
+      "read_range": {
+        "startAt": "2026-08-03T08:30:00+08:00",
+        "endAt": "2026-08-10T08:01:00+08:00"
+      },
+      "result": "pass",
+      "ac": [
+        "AC3"
+      ]
+    },
+    {
+      "rule": "no silent relaxation",
+      "input": "A FreeBusy interval covering every policy-valid candidate",
+      "observed": "The result was no_fit with no alternative outside hours, duration, boundary, target, or busy constraints.",
+      "result": "pass",
+      "ac": [
+        "AC6"
+      ]
+    }
+  ],
+  "qa_signoff": {
+    "result": "pass",
+    "acceptance_criteria": [
+      "AC1",
+      "AC2",
+      "AC3",
+      "AC6",
+      "AC7"
+    ]
+  }
+}

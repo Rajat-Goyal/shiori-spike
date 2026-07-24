@@ -1,0 +1,90 @@
+{
+  "story_id": "S01-08",
+  "generated_at": "2026-07-24T19:05:03Z",
+  "ranking_cases": [
+    {
+      "case": "conflicting proposal with later and earlier same-day fits",
+      "proposed_start": "2026-08-01T10:00:00+08:00",
+      "observed_alternatives": [
+        "2026-08-01T11:00:00+08:00",
+        "2026-08-01T09:00:00+08:00"
+      ],
+      "rule": "nearest later first, then nearest earlier",
+      "result": "pass",
+      "ac": [
+        "AC4"
+      ]
+    },
+    {
+      "case": "conflicting proposal with one same-day fit",
+      "observed_count": 1,
+      "future_fill_used": false,
+      "rule": "same-day tier remains authoritative when it has a fit",
+      "result": "pass",
+      "ac": [
+        "AC4"
+      ]
+    },
+    {
+      "case": "conflicting proposal with no same-day fit",
+      "observed_alternatives": [
+        "2026-08-02T08:00:00+08:00",
+        "2026-08-02T08:30:00+08:00"
+      ],
+      "rule": "fall forward chronologically only after the same-day tier is empty",
+      "result": "pass",
+      "ac": [
+        "AC4"
+      ]
+    },
+    {
+      "case": "no proposed time",
+      "observed_alternatives": [
+        "2026-08-01T08:00:00+08:00",
+        "2026-08-01T08:30:00+08:00"
+      ],
+      "serialized_result_contains_best_or_optimal": false,
+      "rule": "return the earliest two fitting windows without an optimality claim",
+      "result": "pass",
+      "ac": [
+        "AC5"
+      ]
+    },
+    {
+      "case": "free exact proposal",
+      "observed_proposal_status": "free",
+      "observed_alternative_count": 0,
+      "calendar_read_count": 1,
+      "rule": "return the exact free proposal without unnecessary alternatives",
+      "result": "pass",
+      "ac": [
+        "AC4"
+      ]
+    },
+    {
+      "case": "no fitting window",
+      "observed_status": "no_fit",
+      "observed_alternative_count": 0,
+      "constraints_relaxed": false,
+      "result": "pass",
+      "ac": [
+        "AC6"
+      ]
+    }
+  ],
+  "invariants": {
+    "maximum_alternative_count": 2,
+    "deterministic_equality_for_identical_inputs": true,
+    "deterministic_equality_after_reversing_equivalent_busy_input_order": true,
+    "automatic_buffers_added": false,
+    "optimality_language_emitted": false
+  },
+  "qa_signoff": {
+    "result": "pass",
+    "acceptance_criteria": [
+      "AC4",
+      "AC5",
+      "AC6"
+    ]
+  }
+}

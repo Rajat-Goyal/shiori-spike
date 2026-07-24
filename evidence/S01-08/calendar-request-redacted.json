@@ -1,0 +1,109 @@
+{
+  "story_id": "S01-08",
+  "generated_at": "2026-07-24T19:05:03Z",
+  "probe": {
+    "provider": "controlled in-memory fetch fixture",
+    "live_google_requests": 0,
+    "token_provider": {
+      "kind": "injected server-only interface",
+      "calls_for_valid_request": 1,
+      "token_value_recorded": false,
+      "token_value_returned": false
+    },
+    "http_request_count": 2,
+    "freebusy_request": {
+      "method": "POST",
+      "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+      "authorization": "[REDACTED]",
+      "body": {
+        "items": [
+          {
+            "id": "primary"
+          }
+        ],
+        "timeMin": "2026-08-01T00:00:00.000Z",
+        "timeMax": "2026-08-01T04:00:00.000Z",
+        "timeZone": "Asia/Singapore"
+      }
+    },
+    "events_request": {
+      "method": "GET",
+      "calendar_path": "/calendar/v3/calendars/primary/events",
+      "authorization": "[REDACTED]",
+      "query": {
+        "fields": "items(id,summary,start,end,transparency,recurrence,status)",
+        "maxResults": "50",
+        "orderBy": "startTime",
+        "showDeleted": "true",
+        "singleEvents": "true",
+        "timeMin": "2026-08-01T00:00:00.000Z",
+        "timeMax": "2026-08-01T04:00:00.000Z",
+        "timeZone": "Asia/Singapore"
+      }
+    },
+    "normalized_busy_intervals": [
+      {
+        "startAt": "2026-08-01T00:00:00.000Z",
+        "endAt": "2026-08-01T02:00:00.000Z"
+      },
+      {
+        "startAt": "2026-08-01T02:00:00.000Z",
+        "endAt": "2026-08-01T02:30:00.000Z"
+      }
+    ],
+    "normalization": {
+      "offsets_converted_to_iso_utc": true,
+      "out_of_range_portions_clipped": true,
+      "overlapping_intervals_merged": true,
+      "adjacent_intervals_kept_separate_for_half_open_no_buffer_semantics": true
+    },
+    "allowed_event_projection": {
+      "id": "evt",
+      "title": "allowed-title",
+      "start": {
+        "kind": "date_time",
+        "dateTime": "2026-08-01T00:00:00.000Z",
+        "timeZone": "Asia/Singapore"
+      },
+      "end": {
+        "kind": "date_time",
+        "dateTime": "2026-08-01T01:00:00.000Z",
+        "timeZone": "Asia/Singapore"
+      },
+      "busyStatus": "busy",
+      "recurrence": [
+        "RRULE:FREQ=DAILY;COUNT=2"
+      ],
+      "status": "confirmed"
+    },
+    "discarded_raw_fields": {
+      "description": true,
+      "location": true,
+      "attendees": true,
+      "organizer": true,
+      "full_provider_object_returned": false
+    },
+    "secondary_calendar_probe": {
+      "result": "unavailable",
+      "token_provider_calls": 0,
+      "http_calls": 0
+    }
+  },
+  "boundary_results": {
+    "primary_only": "pass",
+    "bounded_range_at_most_14_days": "pass",
+    "freebusy_is_blocking_authority": "pass",
+    "allowed_fields_only": "pass",
+    "no_calendar_write_endpoint_or_method": "pass",
+    "malformed_provider_payload_fails_closed": "pass",
+    "authorization_expired_is_distinct": "pass",
+    "unavailable_is_distinct": "pass"
+  },
+  "qa_signoff": {
+    "result": "pass",
+    "acceptance_criteria": [
+      "AC2",
+      "AC7"
+    ]
+  }
+}

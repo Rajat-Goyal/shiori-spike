@@ -1,0 +1,62 @@
+S01-08 independent QA verification
+Generated: 2026-07-24T19:05:03Z
+Implementation commits: 20d84f8, 93e7988, 27cb821
+Owner-approved boundary commit: 9d0c516
+
+Required focused command
+  npm run test --workspace @shiori/server -- src/google/calendar.test.ts src/scheduling/availability.test.ts
+
+Supported-runtime invocation
+  npx --yes -p node@24 -c 'node --version && npm --version && npm run test --workspace @shiori/server -- src/google/calendar.test.ts src/scheduling/availability.test.ts && npm run check'
+
+Runtime
+  Node: v24.18.0
+  npm: 11.17.0
+
+Focused result
+  Test files: 2 passed / 2
+  Tests: 34 passed / 34
+  server/src/google/calendar.test.ts: 11 passed
+  server/src/scheduling/availability.test.ts: 23 passed
+
+Full npm run check result
+  Server test files: 14 passed / 14
+  Server tests: 274 passed / 274
+  Server typecheck: pass
+  Web typecheck: pass
+  Server build: pass
+  Web build: pass
+  Playwright isolated: 46 passed / 46
+  Overall: pass
+
+Independent QA probes
+  Supported durations 30, 60, 90, and 120: pass
+  Unsupported durations fail before Calendar: pass
+  Busy-order deterministic equality: pass
+  Primary-only Calendar request and allowed projection: pass
+  FreeBusy clipping and overlap merge: pass
+  Raw description, location, attendee, and organizer discard: pass
+  Invalid secondary Calendar rejection before token/HTTP: pass
+  Model, persistence, dependency, and logging static audit: pass
+  Live Google requests: 0
+  Live OpenAI requests: 0
+
+Repository hygiene
+  S01-08 implementation commits touch exactly:
+    server/src/google/calendar.ts
+    server/src/google/calendar.test.ts
+    server/src/scheduling/availability.ts
+    server/src/scheduling/availability.test.ts
+  Runtime dependency changes: 0
+  git show --check for all three implementation commits: pass
+  Worktree was clean before evidence creation.
+
+Verification notes
+  The first sandboxed full check passed typecheck, server tests, and builds, but
+  Playwright could not bind 0.0.0.0:4173 (EPERM). The exact check was rerun
+  outside the sandbox and passed completely.
+  The first sandboxed attempt to obtain the ephemeral Node 24 runner was blocked
+  by DNS. The approved unsandboxed invocation obtained Node v24.18.0 and passed
+  both required commands. No repository file changed during either attempt.
+  Per the story contract, no database, live provider, or owner-browser gate was
+  required.
