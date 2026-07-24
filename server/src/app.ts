@@ -27,7 +27,9 @@ import {
   type GoogleCalendarService,
   GoogleOAuthService,
 } from "./google/oauth.js";
+import { GoogleCalendarAdapter } from "./google/calendar.js";
 import { SupabaseGoogleOAuthRepository } from "./google/repository.js";
+import { GoogleRefreshTokenProvider } from "./google/token-provider.js";
 import {
   createPasswordVerifier,
   LoginRateLimiter,
@@ -46,6 +48,21 @@ import {
   SupabaseStatusRepository,
 } from "./telegram/status-cancel.js";
 import {
+  SupabaseWorkSessionMessageRepository,
+  WorkSessionNotificationScheduler,
+} from "./work-sessions/notifications.js";
+import {
+  SupabaseWorkSessionOutcomeRepository,
+  WorkSessionOutcomeService,
+} from "./work-sessions/outcomes.js";
+import {
+  checkCalendarAvailability,
+} from "./work-sessions/availability-integration.js";
+import { SupabaseWorkSessionCommitter } from "./work-sessions/confirm.js";
+import { SupabaseWorkSessionContinuationRepository, WorkSessionContinuationService } from "./work-sessions/continuation.js";
+import { WorkSessionFlow } from "./work-sessions/flow.js";
+import { SupabaseWorkSessionFlowRepository } from "./work-sessions/flow-repository.js";
+import {
   registerTelegramWebhook,
   type TelegramUpdateHandler,
 } from "./telegram/webhook.js";
@@ -58,6 +75,10 @@ export type AppOptions = {
   now?: () => Date;
   serveStatic?: boolean;
   simpleReminderScheduler?: {
+    start(): void;
+    stop(): Promise<void>;
+  };
+  workSessionNotificationScheduler?: {
     start(): void;
     stop(): Promise<void>;
   };
@@ -84,6 +105,10 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       supabaseSecretKey: options.config.supabaseSecretKey,
       supabaseUrl: options.config.supabaseUrl,
     });
+  const googleRepository = new SupabaseGoogleOAuthRepository({
+    supabaseSecretKey: options.config.supabaseSecretKey,
+    supabaseUrl: options.config.supabaseUrl,
+  });
   const googleCalendarService =
     options.googleCalendarService ??
     new GoogleOAuthService({
@@ -94,14 +119,56 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       now,
       ownerEmail: options.config.googleOwnerEmail,
       publicAppBaseUrl: options.config.publicAppBaseUrl,
-      repository: new SupabaseGoogleOAuthRepository({
+      repository: googleRepository,
+    });
+  const calendar = new GoogleCalendarAdapter({
+    now,
+    tokenProvider: new GoogleRefreshTokenProvider({
+      clientId: options.config.googleOAuthClientId,
+      clientSecret: options.config.googleOAuthClientSecret,
+      encryptionKey: options.config.googleTokenEncryptionKey,
+      keyVersion: options.config.googleTokenKeyVersion,
+      ownerEmail: options.config.googleOwnerEmail,
+      repository: googleRepository,
+    }),
+  });
+  const workSessionAvailability = (
+    request: Parameters<typeof checkCalendarAvailability>[0],
+  ) => checkCalendarAvailability(request, calendar);
+  const telegramClient = new TelegramBotClient({
+    botToken: options.config.telegramBotToken,
+  });
+  const workSessionFlow = new WorkSessionFlow({
+    availability: workSessionAvailability,
+    committer: new SupabaseWorkSessionCommitter({
+      ownerId: options.config.telegramOwnerUserId,
+      supabaseSecretKey: options.config.supabaseSecretKey,
+      supabaseUrl: options.config.supabaseUrl,
+    }),
+    now,
+    repository: new SupabaseWorkSessionFlowRepository({
+      ownerId: options.config.telegramOwnerUserId,
+      supabaseSecretKey: options.config.supabaseSecretKey,
+      supabaseUrl: options.config.supabaseUrl,
+    }),
+  });
+  const workSessionOutcomeService = new WorkSessionOutcomeService({
+    repository: new SupabaseWorkSessionOutcomeRepository({
+      ownerId: options.config.telegramOwnerUserId,
+      supabaseSecretKey: options.config.supabaseSecretKey,
+      supabaseUrl: options.config.supabaseUrl,
+    }),
+  });
+  const workSessionContinuationService =
+    new WorkSessionContinuationService({
+      availability: workSessionAvailability,
+      now,
+      repository: new SupabaseWorkSessionContinuationRepository({
+        ownerId: options.config.telegramOwnerUserId,
         supabaseSecretKey: options.config.supabaseSecretKey,
         supabaseUrl: options.config.supabaseUrl,
       }),
     });
-  const telegramClient = new TelegramBotClient({
-    botToken: options.config.telegramBotToken,
-  });
   const telegramService =
     options.telegramService ??
     new TelegramService({
@@ -147,6 +214,33 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
           supabaseUrl: options.config.supabaseUrl,
         }),
       }),
+      workSessionActionService: {
+        handle(updateId, chatId, callbackData) {
+          const prefix =
+            typeof callbackData === "string"
+              ? callbackData.slice(0, 2)
+              : "";
+          if (prefix === "s:") {
+            return workSessionOutcomeService.handle(
+              updateId,
+              chatId,
+              callbackData,
+            );
+          }
+          if (prefix === "c:") {
+            return workSessionContinuationService.handle(
+              updateId,
+              chatId,
+              callbackData,
+            );
+          }
+          return workSessionFlow.handle(
+            updateId,
+            chatId,
+            callbackData,
+          );
+        },
+      },
     });
   const simpleReminderScheduler =
     options.simpleReminderScheduler ??
@@ -154,6 +248,16 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       client: telegramClient,
       now,
       repository: new SupabaseSimpleReminderRepository({
+        supabaseSecretKey: options.config.supabaseSecretKey,
+        supabaseUrl: options.config.supabaseUrl,
+      }),
+    });
+  const workSessionNotificationScheduler =
+    options.workSessionNotificationScheduler ??
+    new WorkSessionNotificationScheduler({
+      client: telegramClient,
+      now,
+      repository: new SupabaseWorkSessionMessageRepository({
         supabaseSecretKey: options.config.supabaseSecretKey,
         supabaseUrl: options.config.supabaseUrl,
       }),
@@ -187,9 +291,13 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
   app.addHook("onReady", async () => {
     simpleReminderScheduler.start();
+    workSessionNotificationScheduler.start();
   });
   app.addHook("onClose", async () => {
-    await simpleReminderScheduler.stop();
+    await Promise.all([
+      simpleReminderScheduler.stop(),
+      workSessionNotificationScheduler.stop(),
+    ]);
   });
 
   app.post<{ Body: { password?: unknown } }>("/api/owner/login", async (request, reply) => {

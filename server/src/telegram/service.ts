@@ -32,6 +32,13 @@ type TelegramServiceOptions = {
   statusService?: {
     read(): Promise<readonly TelegramReply[]>;
   };
+  workSessionActionService?: {
+    handle(
+      updateId: number,
+      chatId: number,
+      callbackData: unknown,
+    ): Promise<TelegramReply | null>;
+  };
 };
 
 type ParsedUpdate =
@@ -152,6 +159,9 @@ export class TelegramService {
   readonly #statusService:
     | TelegramServiceOptions["statusService"]
     | undefined;
+  readonly #workSessionActionService:
+    | TelegramServiceOptions["workSessionActionService"]
+    | undefined;
 
   constructor(options: TelegramServiceOptions) {
     this.#client = options.client;
@@ -162,6 +172,7 @@ export class TelegramService {
     this.#simpleCommitmentActionService =
       options.simpleCommitmentActionService;
     this.#statusService = options.statusService;
+    this.#workSessionActionService = options.workSessionActionService;
   }
 
   async handle(value: unknown): Promise<void> {
@@ -188,7 +199,11 @@ export class TelegramService {
     if (
       update.kind === "callback" &&
       isOwnerPrivate &&
-      (this.#confirmationService || this.#simpleCommitmentActionService)
+      (
+        this.#confirmationService ||
+        this.#simpleCommitmentActionService ||
+        this.#workSessionActionService
+      )
     ) {
       const useSimpleCommitmentAction =
         typeof update.callbackData === "string" &&
@@ -196,9 +211,18 @@ export class TelegramService {
           update.callbackData.startsWith("p:") ||
           update.callbackData.startsWith("x:")
         );
+      const useWorkSessionAction =
+        typeof update.callbackData === "string" &&
+        (
+          update.callbackData.startsWith("s:") ||
+          update.callbackData.startsWith("c:") ||
+          update.callbackData.startsWith("w:")
+        );
       const callbackService = useSimpleCommitmentAction
         ? this.#simpleCommitmentActionService
-        : this.#confirmationService;
+        : useWorkSessionAction
+          ? this.#workSessionActionService
+          : this.#confirmationService;
       if (!callbackService) {
         throw new Error("Callback service is unavailable");
       }
