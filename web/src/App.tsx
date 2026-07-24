@@ -352,7 +352,12 @@ export function App() {
       if (response.ok) {
         await loadInitialSummary();
       } else if (response.status === 401) {
-        showLogin(false);
+        const body: unknown = await response.json().catch(() => null);
+        const expired =
+          Boolean(body) &&
+          typeof body === "object" &&
+          (body as Record<string, unknown>).error === "session_expired";
+        showLogin(expired);
       } else {
         setView("initial-error");
       }

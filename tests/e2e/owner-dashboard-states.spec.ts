@@ -53,6 +53,9 @@ async function beginAtLogin(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Open your dashboard" }),
   ).toBeVisible();
+  await expect(
+    page.getByText("Your session ended. Enter your password to continue."),
+  ).toHaveCount(0);
 }
 
 async function openEmptyDashboard(page: Page) {
@@ -190,6 +193,22 @@ test("shows the private session check before loading owner data", async ({
   await expect(page.locator(".count-card")).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Open your dashboard" }),
+  ).toBeVisible();
+});
+
+test("shows the ended-session notice when the initial session probe has expired", async ({
+  page,
+}) => {
+  await page.route("**/api/owner/session", (route) =>
+    route.fulfill({ json: { error: "session_expired" }, status: 401 }),
+  );
+
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Open your dashboard" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Your session ended. Enter your password to continue."),
   ).toBeVisible();
 });
 
@@ -346,6 +365,24 @@ test("keeps the approved card geometry, Manrope typography, and AA text contrast
   );
   await page.getByLabel("Password").fill("password");
   await page.getByRole("button", { name: "Open dashboard" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your promises" }),
+  ).toBeVisible();
+
+  const dashboardFrame = await page.locator(".dashboard-frame").boundingBox();
+  expect(dashboardFrame).not.toBeNull();
+  if (viewport.width <= 680) {
+    expect(dashboardFrame!.x).toBeCloseTo(14, 0);
+    expect(dashboardFrame!.width).toBeCloseTo(viewport.width - 28, 0);
+  } else {
+    expect(dashboardFrame!.width).toBeGreaterThanOrEqual(720);
+    expect(dashboardFrame!.width).toBeLessThanOrEqual(800);
+  }
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
 
   const timestampColors = await page.locator(".last-updated").evaluate((element) => {
     const styles = getComputedStyle(element);
@@ -357,5 +394,19 @@ test("keeps the approved card geometry, Manrope typography, and AA text contrast
   });
   expect(
     contrastRatio(timestampColors.foreground, timestampColors.background),
+  ).toBeGreaterThanOrEqual(4.5);
+
+  const emptyCopyColors = await page
+    .getByText("Confirmed promises will appear here.")
+    .evaluate((element) => {
+      const styles = getComputedStyle(element);
+      const panel = element.closest(".promise-panel");
+      return {
+        background: panel ? getComputedStyle(panel).backgroundColor : "",
+        foreground: styles.color,
+      };
+    });
+  expect(
+    contrastRatio(emptyCopyColors.foreground, emptyCopyColors.background),
   ).toBeGreaterThanOrEqual(4.5);
 });

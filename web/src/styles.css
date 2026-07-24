@@ -319,7 +319,7 @@ p {
 }
 
 .dashboard-frame {
-  width: min(100%, 1180px);
+  width: min(100%, 780px);
   min-height: calc(100vh - clamp(32px, 8vw, 96px));
   margin: 0 auto;
   padding: clamp(26px, 5vw, 64px);
@@ -507,7 +507,7 @@ p {
 
 .promise-panel p {
   margin: 12px 0 0;
-  color: #6d756f;
+  color: #626b65;
   line-height: 1.55;
 }
 
