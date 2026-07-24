@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-24T10:25:20Z",
-  "current_story": "S01-01",
-  "summary": "1/13 done",
+  "updated_at": "2026-07-24T12:31:59Z",
+  "current_story": null,
+  "summary": "2/13 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -36,6 +36,78 @@
         "S01-01: start the local Supabase stack and install its Docker-generated HTTP API URL and server credential in .env.local."
       ],
       "context_for_next": "All 15 pre-Supabase configuration keys required by S01-00 are present and non-placeholder in ignored .env.local.\nThe fixed owner time zone policy passed without recording its value.\n.env.local is ignored, untracked, unstaged, and absent from commits.\nDo not assume the current Supabase pair is local; S01-01 owns starting local Supabase and installing its generated pair.\nNo external-provider authentication was attempted in S01-00.\nThe full npm run check gate passed; Playwright needs permission to bind its local test port in restricted environments."
+    },
+    {
+      "story_id": "S01-01",
+      "started_at": "2026-07-24T10:25:20Z",
+      "finished_at": "2026-07-24T12:31:59Z",
+      "squad": "ux-flow",
+      "outcome": "done",
+      "commits": [
+        "cb40066 chore(S01-01): start story",
+        "194ecb5 feat(S01-01): protect live owner dashboard API",
+        "a84b7d9 test(S01-01): configure local database verification",
+        "addebf4 feat(S01-01): render owner dashboard states",
+        "26bd872 fix(S01-01): harden live dashboard reads",
+        "a3d2ef9 fix(S01-01): align owner dashboard acceptance path",
+        "e61d4f9 fix(S01-01): close dashboard state review gaps",
+        "f5b0a96 fix(S01-01): exclude local Supabase state",
+        "3ee98c2 test(S01-01): verify session through browser cookie",
+        "e9a66c1 test(S01-01): record live dashboard evidence"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-01/owner-auth-api.txt"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-01/owner-auth-api.txt"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-01/live-empty-summary.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-01/dashboard-empty-mobile.png"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-01/live-empty-summary.json"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-01/npm-check.txt"
+        },
+        {
+          "id": "AC7",
+          "result": "pass",
+          "evidence": "evidence/S01-01/npm-check.txt"
+        }
+      ],
+      "decisions": [
+        "The owner session is a four-hour signed Secure HttpOnly SameSite=Lax cookie, with login failures handled by a bounded in-memory rate limiter.",
+        "Supabase product reads stay server-only: the server credential is used as apikey and only JWT-shaped credentials may also be sent as bearer authorization.",
+        "The repeatable persistence verifier is the minimal Docker-local Supabase stack with migrations and no seeded product data.",
+        "The acceptance browser path uses the real Fastify session and live local Supabase; route interception is limited to isolated UI-state tests.",
+        "Generated local Supabase branches and temporary runtime state are ignored and excluded from the container context."
+      ],
+      "deviations_from_plan": [
+        "Local verification used an empty temporary Docker credential configuration and a minimal Supabase service set because the Docker Desktop credential helper stalled and optional image pulls were rate-limited; product scope and acceptance criteria were unchanged.",
+        "Two staff-review correction cycles were required to align authentication, live-read, responsive-state, and secret-boundary behavior; no acceptance criterion was weakened."
+      ],
+      "follow_ups": [
+        "S01-12: include service-restart behavior when verifying the accepted in-memory owner-login rate limiter in deployment.",
+        "S01-12: update the deprecated local Supabase inbucket configuration only if the release-verification toolchain requires it."
+      ],
+      "context_for_next": "The owner-only walking skeleton is stable: signed cookie login, protected Fastify owner APIs, and server-only Supabase REST reads.\nThe minimal Docker-local Supabase stack is healthy at its configured ignored .env.local pair, with the commitments migration applied and no seed data.\nThe dashboard summary contract returns active, due-today, overdue, commitments, and a server read timestamp.\nThe real acceptance path uses browser cookies, Fastify, and local Supabase without request interception.\nGenerated Supabase runtime state is ignored and excluded from Docker context.\nAll exact S01-01 commands and the full Node 24 repository gate pass.\nS01-02 and S01-07 are now dependency-eligible; do not re-derive the owner session or dashboard boundary."
     }
   ]
 }
