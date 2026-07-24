@@ -74,9 +74,21 @@ test("real owner walking skeleton uses Fastify session and live local Supabase @
   expect(ownerCookie!.expires).toBeGreaterThan(Date.now() / 1_000);
   expect(ownerCookie!.expires).toBeLessThan(Date.now() / 1_000 + 14_500);
 
-  const session = await page.request.get("/api/owner/session");
-  expect(session.status()).toBe(200);
-  await expect(session.json()).resolves.toEqual({ authenticated: true });
+  const session = await page.evaluate(async () => {
+    const response = await fetch("/api/owner/session", {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    const body: unknown = await response.json();
+    return {
+      authenticated:
+        Boolean(body) &&
+        typeof body === "object" &&
+        (body as Record<string, unknown>).authenticated === true,
+      status: response.status,
+    };
+  });
+  expect(session).toEqual({ authenticated: true, status: 200 });
 
   const timestamp = page.locator("time");
   const initialUpdatedAt = await timestamp.getAttribute("datetime");
