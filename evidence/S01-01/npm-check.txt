@@ -1,0 +1,33 @@
+S01-01 independent QA gate
+Captured: 2026-07-24T12:26:16Z
+Commit: 3ee98c27283caab7c2f90fee8a34533ef10dcf88
+Runtime: Node v24.18.0; npm 11.17.0; Playwright 1.61.1; Vitest 3.2.7; Vite 7.3.6
+Node wrapper verification: PASS
+
+Exact verification commands
+1. npm run test --workspace @shiori/server -- src/app.test.ts
+   PASS — 1 file, 8 tests.
+2. npm run test:db
+   PASS — 1 file, 1 test against the running Docker-local database.
+3. npm run test:e2e -- tests/e2e/owner-dashboard.spec.ts
+   PASS — 2 tests across desktop and mobile Chromium against real Fastify and local data.
+4. npm run check
+   PASS — server and web typechecks; 14 API/unit tests; production builds;
+   20 isolated browser tests across desktop and mobile Chromium.
+
+Acceptance-criterion sign-off
+- AC1 PASS: unauthenticated owner APIs refuse access and expose no owner state.
+- AC2 PASS: configured password admission, bounded secure cookie policy, and login rate limit verified.
+- AC3 PASS: the real empty database returns no commitments and all three counts are zero.
+- AC4 PASS: login, loading, empty, and error states pass desktop/mobile browser coverage;
+  the captured empty state contains no interception, seeded commitments, or runtime mock data.
+- AC5 PASS: Refresh performs a fresh API read and advances the visible update timestamp.
+- AC6 PASS: health response and production static application serving verified.
+- AC7 PASS: browser source and production bundle contain no server credential boundary terms;
+  local environment and generated database runtime paths are ignored and untracked.
+
+Evidence hygiene and visual review
+- PASS: evidence text and JSON contain no credential, token, URL, or connection-detail patterns.
+- PASS: both PNGs are valid and independently reviewed at their original resolution.
+- PASS: the desktop and mobile screenshots show the responsive live empty dashboard,
+  zero counts, refresh control, and latest-update timestamp without personal data.

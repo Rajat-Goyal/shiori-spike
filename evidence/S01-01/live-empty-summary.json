@@ -1,0 +1,52 @@
+{
+  "story_id": "S01-01",
+  "captured_at": "2026-07-24T12:25:18.142Z",
+  "commit": "3ee98c27283caab7c2f90fee8a34533ef10dcf88",
+  "runtime": {
+    "node": "v24.18.0",
+    "npm": "11.17.0",
+    "playwright": "1.61.1",
+    "vitest": "3.2.7",
+    "vite": "7.3.6"
+  },
+  "source": "production Fastify application with Docker-local Supabase",
+  "desktop": {
+    "unauthenticated_summary_status": 401,
+    "authenticated_session_status": 200,
+    "cookie_policy": "pass",
+    "same_origin_browser_fetches": "pass",
+    "visible_empty_state": "pass",
+    "refresh_timestamp_changed": "pass",
+    "initial_summary": {
+      "commitments": [],
+      "counts": {
+        "active": 0,
+        "dueToday": 0,
+        "overdue": 0
+      },
+      "updatedAt": "2026-07-24T12:25:14.962Z"
+    },
+    "refreshed_summary": {
+      "commitments": [],
+      "counts": {
+        "active": 0,
+        "dueToday": 0,
+        "overdue": 0
+      },
+      "updatedAt": "2026-07-24T12:25:16.154Z"
+    }
+  },
+  "mobile": {
+    "unauthenticated_summary_status": 401,
+    "authenticated_session_status": 200,
+    "cookie_policy": "pass",
+    "same_origin_browser_fetches": "pass",
+    "visible_empty_state": "pass",
+    "refresh_timestamp_changed": "pass"
+  },
+  "data_controls": {
+    "route_interception": false,
+    "seeded_commitments": false,
+    "runtime_mock_data": false
+  }
+}

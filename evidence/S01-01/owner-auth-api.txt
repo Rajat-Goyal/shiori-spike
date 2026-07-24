@@ -1,0 +1,25 @@
+S01-01 independent QA evidence: owner authentication and live walking skeleton
+Captured: 2026-07-24T12:23:58Z
+Commit: 3ee98c27283caab7c2f90fee8a34533ef10dcf88
+Runtime: Node v24.18.0; npm 11.17.0; Playwright 1.61.1; Vitest 3.2.7; Vite 7.3.6
+
+Exact API verification
+Command: npm run test --workspace @shiori/server -- src/app.test.ts
+Result: PASS — 1 file, 8 tests.
+
+Independent results
+- Protected owner session, logout, and dashboard summary endpoints refuse unauthenticated access.
+- Only the configured Argon2id-backed password admits an owner session.
+- The issued session cookie is HttpOnly, Secure, SameSite=Lax, and has a bounded short expiry.
+- Repeated invalid login attempts are rate-limited.
+- Expired sessions do not read dashboard data.
+- Dashboard read failures return a redacted unavailable response.
+- Health and ping endpoints respond successfully.
+
+Exact live browser verification
+Command: npm run test:e2e -- tests/e2e/owner-dashboard.spec.ts
+Result: PASS — 2 tests across desktop and mobile Chromium.
+
+The live test used the production Fastify application, its real owner login/session cookie,
+and the running Docker-local database. It used no route interception, seeded commitments,
+fake repository, or runtime mock data. Browser API traffic remained same-origin.
