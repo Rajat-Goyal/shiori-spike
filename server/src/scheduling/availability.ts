@@ -44,7 +44,9 @@ export type BusyIntervalReadResult =
       checkedAt: string;
       status: "ok";
     }>
-  | Readonly<{ status: "authorization_expired" | "unavailable" }>;
+  | Readonly<{
+      status: "authorization_expired" | "provider_failure" | "unavailable";
+    }>;
 
 export type BusyIntervalReader = (
   range: WorkWindow,
@@ -77,7 +79,9 @@ export type AvailabilityResult =
         | "recovery_not_due";
       status: "invalid_request";
     }>
-  | Readonly<{ status: "authorization_expired" | "unavailable" }>;
+  | Readonly<{
+      status: "authorization_expired" | "provider_failure" | "unavailable";
+    }>;
 
 type EffectiveWindow = Readonly<{
   endMinute: number;
@@ -343,7 +347,9 @@ async function readBusy(
       checkedAt: string;
       status: "ok";
     }>
-  | Readonly<{ status: "authorization_expired" | "unavailable" }>
+  | Readonly<{
+      status: "authorization_expired" | "provider_failure" | "unavailable";
+    }>
 > {
   let result: BusyIntervalReadResult;
   try {

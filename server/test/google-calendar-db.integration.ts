@@ -39,6 +39,81 @@ async function rows(
 }
 
 describe("local Supabase Google Calendar connection", () => {
+  it("reads only encrypted server credential material and marks expiry without product writes", async () => {
+    const config = localConfig();
+    const repository = new SupabaseGoogleOAuthRepository({
+      supabaseSecretKey: config.supabaseSecretKey,
+      supabaseUrl: config.supabaseUrl,
+    });
+    const suffix = randomBytes(12).toString("base64url");
+    const plaintext = `boundary-refresh-${suffix}`;
+    const encryptedRefreshToken = encryptSecret({
+      email: config.googleOwnerEmail,
+      key: Buffer.from(config.googleTokenEncryptionKey, "base64"),
+      keyVersion: config.googleTokenKeyVersion,
+      ownerReference: "owner",
+      plaintext,
+      purpose: "refresh_token",
+    });
+    await repository.replaceConnection({
+      calendarId: "primary",
+      encryptedRefreshToken,
+      verifiedEmail: config.googleOwnerEmail,
+    });
+    const productTables = [
+      "commitments",
+      "work_sessions",
+      "scheduled_messages",
+      "commitment_events",
+    ];
+    const beforeCounts = Object.fromEntries(
+      await Promise.all(
+        productTables.map(async (table) => [
+          table,
+          (
+            await rows(
+              config.supabaseUrl,
+              config.supabaseSecretKey,
+              table,
+            )
+          ).length,
+        ]),
+      ),
+    );
+
+    const credential = await repository.readCredential();
+    expect(credential).toEqual({
+      calendarId: "primary",
+      encryptedRefreshToken,
+      scopes: googleOAuthScopes,
+      status: "connected",
+      verifiedEmail: config.googleOwnerEmail,
+    });
+    expect(JSON.stringify(credential)).not.toContain(plaintext);
+
+    await repository.markAuthorizationExpired();
+    await repository.markAuthorizationExpired();
+    await expect(repository.readCredential()).resolves.toMatchObject({
+      status: "authorization_expired",
+    });
+
+    const afterCounts = Object.fromEntries(
+      await Promise.all(
+        productTables.map(async (table) => [
+          table,
+          (
+            await rows(
+              config.supabaseUrl,
+              config.supabaseSecretKey,
+              table,
+            )
+          ).length,
+        ]),
+      ),
+    );
+    expect(afterCounts).toEqual(beforeCounts);
+  });
+
   it("keeps attempts and outcomes one-use and reconnect replacement atomic", async () => {
     const config = localConfig();
     const repository = new SupabaseGoogleOAuthRepository({
