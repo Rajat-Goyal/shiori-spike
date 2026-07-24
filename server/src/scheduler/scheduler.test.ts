@@ -21,14 +21,36 @@ const reminder: ClaimedSimpleReminder = {
   commitmentId: "11111111-1111-4111-8111-111111111111",
   definitionOfDone: "Submit the synthetic note",
   id: "22222222-2222-4222-8222-222222222222",
+  leaseToken: "33333333-3333-4333-8333-333333333333",
   logicalKey: "simple-reminder:11111111-1111-4111-8111-111111111111",
   targetAt: "2026-07-27T10:05:00+08:00",
 };
 
 class ControlledRepository implements SimpleReminderRepository {
+  readonly deliveryStarts: Array<{
+    reminder: Pick<
+      ClaimedSimpleReminder,
+      "attemptCount" | "id" | "leaseToken"
+    >;
+    startedAt: Date;
+  }> = [];
   readonly claims: Array<{ limit: number; now: Date }> = [];
   readonly results: SimpleReminderResult[] = [];
+  beginFailure: Error | null = null;
   due: ClaimedSimpleReminder[][] = [];
+
+  async beginDelivery(
+    claimed: Pick<
+      ClaimedSimpleReminder,
+      "attemptCount" | "id" | "leaseToken"
+    >,
+    startedAt: Date,
+  ): Promise<void> {
+    this.deliveryStarts.push({ reminder: claimed, startedAt });
+    if (this.beginFailure) {
+      throw this.beginFailure;
+    }
+  }
 
   async claimDue(
     now: Date,
@@ -104,6 +126,7 @@ describe("SupabaseSimpleReminderRepository", () => {
           commitment_id: reminder.commitmentId,
           definition_of_done: reminder.definitionOfDone,
           id: reminder.id,
+          lease_token: reminder.leaseToken,
           logical_key: reminder.logicalKey,
           target_at: "2026-07-27T02:05:00+00:00",
         },
@@ -142,6 +165,7 @@ describe("SupabaseSimpleReminderRepository", () => {
 
     await repository.recordResult({
       attemptCount: 1,
+      leaseToken: reminder.leaseToken,
       messageId: reminder.id,
       recordedAt,
       result: "delivered",
@@ -151,6 +175,7 @@ describe("SupabaseSimpleReminderRepository", () => {
     const options = fetchFromSupabase.mock.calls[0][1];
     expect(JSON.parse(String(options?.body))).toEqual({
       p_attempt_count: 1,
+      p_lease_token: reminder.leaseToken,
       p_message_id: reminder.id,
       p_recorded_at: recordedAt.toISOString(),
       p_result: "delivered",
@@ -158,7 +183,33 @@ describe("SupabaseSimpleReminderRepository", () => {
       p_telegram_message_id: 41,
     });
     expect(String(options?.body)).not.toMatch(
-      /definition|target|payload|response|secret|token/,
+      /definition|target|payload|response|secret|bot_token/,
+    );
+  });
+
+  it("durably crosses the send boundary for the current lease", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({ applied: true, state: "claimed" }),
+    );
+    const repository = new SupabaseSimpleReminderRepository({
+      fetch: fetchFromSupabase as typeof fetch,
+      supabaseSecretKey: "test-key",
+      supabaseUrl: "http://127.0.0.1:54321",
+    });
+    const startedAt = new Date("2026-07-27T02:05:00.500Z");
+
+    await repository.beginDelivery(reminder, startedAt);
+
+    expect(fetchFromSupabase).toHaveBeenCalledWith(
+      "http://127.0.0.1:54321/rest/v1/rpc/begin_simple_reminder_delivery",
+      expect.objectContaining({
+        body: JSON.stringify({
+          p_attempt_count: 1,
+          p_lease_token: reminder.leaseToken,
+          p_message_id: reminder.id,
+          p_started_at: startedAt.toISOString(),
+        }),
+      }),
     );
   });
 
@@ -202,10 +253,21 @@ describe("SimpleReminderScheduler", () => {
     expect(repository.results).toEqual([
       {
         attemptCount: 1,
+        leaseToken: reminder.leaseToken,
         messageId: reminder.id,
         recordedAt: new Date("2026-07-27T02:05:01.000Z"),
         result: "delivered",
         telegramMessageId: 41,
+      },
+    ]);
+    expect(repository.deliveryStarts).toEqual([
+      {
+        reminder: {
+          attemptCount: 1,
+          id: reminder.id,
+          leaseToken: reminder.leaseToken,
+        },
+        startedAt: new Date("2026-07-27T02:05:01.000Z"),
       },
     ]);
     expect(repository.claims).toHaveLength(2);
@@ -231,6 +293,22 @@ describe("SimpleReminderScheduler", () => {
 
     await expect(Promise.all([first, second])).resolves.toEqual([0, 0]);
     expect(repository.claimDue).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not send when the durable send boundary rejects the lease", async () => {
+    const repository = new ControlledRepository();
+    repository.due = [[reminder]];
+    repository.beginFailure = new Error("stale lease");
+    const client = new ControlledClient();
+    const scheduler = new SimpleReminderScheduler({
+      client,
+      repository,
+    });
+
+    await expect(scheduler.poll()).rejects.toThrow("stale lease");
+
+    expect(client.sends).toHaveLength(0);
+    expect(repository.results).toHaveLength(0);
   });
 
   it.each([
@@ -296,6 +374,7 @@ describe("SimpleReminderScheduler", () => {
     expect(repository.results).toEqual([
       {
         attemptCount: 1,
+        leaseToken: reminder.leaseToken,
         messageId: reminder.id,
         recordedAt: new Date("2026-07-27T02:05:01.000Z"),
         result: "rate_limited",

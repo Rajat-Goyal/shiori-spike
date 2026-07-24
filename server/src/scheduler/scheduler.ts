@@ -15,6 +15,7 @@ export type ClaimedSimpleReminder = {
   commitmentId: string;
   definitionOfDone: string;
   id: string;
+  leaseToken: string;
   logicalKey: string;
   targetAt: string;
 };
@@ -22,12 +23,14 @@ export type ClaimedSimpleReminder = {
 export type SimpleReminderResult =
   | {
       attemptCount: number;
+      leaseToken: string;
       messageId: string;
       recordedAt: Date;
       result: "delivery_unknown" | "permanent_failure";
     }
   | {
       attemptCount: number;
+      leaseToken: string;
       messageId: string;
       recordedAt: Date;
       result: "delivered";
@@ -35,6 +38,7 @@ export type SimpleReminderResult =
     }
   | {
       attemptCount: number;
+      leaseToken: string;
       messageId: string;
       recordedAt: Date;
       result: "rate_limited";
@@ -42,6 +46,13 @@ export type SimpleReminderResult =
     };
 
 export interface SimpleReminderRepository {
+  beginDelivery(
+    reminder: Pick<
+      ClaimedSimpleReminder,
+      "attemptCount" | "id" | "leaseToken"
+    >,
+    startedAt: Date,
+  ): Promise<void>;
   claimDue(now: Date, limit: number): Promise<ClaimedSimpleReminder[]>;
   recordResult(result: SimpleReminderResult): Promise<void>;
 }
@@ -85,6 +96,8 @@ function parseClaimedReminder(value: unknown): ClaimedSimpleReminder {
     value.logical_key.length > 100 ||
     typeof value.commitment_id !== "string" ||
     !UUID_PATTERN.test(value.commitment_id) ||
+    typeof value.lease_token !== "string" ||
+    !UUID_PATTERN.test(value.lease_token) ||
     !positiveSafeInteger(value.action_version) ||
     !positiveSafeInteger(value.attempt_count) ||
     !positiveSafeInteger(value.chat_id) ||
@@ -110,6 +123,7 @@ function parseClaimedReminder(value: unknown): ClaimedSimpleReminder {
     commitmentId: value.commitment_id,
     definitionOfDone: value.definition_of_done,
     id: value.id,
+    leaseToken: value.lease_token,
     logicalKey: value.logical_key,
     targetAt: `${singaporeTarget.toISOString().slice(0, 19)}+08:00`,
   };
@@ -202,9 +216,38 @@ export class SupabaseSimpleReminderRepository
     return response.map(parseClaimedReminder);
   }
 
+  async beginDelivery(
+    reminder: Pick<
+      ClaimedSimpleReminder,
+      "attemptCount" | "id" | "leaseToken"
+    >,
+    startedAt: Date,
+  ): Promise<void> {
+    if (!Number.isFinite(startedAt.getTime())) {
+      throw new Error("Invalid simple reminder delivery start");
+    }
+    const response = await this.#rpc(
+      "begin_simple_reminder_delivery",
+      {
+        p_attempt_count: reminder.attemptCount,
+        p_lease_token: reminder.leaseToken,
+        p_message_id: reminder.id,
+        p_started_at: startedAt.toISOString(),
+      },
+    );
+    if (
+      !isRecord(response) ||
+      response.applied !== true ||
+      response.state !== "claimed"
+    ) {
+      throw new Error("Simple reminder delivery start was not applied");
+    }
+  }
+
   async recordResult(result: SimpleReminderResult): Promise<void> {
     const response = await this.#rpc("record_simple_reminder_result", {
       p_attempt_count: result.attemptCount,
+      p_lease_token: result.leaseToken,
       p_message_id: result.messageId,
       p_recorded_at: result.recordedAt.toISOString(),
       p_result: result.result,
@@ -314,6 +357,14 @@ export class SimpleReminderScheduler {
 
   async #deliver(reminder: ClaimedSimpleReminder): Promise<void> {
     const reply = simpleReminderReply(reminder);
+    await this.#repository.beginDelivery(
+      {
+        attemptCount: reminder.attemptCount,
+        id: reminder.id,
+        leaseToken: reminder.leaseToken,
+      },
+      this.#now(),
+    );
     try {
       const receipt = await this.#client.sendText(
         reminder.chatId,
@@ -325,6 +376,7 @@ export class SimpleReminderScheduler {
       }
       await this.#repository.recordResult({
         attemptCount: reminder.attemptCount,
+        leaseToken: reminder.leaseToken,
         messageId: reminder.id,
         recordedAt: this.#now(),
         result: "delivered",
@@ -343,6 +395,7 @@ export class SimpleReminderScheduler {
         const retryAt = new Date(retryAtMilliseconds);
         await this.#repository.recordResult({
           attemptCount: reminder.attemptCount,
+          leaseToken: reminder.leaseToken,
           messageId: reminder.id,
           recordedAt,
           result: "rate_limited",
@@ -356,6 +409,7 @@ export class SimpleReminderScheduler {
       }
       await this.#repository.recordResult({
         attemptCount: reminder.attemptCount,
+        leaseToken: reminder.leaseToken,
         messageId: reminder.id,
         recordedAt: this.#now(),
         result: failure.failure,
