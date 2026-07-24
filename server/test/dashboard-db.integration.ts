@@ -21,7 +21,7 @@ describe("local Supabase dashboard read", () => {
       supabaseSecretKey: config.supabaseSecretKey,
       supabaseUrl: config.supabaseUrl,
     });
-    const summary = await repository.readSummary(new Date());
+    const summary = await repository.readSummary();
 
     expect(summary.counts).toEqual({
       active: 0,

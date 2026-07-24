@@ -35,6 +35,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const dashboardRepository =
     options.dashboardRepository ??
     new SupabaseDashboardRepository({
+      now,
       ownerTimeZone: options.config.ownerTimeZone,
       supabaseSecretKey: options.config.supabaseSecretKey,
       supabaseUrl: options.config.supabaseUrl,
@@ -128,7 +129,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     }
 
     try {
-      return await dashboardRepository.readSummary(now());
+      return await dashboardRepository.readSummary();
     } catch (error) {
       request.log.error(
         {

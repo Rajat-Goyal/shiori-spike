@@ -26,7 +26,7 @@ function passwordHash(password: string): string {
 
 const testConfig: ServerConfig = {
   dashboardPasswordHash: passwordHash("owner-password"),
-  dashboardSessionSecret: "unit-test-session-secret-with-32-characters",
+  dashboardSessionSecret: Buffer.alloc(32, 7).toString("base64"),
   ownerTimeZone: "Asia/Singapore",
   publicAppBaseUrl: "http://localhost:3000",
   supabaseSecretKey: "unit-test-supabase-key",
@@ -189,7 +189,7 @@ describe("API contracts", () => {
     expect(sessionResponse.json()).toEqual({ authenticated: true });
     expect(summaryResponse.statusCode).toBe(200);
     expect(summaryResponse.json()).toEqual(summary);
-    expect(dashboardRepository.readSummary).toHaveBeenCalledWith(testNow);
+    expect(dashboardRepository.readSummary).toHaveBeenCalledWith();
   });
 
   it("expires invalid owner sessions without reading the dashboard", async () => {

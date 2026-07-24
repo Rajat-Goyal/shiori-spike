@@ -1,5 +1,11 @@
+export type DashboardCommitment = Readonly<{
+  id: string;
+  status: "active";
+  targetAt: string;
+}>;
+
 export type DashboardSummary = Readonly<{
-  commitments: readonly [];
+  commitments: readonly DashboardCommitment[];
   counts: Readonly<{
     active: number;
     dueToday: number;
@@ -9,7 +15,7 @@ export type DashboardSummary = Readonly<{
 }>;
 
 export interface DashboardRepository {
-  readSummary(now: Date): Promise<DashboardSummary>;
+  readSummary(): Promise<DashboardSummary>;
 }
 
 type CommitmentRow = {
@@ -20,6 +26,7 @@ type CommitmentRow = {
 
 type SupabaseDashboardRepositoryOptions = {
   fetch?: typeof fetch;
+  now?: () => Date;
   ownerTimeZone: string;
   supabaseSecretKey: string;
   supabaseUrl: string;
@@ -50,28 +57,38 @@ function isCommitmentRow(value: unknown): value is CommitmentRow {
   );
 }
 
+function isJwtShaped(value: string): boolean {
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value);
+}
+
 export class SupabaseDashboardRepository implements DashboardRepository {
   readonly #fetch: typeof fetch;
+  readonly #now: () => Date;
   readonly #ownerTimeZone: string;
   readonly #supabaseSecretKey: string;
   readonly #supabaseUrl: string;
 
   constructor(options: SupabaseDashboardRepositoryOptions) {
     this.#fetch = options.fetch ?? fetch;
+    this.#now = options.now ?? (() => new Date());
     this.#ownerTimeZone = options.ownerTimeZone;
     this.#supabaseSecretKey = options.supabaseSecretKey;
     this.#supabaseUrl = options.supabaseUrl;
   }
 
-  async readSummary(now: Date): Promise<DashboardSummary> {
+  async readSummary(): Promise<DashboardSummary> {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      apikey: this.#supabaseSecretKey,
+    };
+    if (isJwtShaped(this.#supabaseSecretKey)) {
+      headers.Authorization = `Bearer ${this.#supabaseSecretKey}`;
+    }
+
     const response = await this.#fetch(
       `${this.#supabaseUrl}/rest/v1/commitments?select=id,status,target_at&status=eq.active&order=target_at.asc`,
       {
-        headers: {
-          Accept: "application/json",
-          apikey: this.#supabaseSecretKey,
-          Authorization: `Bearer ${this.#supabaseSecretKey}`,
-        },
+        headers,
         signal: AbortSignal.timeout(5_000),
       },
     );
@@ -85,7 +102,8 @@ export class SupabaseDashboardRepository implements DashboardRepository {
       throw new Error("Supabase dashboard read returned an invalid response");
     }
 
-    const today = dateKey(now, this.#ownerTimeZone);
+    const updatedAt = this.#now();
+    const today = dateKey(updatedAt, this.#ownerTimeZone);
     let dueToday = 0;
     let overdue = 0;
 
@@ -93,19 +111,24 @@ export class SupabaseDashboardRepository implements DashboardRepository {
       const targetDate = dateKey(new Date(commitment.target_at), this.#ownerTimeZone);
       if (targetDate === today) {
         dueToday += 1;
-      } else if (targetDate < today) {
+      }
+      if (Date.parse(commitment.target_at) < updatedAt.getTime()) {
         overdue += 1;
       }
     }
 
     return {
-      commitments: [],
+      commitments: body.map((commitment) => ({
+        id: commitment.id,
+        status: commitment.status,
+        targetAt: commitment.target_at,
+      })),
       counts: {
         active: body.length,
         dueToday,
         overdue,
       },
-      updatedAt: now.toISOString(),
+      updatedAt: updatedAt.toISOString(),
     };
   }
 }

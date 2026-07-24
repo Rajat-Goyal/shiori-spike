@@ -78,7 +78,9 @@ export function createPasswordVerifier(
 }
 
 function signature(value: string, secret: string): string {
-  return createHmac("sha256", secret).update(value).digest("base64url");
+  return createHmac("sha256", Buffer.from(secret, "base64"))
+    .update(value)
+    .digest("base64url");
 }
 
 function signaturesMatch(actual: string, expected: string): boolean {
