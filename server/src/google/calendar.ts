@@ -357,7 +357,10 @@ export class GoogleCalendarAdapter {
         return { status: failureFor(eventsResponse) };
       }
       const events = record(await eventsResponse.json());
-      const summaries = eventSummaries(events?.items);
+      if (!events) {
+        return { status: "unavailable" };
+      }
+      const summaries = eventSummaries(events.items ?? []);
       if (!summaries) {
         return { status: "unavailable" };
       }

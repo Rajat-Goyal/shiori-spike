@@ -235,7 +235,7 @@ describe("GoogleCalendarAdapter", () => {
           },
         },
       }),
-      response({ items: [] }),
+      response({}),
     ]);
 
     const result = await test.adapter.read({ calendarId: "primary", range });
