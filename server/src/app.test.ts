@@ -27,6 +27,11 @@ function passwordHash(password: string): string {
 const testConfig: ServerConfig = {
   dashboardPasswordHash: passwordHash("owner-password"),
   dashboardSessionSecret: Buffer.alloc(32, 7).toString("base64"),
+  googleOAuthClientId: "google-test-client.apps.googleusercontent.com",
+  googleOAuthClientSecret: "unit-test-google-client-secret",
+  googleOwnerEmail: "owner@example.com",
+  googleTokenEncryptionKey: Buffer.alloc(32, 17).toString("base64"),
+  googleTokenKeyVersion: 1,
   openaiApiKey: "unit-test-openai-key",
   openaiModel: "gpt-test-model",
   openaiPromptVersion: "shiori-test-v1",

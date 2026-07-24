@@ -1,6 +1,11 @@
 export type ServerConfig = Readonly<{
   dashboardPasswordHash: string;
   dashboardSessionSecret: string;
+  googleOAuthClientId: string;
+  googleOAuthClientSecret: string;
+  googleOwnerEmail: string;
+  googleTokenEncryptionKey: string;
+  googleTokenKeyVersion: number;
   openaiApiKey: string;
   openaiModel: string;
   openaiPromptVersion: string;
@@ -91,11 +96,53 @@ function boundedIdentifier(value: string, key: string): string {
   return value;
 }
 
+function googleEncryptionKey(value: string): string {
+  const strictBase64 =
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+  if (
+    !strictBase64.test(value) ||
+    value.length % 4 !== 0 ||
+    Buffer.from(value, "base64").length !== 32 ||
+    Buffer.from(value, "base64").toString("base64") !== value
+  ) {
+    throw new Error(
+      "Invalid server configuration: GOOGLE_TOKEN_ENCRYPTION_KEY must be strict base64 encoding exactly 32 bytes",
+    );
+  }
+  return value;
+}
+
+function googleOwnerEmail(value: string): string {
+  if (
+    value.length > 254 ||
+    !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)
+  ) {
+    throw new Error(
+      "Invalid server configuration: GOOGLE_OWNER_EMAIL must be an email address",
+    );
+  }
+  return value;
+}
+
 export function readServerConfig(
   environment: NodeJS.ProcessEnv = process.env,
 ): ServerConfig {
   const dashboardPasswordHash = required(environment, "DASHBOARD_PASSWORD_HASH");
   const dashboardSessionSecret = required(environment, "DASHBOARD_SESSION_SECRET");
+  const googleOAuthClientId = required(environment, "GOOGLE_OAUTH_CLIENT_ID");
+  const googleOAuthClientSecret = required(
+    environment,
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+  );
+  const googleOwnerEmailValue = required(environment, "GOOGLE_OWNER_EMAIL");
+  const googleTokenEncryptionKeyValue = required(
+    environment,
+    "GOOGLE_TOKEN_ENCRYPTION_KEY",
+  );
+  const googleTokenKeyVersionValue = required(
+    environment,
+    "GOOGLE_TOKEN_KEY_VERSION",
+  );
   const openaiApiKey = required(environment, "OPENAI_API_KEY");
   const openaiModel = required(environment, "OPENAI_MODEL");
   const openaiPromptVersion = required(environment, "OPENAI_PROMPT_VERSION");
@@ -109,6 +156,7 @@ export function readServerConfig(
     environment,
     "TELEGRAM_WEBHOOK_SECRET",
   );
+  const googleTokenKeyVersion = Number(googleTokenKeyVersionValue);
 
   if (!dashboardPasswordHash.startsWith("$argon2id$v=19$")) {
     throw new Error(
@@ -141,9 +189,29 @@ export function readServerConfig(
     );
   }
 
+  if (
+    !/^\d+$/.test(googleTokenKeyVersionValue) ||
+    !Number.isSafeInteger(googleTokenKeyVersion) ||
+    googleTokenKeyVersion < 1
+  ) {
+    throw new Error(
+      "Invalid server configuration: GOOGLE_TOKEN_KEY_VERSION must be a positive safe integer",
+    );
+  }
+
   return {
     dashboardPasswordHash,
     dashboardSessionSecret: sessionSecret(dashboardSessionSecret),
+    googleOAuthClientId: boundedIdentifier(
+      googleOAuthClientId,
+      "GOOGLE_OAUTH_CLIENT_ID",
+    ),
+    googleOAuthClientSecret,
+    googleOwnerEmail: googleOwnerEmail(googleOwnerEmailValue),
+    googleTokenEncryptionKey: googleEncryptionKey(
+      googleTokenEncryptionKeyValue,
+    ),
+    googleTokenKeyVersion,
     openaiApiKey,
     openaiModel: boundedIdentifier(openaiModel, "OPENAI_MODEL"),
     openaiPromptVersion: boundedIdentifier(

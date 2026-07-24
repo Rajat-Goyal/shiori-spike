@@ -16,6 +16,11 @@ const config: ServerConfig = {
   dashboardPasswordHash:
     "$argon2id$v=19$m=65536,t=3,p=1$c2hpb3JpLXRlc3Qtc2FsdA$YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ",
   dashboardSessionSecret: Buffer.alloc(32, 9).toString("base64"),
+  googleOAuthClientId: "google-test-client.apps.googleusercontent.com",
+  googleOAuthClientSecret: "unit-test-google-client-secret",
+  googleOwnerEmail: "owner@example.com",
+  googleTokenEncryptionKey: Buffer.alloc(32, 17).toString("base64"),
+  googleTokenKeyVersion: 1,
   openaiApiKey: "unit-test-openai-key",
   openaiModel: "gpt-test-model",
   openaiPromptVersion: "shiori-test-v1",

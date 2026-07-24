@@ -5,6 +5,11 @@ const validEnvironment = {
   DASHBOARD_PASSWORD_HASH:
     "$argon2id$v=19$m=65536,t=3,p=1$c2hpb3JpLXRlc3Qtc2FsdA$YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ",
   DASHBOARD_SESSION_SECRET: Buffer.alloc(32, 11).toString("base64"),
+  GOOGLE_OAUTH_CLIENT_ID: "google-test-client.apps.googleusercontent.com",
+  GOOGLE_OAUTH_CLIENT_SECRET: "unit-test-google-client-secret",
+  GOOGLE_OWNER_EMAIL: "owner@example.com",
+  GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 17).toString("base64"),
+  GOOGLE_TOKEN_KEY_VERSION: "1",
   OPENAI_API_KEY: "unit-test-openai-key",
   OPENAI_MODEL: "gpt-test-model",
   OPENAI_PROMPT_VERSION: "shiori-test-v1",
@@ -87,6 +92,30 @@ describe("readServerConfig", () => {
       { ...validEnvironment, OPENAI_PROMPT_VERSION: "x".repeat(129) },
     ]) {
       expect(() => readServerConfig(environment)).toThrow(/OPENAI_/);
+    }
+  });
+
+  it("validates Google OAuth identity and token encryption configuration", () => {
+    expect(readServerConfig(validEnvironment)).toMatchObject({
+      googleOAuthClientId: "google-test-client.apps.googleusercontent.com",
+      googleOAuthClientSecret: "unit-test-google-client-secret",
+      googleOwnerEmail: "owner@example.com",
+      googleTokenEncryptionKey: Buffer.alloc(32, 17).toString("base64"),
+      googleTokenKeyVersion: 1,
+    });
+
+    for (const environment of [
+      { ...validEnvironment, GOOGLE_OAUTH_CLIENT_ID: "has spaces" },
+      { ...validEnvironment, GOOGLE_OWNER_EMAIL: "not-an-email" },
+      {
+        ...validEnvironment,
+        GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(31, 17).toString("base64"),
+      },
+      { ...validEnvironment, GOOGLE_TOKEN_ENCRYPTION_KEY: "not-base64" },
+      { ...validEnvironment, GOOGLE_TOKEN_KEY_VERSION: "0" },
+      { ...validEnvironment, GOOGLE_TOKEN_KEY_VERSION: "1.5" },
+    ]) {
+      expect(() => readServerConfig(environment)).toThrow(/GOOGLE_/);
     }
   });
 });
