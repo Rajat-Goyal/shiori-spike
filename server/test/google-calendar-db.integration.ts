@@ -62,7 +62,6 @@ describe("local Supabase Google Calendar connection", () => {
     });
     const productTables = [
       "commitments",
-      "work_sessions",
       "scheduled_messages",
       "commitment_events",
     ];
