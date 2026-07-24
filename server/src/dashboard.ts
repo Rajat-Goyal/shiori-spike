@@ -1,3 +1,5 @@
+import { supabaseHeaders } from "./supabase.js";
+
 export type DashboardCommitment = Readonly<{
   id: string;
   status: "active";
@@ -57,10 +59,6 @@ function isCommitmentRow(value: unknown): value is CommitmentRow {
   );
 }
 
-function isJwtShaped(value: string): boolean {
-  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value);
-}
-
 export class SupabaseDashboardRepository implements DashboardRepository {
   readonly #fetch: typeof fetch;
   readonly #now: () => Date;
@@ -77,18 +75,10 @@ export class SupabaseDashboardRepository implements DashboardRepository {
   }
 
   async readSummary(): Promise<DashboardSummary> {
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-      apikey: this.#supabaseSecretKey,
-    };
-    if (isJwtShaped(this.#supabaseSecretKey)) {
-      headers.Authorization = `Bearer ${this.#supabaseSecretKey}`;
-    }
-
     const response = await this.#fetch(
       `${this.#supabaseUrl}/rest/v1/commitments?select=id,status,target_at&status=eq.active&order=target_at.asc`,
       {
-        headers,
+        headers: supabaseHeaders(this.#supabaseSecretKey),
         signal: AbortSignal.timeout(5_000),
       },
     );

@@ -5,6 +5,9 @@ export type ServerConfig = Readonly<{
   publicAppBaseUrl: string;
   supabaseSecretKey: string;
   supabaseUrl: string;
+  telegramBotToken: string;
+  telegramOwnerUserId: number;
+  telegramWebhookSecret: string;
 }>;
 
 const PLACEHOLDER = /^<.*>$/;
@@ -78,6 +81,15 @@ export function readServerConfig(
   const dashboardPasswordHash = required(environment, "DASHBOARD_PASSWORD_HASH");
   const dashboardSessionSecret = required(environment, "DASHBOARD_SESSION_SECRET");
   const ownerTimeZone = required(environment, "OWNER_TIME_ZONE");
+  const telegramBotToken = required(environment, "TELEGRAM_BOT_TOKEN");
+  const telegramOwnerUserIdValue = required(
+    environment,
+    "TELEGRAM_OWNER_USER_ID",
+  );
+  const telegramWebhookSecret = required(
+    environment,
+    "TELEGRAM_WEBHOOK_SECRET",
+  );
 
   if (!dashboardPasswordHash.startsWith("$argon2id$v=19$")) {
     throw new Error(
@@ -88,6 +100,25 @@ export function readServerConfig(
   if (ownerTimeZone !== "Asia/Singapore") {
     throw new Error(
       "Invalid server configuration: OWNER_TIME_ZONE must be Asia/Singapore for this slice",
+    );
+  }
+
+  if (
+    !/^\d+$/.test(telegramOwnerUserIdValue) ||
+    !Number.isSafeInteger(Number(telegramOwnerUserIdValue)) ||
+    Number(telegramOwnerUserIdValue) <= 0
+  ) {
+    throw new Error(
+      "Invalid server configuration: TELEGRAM_OWNER_USER_ID must be a positive safe integer",
+    );
+  }
+
+  if (
+    telegramWebhookSecret.length > 256 ||
+    !/^[A-Za-z0-9_-]+$/.test(telegramWebhookSecret)
+  ) {
+    throw new Error(
+      "Invalid server configuration: TELEGRAM_WEBHOOK_SECRET must contain 1-256 Telegram-safe characters",
     );
   }
 
@@ -105,5 +136,8 @@ export function readServerConfig(
       "SUPABASE_URL",
       { requireHttpsOffLoopback: true },
     ),
+    telegramBotToken,
+    telegramOwnerUserId: Number(telegramOwnerUserIdValue),
+    telegramWebhookSecret,
   };
 }

@@ -31,6 +31,9 @@ const testConfig: ServerConfig = {
   publicAppBaseUrl: "http://localhost:3000",
   supabaseSecretKey: "unit-test-supabase-key",
   supabaseUrl: "http://127.0.0.1:54321",
+  telegramBotToken: "unit-test-bot-token",
+  telegramOwnerUserId: 123456789,
+  telegramWebhookSecret: "unit-test-webhook-secret",
 };
 
 function repositoryReturning(summary: DashboardSummary): DashboardRepository {

@@ -9,6 +9,9 @@ const validEnvironment = {
   PUBLIC_APP_BASE_URL: "http://localhost:3000",
   SUPABASE_SECRET_KEY: "sb_secret_test-only",
   SUPABASE_URL: "http://127.0.0.1:54321",
+  TELEGRAM_BOT_TOKEN: "unit-test-bot-token",
+  TELEGRAM_OWNER_USER_ID: "123456789",
+  TELEGRAM_WEBHOOK_SECRET: "unit-test-webhook-secret",
 };
 
 describe("readServerConfig", () => {
@@ -47,5 +50,24 @@ describe("readServerConfig", () => {
     expect(readServerConfig(validEnvironment).dashboardSessionSecret).toBe(
       validEnvironment.DASHBOARD_SESSION_SECRET,
     );
+  });
+
+  it("validates Telegram owner and webhook boundary configuration", () => {
+    expect(readServerConfig(validEnvironment)).toMatchObject({
+      telegramBotToken: "unit-test-bot-token",
+      telegramOwnerUserId: 123456789,
+      telegramWebhookSecret: "unit-test-webhook-secret",
+    });
+
+    for (const environment of [
+      { ...validEnvironment, TELEGRAM_OWNER_USER_ID: "not-numeric" },
+      { ...validEnvironment, TELEGRAM_OWNER_USER_ID: "0" },
+      { ...validEnvironment, TELEGRAM_WEBHOOK_SECRET: "has spaces" },
+      { ...validEnvironment, TELEGRAM_WEBHOOK_SECRET: "x".repeat(257) },
+    ]) {
+      expect(() => readServerConfig(environment)).toThrow(
+        /TELEGRAM_(OWNER_USER_ID|WEBHOOK_SECRET)/,
+      );
+    }
   });
 });
