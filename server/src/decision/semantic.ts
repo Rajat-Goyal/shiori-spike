@@ -117,8 +117,19 @@ export function validateDecisionInputSemantics(
   }
 
   switch (phase) {
-    case "awaiting_permission":
-      return true;
+    case "awaiting_permission": {
+      if (
+        fields.durationMinutes !== null ||
+        fields.offerWorkWindowHelp
+      ) {
+        return false;
+      }
+      const modeIsUnresolved =
+        !fields.simpleAction && !fields.possibleWorkSession;
+      const coreIsIncomplete =
+        fields.definitionOfDone === null || fields.targetAt === null;
+      return !modeIsUnresolved || coreIsIncomplete;
+    }
     case "awaiting_definition":
       return fields.definitionOfDone === null;
     case "awaiting_target":
@@ -172,9 +183,16 @@ function preservesPopulatedFields(
   context: DecisionContextFields,
   decision: DecisionContextFields,
 ): boolean {
+  const unresolvedContextMode =
+    !context.simpleAction && !context.possibleWorkSession;
+  const resolvedDecisionMode =
+    decision.simpleAction !== decision.possibleWorkSession;
   return Object.entries(context).every(
     ([key, value]) =>
       value === null ||
+      (unresolvedContextMode &&
+        resolvedDecisionMode &&
+        (key === "simpleAction" || key === "possibleWorkSession")) ||
       sameCandidateValue(
         value,
         decision[key as keyof DecisionContextFields],
@@ -260,10 +278,17 @@ function relationFieldsAreValid(
     case "permission_accepted":
       return sameCandidateFields(contextFields, outputFields);
     case "clarification_continuation":
-      return input.context.phase === "awaiting_permission"
-        ? true
-        : preservesPopulatedFields(contextFields, outputFields) &&
-            fillsNullField(contextFields, outputFields);
+      if (input.context.phase === "awaiting_permission") {
+        return true;
+      }
+      return (
+        preservesPopulatedFields(contextFields, outputFields) &&
+        fillsNullField(contextFields, outputFields) &&
+        (outputFields.definitionOfDone === null ||
+          outputFields.targetAt === null ||
+          outputFields.simpleAction !==
+            outputFields.possibleWorkSession)
+      );
     case "correction":
       return changesPopulatedField(contextFields, outputFields);
     case "none":
@@ -291,9 +316,24 @@ export function validateDecisionSemantics(
   if (!validCandidateFields(decision, now)) {
     return false;
   }
+  const incompletePermissionAcceptance =
+    input.context.phase === "awaiting_permission" &&
+    decision.turnRelation === "permission_accepted" &&
+    (decision.definitionOfDone === null || decision.targetAt === null) &&
+    !decision.simpleAction &&
+    !decision.possibleWorkSession;
+  const incompleteClarification =
+    (input.context.phase === "awaiting_definition" ||
+      input.context.phase === "awaiting_target") &&
+    decision.turnRelation === "clarification_continuation" &&
+    (decision.definitionOfDone === null || decision.targetAt === null) &&
+    !decision.simpleAction &&
+    !decision.possibleWorkSession;
   if (
     (decision.inputClass === "explicit_commitment" &&
-      decision.simpleAction === decision.possibleWorkSession) ||
+      decision.simpleAction === decision.possibleWorkSession &&
+      !incompletePermissionAcceptance &&
+      !incompleteClarification) ||
     !allowedRelationTuple(input, decision) ||
     !relationFieldsAreValid(input, decision)
   ) {
@@ -326,6 +366,10 @@ export function validateDecisionSemantics(
       return (
         decision.durationMinutes === null &&
         !decision.offerWorkWindowHelp &&
+        (decision.simpleAction ||
+          decision.possibleWorkSession ||
+          decision.definitionOfDone === null ||
+          decision.targetAt === null) &&
         decision.nextAction === "ask_permission" &&
         decision.response !== null
       );

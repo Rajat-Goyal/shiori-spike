@@ -509,6 +509,98 @@ describe("DecisionEngine contract", () => {
       expect(fetchFromOpenAI).not.toHaveBeenCalled();
     });
 
+    it("accepts the owner-text maximum and rejects overlength before fetch", async () => {
+      const fetchAtMaximum = vi.fn(async () =>
+        providerResponse(explicitDecision),
+      );
+      await expect(
+        engineWith(fetchAtMaximum).decide({
+          ...privateDecisionInput,
+          ownerText: "x".repeat(4_096),
+        }),
+      ).resolves.toEqual({
+        decision: explicitDecision,
+        ok: true,
+      });
+      expect(fetchAtMaximum).toHaveBeenCalledOnce();
+
+      const fetchOverMaximum = vi.fn(async () =>
+        providerResponse(explicitDecision),
+      );
+      await expect(
+        engineWith(fetchOverMaximum).decide({
+          ...privateDecisionInput,
+          ownerText: "x".repeat(4_097),
+        }),
+      ).resolves.toEqual({
+        failure: "semantic",
+        ok: false,
+      });
+      expect(fetchOverMaximum).not.toHaveBeenCalled();
+    });
+
+    it("accepts bounded candidate maxima and rejects overlength before fetch", async () => {
+      const boundedFields: DecisionContextFields = {
+        ...completeFields,
+        definitionOfDone: "d".repeat(500),
+        timingConstraints: Array.from(
+          { length: 4 },
+          (_, index) => `${index}${"c".repeat(199)}`,
+        ),
+      };
+      const boundedDecision: DecisionResult = {
+        ...explicitDecision,
+        definitionOfDone: boundedFields.definitionOfDone,
+        timingConstraints: boundedFields.timingConstraints,
+        turnRelation: "permission_accepted",
+      };
+      const boundedInput = contextInput(
+        "awaiting_permission",
+        boundedFields,
+      );
+      const fetchAtMaximum = vi.fn(async () =>
+        providerResponse(boundedDecision),
+      );
+      await expect(
+        engineWith(fetchAtMaximum).decide(boundedInput),
+      ).resolves.toEqual({
+        decision: boundedDecision,
+        ok: true,
+      });
+      expect(fetchAtMaximum).toHaveBeenCalledOnce();
+
+      for (const fields of [
+        {
+          ...boundedFields,
+          definitionOfDone: "d".repeat(501),
+        },
+        {
+          ...boundedFields,
+          timingConstraints: ["c".repeat(201)],
+        },
+        {
+          ...boundedFields,
+          timingConstraints: Array.from(
+            { length: 5 },
+            () => "bounded",
+          ),
+        },
+      ]) {
+        const fetchOverMaximum = vi.fn(async () =>
+          providerResponse(boundedDecision),
+        );
+        await expect(
+          engineWith(fetchOverMaximum).decide(
+            contextInput("awaiting_permission", fields),
+          ),
+        ).resolves.toEqual({
+          failure: "semantic",
+          ok: false,
+        });
+        expect(fetchOverMaximum).not.toHaveBeenCalled();
+      }
+    });
+
     const allowedCases: Array<{
       decision: DecisionResult;
       input: DecisionInput;
@@ -728,6 +820,105 @@ describe("DecisionEngine contract", () => {
 
     });
 
+    it("rejects clarification mutation of every populated candidate field", () => {
+      const workFields: DecisionContextFields = {
+        ...completeFields,
+        definitionOfDone: null,
+        durationMinutes: 60,
+        possibleWorkSession: true,
+        simpleAction: false,
+        timingConstraints: ["first", "second"],
+      };
+      const input = contextInput(
+        "awaiting_definition",
+        workFields,
+      );
+      const clarification: DecisionResult = {
+        ...explicitDecision,
+        durationMinutes: 60,
+        possibleWorkSession: true,
+        simpleAction: false,
+        timingConstraints: ["first", "second"],
+        turnRelation: "clarification_continuation",
+      };
+      expect(
+        validateDecisionSemantics(clarification, input, now),
+      ).toBe(true);
+
+      const mutations: Array<{
+        decision: DecisionResult;
+        label: string;
+      }> = [
+        {
+          decision: {
+            ...clarification,
+            durationMinutes: 90,
+          },
+          label: "durationMinutes",
+        },
+        {
+          decision: {
+            ...clarification,
+            offerWorkWindowHelp: true,
+          },
+          label: "offerWorkWindowHelp",
+        },
+        {
+          decision: {
+            ...clarification,
+            possibleWorkSession: false,
+          },
+          label: "possibleWorkSession",
+        },
+        {
+          decision: {
+            ...clarification,
+            simpleAction: true,
+          },
+          label: "simpleAction",
+        },
+        {
+          decision: {
+            ...clarification,
+            targetAt: "2026-07-26T10:00:00+08:00",
+          },
+          label: "targetAt",
+        },
+        {
+          decision: {
+            ...clarification,
+            targetTimeZone: "UTC",
+          },
+          label: "targetTimeZone",
+        },
+        {
+          decision: {
+            ...clarification,
+            timingConstraints: ["second", "first"],
+          },
+          label: "timingConstraints order",
+        },
+      ];
+      for (const mutation of mutations) {
+        expect(
+          validateDecisionSemantics(mutation.decision, input, now),
+          mutation.label,
+        ).toBe(false);
+      }
+
+      expect(
+        validateDecisionSemantics(
+          {
+            ...explicitDecision,
+            definitionOfDone: "Changed populated definition",
+            turnRelation: "clarification_continuation",
+          },
+          phaseInputs.awaiting_target,
+          now,
+        ),
+      ).toBe(false);
+    });
+
     it("requires exact option-A candidate equality for permission acceptance", () => {
       const accepted = {
         ...explicitDecision,
@@ -793,14 +984,14 @@ describe("DecisionEngine contract", () => {
 
       const possibleWorkFields: DecisionContextFields = {
         ...completeFields,
-        offerWorkWindowHelp: true,
+        offerWorkWindowHelp: false,
         possibleWorkSession: true,
         simpleAction: false,
       };
       const acceptedPossibleWork: DecisionResult = {
         ...explicitDecision,
-        nextAction: "ask_duration",
-        offerWorkWindowHelp: true,
+        nextAction: "offer_work_window",
+        offerWorkWindowHelp: false,
         possibleWorkSession: true,
         simpleAction: false,
         turnRelation: "permission_accepted",
@@ -820,8 +1011,8 @@ describe("DecisionEngine contract", () => {
         validateDecisionSemantics(
           {
             ...acceptedPossibleWork,
-            nextAction: "offer_work_window",
-            offerWorkWindowHelp: false,
+            nextAction: "ask_duration",
+            offerWorkWindowHelp: true,
           },
           possibleWorkInput,
           now,
@@ -876,6 +1067,376 @@ describe("DecisionEngine contract", () => {
           now,
         ),
       ).toBe(false);
+    });
+
+    it.each(
+      (() => {
+        const incompleteFields: DecisionContextFields = {
+          ...completeFields,
+          definitionOfDone: null,
+          possibleWorkSession: false,
+          simpleAction: false,
+          targetAt: null,
+          targetTimeZone: null,
+        };
+        const incompleteAccepted: DecisionResult = {
+          ...explicitDecision,
+          definitionOfDone: null,
+          missingFields: ["definition_of_done", "target"],
+          nextAction: "ask_definition",
+          possibleWorkSession: false,
+          simpleAction: false,
+          targetAt: null,
+          targetTimeZone: null,
+          turnRelation: "permission_accepted",
+        };
+        const possibleWorkFields: DecisionContextFields = {
+          ...completeFields,
+          possibleWorkSession: true,
+          simpleAction: false,
+        };
+        const possibleWorkAccepted: DecisionResult = {
+          ...explicitDecision,
+          nextAction: "offer_work_window",
+          possibleWorkSession: true,
+          simpleAction: false,
+          turnRelation: "permission_accepted",
+        };
+        const orderedFields: DecisionContextFields = {
+          ...completeFields,
+          timingConstraints: ["first", "second"],
+        };
+        return [
+          {
+            decision: {
+              ...incompleteAccepted,
+              definitionOfDone: "Filled definition",
+              missingFields: ["target"],
+              nextAction: "ask_target",
+            },
+            input: contextInput(
+              "awaiting_permission",
+              incompleteFields,
+            ),
+            label: "definitionOfDone null fill",
+          },
+          {
+            decision: {
+              ...possibleWorkAccepted,
+              durationMinutes: 30,
+              nextAction: "ready",
+            },
+            input: contextInput(
+              "awaiting_permission",
+              possibleWorkFields,
+            ),
+            label: "durationMinutes null fill",
+          },
+          {
+            decision: {
+              ...possibleWorkAccepted,
+              nextAction: "ask_duration",
+              offerWorkWindowHelp: true,
+            },
+            input: contextInput(
+              "awaiting_permission",
+              possibleWorkFields,
+            ),
+            label: "offerWorkWindowHelp change",
+          },
+          {
+            decision: {
+              ...incompleteAccepted,
+              possibleWorkSession: true,
+            },
+            input: contextInput(
+              "awaiting_permission",
+              incompleteFields,
+            ),
+            label: "possibleWorkSession change",
+          },
+          {
+            decision: {
+              ...incompleteAccepted,
+              simpleAction: true,
+            },
+            input: contextInput(
+              "awaiting_permission",
+              incompleteFields,
+            ),
+            label: "simpleAction change",
+          },
+          {
+            decision: {
+              ...explicitDecision,
+              targetAt: "2026-07-26T10:00:00+08:00",
+              turnRelation: "permission_accepted",
+            },
+            input: permissionInput,
+            label: "targetAt change",
+          },
+          {
+            decision: {
+              ...incompleteAccepted,
+              targetTimeZone: "Asia/Singapore",
+            },
+            input: contextInput(
+              "awaiting_permission",
+              incompleteFields,
+            ),
+            label: "targetTimeZone null fill",
+          },
+          {
+            decision: {
+              ...explicitDecision,
+              timingConstraints: ["second", "first"],
+              turnRelation: "permission_accepted",
+            },
+            input: contextInput(
+              "awaiting_permission",
+              orderedFields,
+            ),
+            label: "timingConstraints reorder",
+          },
+        ];
+      })(),
+    )("rejects isolated permission mismatch: $label", ({ decision, input }) => {
+      expect(validateDecisionSemantics(decision, input, now)).toBe(false);
+    });
+
+    it("allows unresolved permission mode only while core fields are incomplete", () => {
+      const unresolvedFields: DecisionContextFields = {
+        ...completeFields,
+        definitionOfDone: null,
+        possibleWorkSession: false,
+        simpleAction: false,
+        targetAt: null,
+        targetTimeZone: null,
+      };
+      const unresolvedImplied: DecisionResult = {
+        ...impliedDecision,
+        definitionOfDone: null,
+        possibleWorkSession: false,
+        simpleAction: false,
+      };
+      expect(
+        validateDecisionSemantics(
+          unresolvedImplied,
+          privateDecisionInput,
+          now,
+        ),
+      ).toBe(true);
+      expect(
+        validateDecisionSemantics(
+          {
+            ...impliedDecision,
+            possibleWorkSession: false,
+            simpleAction: false,
+            targetAt: explicitDecision.targetAt,
+            targetTimeZone: explicitDecision.targetTimeZone,
+          },
+          privateDecisionInput,
+          now,
+        ),
+      ).toBe(false);
+
+      const possibleWorkImplied: DecisionResult = {
+        ...impliedDecision,
+        possibleWorkSession: true,
+        simpleAction: false,
+      };
+      expect(
+        validateDecisionSemantics(
+          possibleWorkImplied,
+          privateDecisionInput,
+          now,
+        ),
+      ).toBe(true);
+      expect(
+        validateDecisionInputSemantics(
+          contextInput("awaiting_permission", {
+            ...completeFields,
+            offerWorkWindowHelp: false,
+            possibleWorkSession: true,
+            simpleAction: false,
+          }),
+          now,
+        ),
+      ).toBe(true);
+
+      const input = contextInput(
+        "awaiting_permission",
+        unresolvedFields,
+      );
+      const accepted: DecisionResult = {
+        ...explicitDecision,
+        definitionOfDone: null,
+        missingFields: ["definition_of_done", "target"],
+        nextAction: "ask_definition",
+        possibleWorkSession: false,
+        simpleAction: false,
+        targetAt: null,
+        targetTimeZone: null,
+        turnRelation: "permission_accepted",
+      };
+      expect(validateDecisionInputSemantics(input, now)).toBe(true);
+      expect(validateDecisionSemantics(accepted, input, now)).toBe(true);
+      expect(
+        validateDecisionInputSemantics(
+          contextInput("awaiting_permission", {
+            ...completeFields,
+            possibleWorkSession: false,
+            simpleAction: false,
+          }),
+          now,
+        ),
+      ).toBe(false);
+    });
+
+    it("requires a clarification that completes core fields to resolve mode", () => {
+      const unresolvedFields: DecisionContextFields = {
+        ...completeFields,
+        definitionOfDone: null,
+        possibleWorkSession: false,
+        simpleAction: false,
+        targetAt: null,
+        targetTimeZone: null,
+      };
+      const input = contextInput(
+        "awaiting_definition",
+        unresolvedFields,
+      );
+      const remainsIncomplete: DecisionResult = {
+        ...explicitDecision,
+        missingFields: ["target"],
+        nextAction: "ask_target",
+        possibleWorkSession: false,
+        simpleAction: false,
+        targetAt: null,
+        targetTimeZone: null,
+        turnRelation: "clarification_continuation",
+      };
+      expect(
+        validateDecisionSemantics(remainsIncomplete, input, now),
+      ).toBe(true);
+
+      const completesWithoutMode: DecisionResult = {
+        ...explicitDecision,
+        nextAction: "offer_work_window",
+        possibleWorkSession: false,
+        simpleAction: false,
+        turnRelation: "clarification_continuation",
+      };
+      expect(
+        validateDecisionSemantics(completesWithoutMode, input, now),
+      ).toBe(false);
+      expect(
+        validateDecisionSemantics(
+          {
+            ...explicitDecision,
+            turnRelation: "clarification_continuation",
+          },
+          input,
+          now,
+        ),
+      ).toBe(true);
+    });
+
+    it("does not let clarification change an already resolved mode", () => {
+      const input = contextInput(
+        "awaiting_target",
+        awaitingTargetFields,
+      );
+      expect(
+        validateDecisionSemantics(
+          {
+            ...explicitDecision,
+            durationMinutes: 30,
+            possibleWorkSession: true,
+            simpleAction: false,
+            turnRelation: "clarification_continuation",
+          },
+          input,
+          now,
+        ),
+      ).toBe(false);
+    });
+
+    it("accepts awaiting-definition context with no extracted target", () => {
+      const fields: DecisionContextFields = {
+        ...completeFields,
+        definitionOfDone: null,
+        targetAt: null,
+        targetTimeZone: null,
+      };
+      const input = contextInput("awaiting_definition", fields);
+      const decision: DecisionResult = {
+        ...explicitDecision,
+        missingFields: ["target"],
+        nextAction: "ask_target",
+        targetAt: null,
+        targetTimeZone: null,
+        turnRelation: "clarification_continuation",
+      };
+      expect(validateDecisionInputSemantics(input, now)).toBe(true);
+      expect(validateDecisionSemantics(decision, input, now)).toBe(true);
+    });
+
+    it("accepts correction that clears a populated field to null", () => {
+      expect(
+        validateDecisionSemantics(
+          {
+            ...explicitDecision,
+            definitionOfDone: null,
+            missingFields: ["definition_of_done"],
+            nextAction: "ask_definition",
+            turnRelation: "correction",
+          },
+          phaseInputs.complete,
+          now,
+        ),
+      ).toBe(true);
+    });
+
+    it("keeps separate_request descriptive without value-comparison inference", async () => {
+      expect(
+        validateDecisionSemantics(
+          {
+            ...explicitDecision,
+            turnRelation: "separate_request",
+          },
+          phaseInputs.complete,
+          now,
+        ),
+      ).toBe(true);
+
+      const separateDecision: DecisionResult = {
+        ...explicitDecision,
+        definitionOfDone: "Book the synthetic flight",
+        targetAt: "2026-07-27T10:00:00+08:00",
+        turnRelation: "separate_request",
+      };
+      const input: DecisionInput = {
+        ...phaseInputs.complete,
+        ownerText: "Start another synthetic request",
+      };
+      const fetchFromOpenAI = vi.fn(async () =>
+        providerResponse(separateDecision),
+      );
+      await expect(
+        engineWith(fetchFromOpenAI).decide(input),
+      ).resolves.toEqual({
+        decision: separateDecision,
+        ok: true,
+      });
+      const request = fetchFromOpenAI.mock.calls[0][1];
+      const body = JSON.parse(String(request?.body)) as {
+        input: string;
+      };
+      expect(JSON.parse(body.input)).toEqual(input);
+      expect(body.input).not.toContain(
+        separateDecision.definitionOfDone!,
+      );
     });
 
     it("validates every phase invariant for a structurally bounded input", () => {
