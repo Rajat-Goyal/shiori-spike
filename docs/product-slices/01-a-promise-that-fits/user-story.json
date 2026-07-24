@@ -559,8 +559,10 @@
           "server/test/openai-decision.smoke.ts"
         ]
       },
-      "status": "in_progress",
-      "open_questions": []
+      "status": "blocked",
+      "open_questions": [
+        "Owner authorization required: permit exactly one second and final `npm run test:openai:smoke` request at corrected commit 077f955; any failure consumes attempt two and triggers the two-attempt stop condition."
+      ]
     },
     {
       "id": "S01-03b",

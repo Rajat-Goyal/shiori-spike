@@ -1,7 +1,7 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-24T15:07:05Z",
-  "current_story": "S01-03a1",
+  "updated_at": "2026-07-24T15:49:07Z",
+  "current_story": null,
   "summary": "4/16 done",
   "log": [
     {
@@ -317,6 +317,62 @@
         "S01-03a1 is independently dependency-eligible and has PM-approved relation semantics plus completed read-only architecture/staff preflight."
       ],
       "context_for_next": "S01-07 source is complete and controlled gates are green at 670a5c2; final architecture and QA reviews pass.\nOAuth state, PKCE, ID-token validation, AES-GCM storage, atomic Reconnect, sanitized logging, and dashboard states are stable.\nThe required four scopes normalize Google's userinfo.email alias while rejecting every extra/write scope; persisted policy remains the approved four.\nLiteral primary is the application Calendar identifier; Calendar failure remains isolated from dashboard summary, Telegram, and health.\nExactly five sanitized evidence artifacts exist and explicitly mark real Connect blocked and Reconnect pending.\nGoogle rejected the first local request before consent because the callback URI is not registered; no provider or product state remains.\nAfter owner callback registration, resume only the real Connect/Reconnect gate and evidence update; do not re-derive or rewrite the green implementation.\nS01-03a1 can proceed independently while this external configuration is pending."
+    },
+    {
+      "story_id": "S01-03a1",
+      "started_at": "2026-07-24T15:07:05Z",
+      "finished_at": "2026-07-24T15:49:07Z",
+      "squad": "contract-evolution",
+      "outcome": "blocked",
+      "commits": [
+        "7a47e6b chore(S01-03a1): start story",
+        "3602fa9 feat(S01-03a1): classify turns against context",
+        "575f35e fix(S01-03a1): bound unresolved permission mode",
+        "077f955 fix(S01-03a1): specify permission prompt contract",
+        "0e869a6 test(S01-03a1): record bounded relation evidence"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-03a1/decision-context-contract.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-03a1/relation-semantic-matrix.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-03a1/decision-context-contract.json"
+        },
+        {
+          "id": "AC4",
+          "result": "fail",
+          "evidence": "evidence/S01-03a1/provider-context-smoke.json"
+        }
+      ],
+      "decisions": [
+        "DecisionEngine now accepts only the current owner text plus five-phase bounded context containing exactly eight validated candidate fields; no identifiers, versions, timestamps, database state, prior raw messages, provider data, or authority metadata enter the request.",
+        "One single-source seven-value turn relation is structurally and semantically validated against the five phases, three input classes, core-field state, and candidate-field preservation rules.",
+        "Permission acceptance must deep-equal the entire candidate; unresolved mode is allowed only while a core field is missing, and later clarification must resolve exactly one mode when completing the core fields.",
+        "Separate request is descriptive and collision-only downstream: S01-03b must preserve the active draft and ignore every returned candidate field regardless of coincidental equality.",
+        "The provider request remains stateless with store false, no tools, no history handle, opaque failures, and no mutation or persistence interfaces.",
+        "After the first live semantic failure, a reviewed general prompt correction explicitly specified the serialized input, permission class/relation, exact candidate copy, canonical missing fields/actions, and non-empty response without normalizing provider output or adding an application bypass."
+      ],
+      "deviations_from_plan": [
+        "The first and only authorized provider attempt at 575f35e returned the bounded safe failure semantic with exit 1; no raw provider material or product side effect was retained.",
+        "Architecture and QA identified an under-specified prompt rather than an impossible contract; the correction at 077f955 is controlled-green and independently reviewed, but the promised no-retry boundary requires explicit owner authorization before a second and final request.",
+        "The QA sandbox could run the focused and independent decision harnesses but not the full Playwright server; the lead context ran the immutable Node 24 full check, which passed 164 server tests, both builds, and 46 browser tests.",
+        "AC1-AC3 pass controlled verification; AC4 and the explicit provider verification command remain incomplete and were not weakened or claimed complete."
+      ],
+      "follow_ups": [
+        "Owner: explicitly authorize exactly one second and final npm run test:openai:smoke request at 077f955.",
+        "S01-03a1 resume: run that command once with no retry, update only the four evidence artifacts, independently sign off, and close on pass or remain blocked under the two-attempt rule on failure.",
+        "S01-03b remains blocked by S01-03a1; when resumed, enforce separate_request as collision-only and never merge its returned candidate fields."
+      ],
+      "context_for_next": "S01-03a1 source is complete and controlled-green at 077f955; architecture and QA reviews pass.\nThe exact typed input, five phases, seven relations, option-A equality, and option-B incomplete-mode exception are stable.\nFocused tests pass 103/103; full Node 24 check passes 164 server tests, both builds, and 46 E2E tests.\nAttempt one at 575f35e made one provider request and safely failed semantic; no raw material or side effect was retained.\nThe general prompt correction is reviewed and adds no normalization or bypass.\nExactly four sanitized artifacts record controlled PASS and provider BLOCKED/PENDING.\nDo not call the provider again without explicit owner authorization; attempt two is final and has no automatic retry.\nOn success close S01-03a1, then resume S01-03b with separate_request collision-only."
     }
   ]
 }
