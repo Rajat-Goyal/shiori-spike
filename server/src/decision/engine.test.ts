@@ -263,15 +263,208 @@ describe("DecisionEngine contract", () => {
       tools: [],
     });
     expect(body.instructions).toContain("shiori-test-v1");
+    expect(body.instructions).toContain(
+      "JSON string encoding exactly {ownerText, context: {phase, fields}}",
+    );
+    expect(body.instructions).toContain(
+      "Classify ownerText relative to context, not in isolation.",
+    );
     expect(body.instructions).toContain("descriptive and never authorizes");
     expect(body.instructions).toContain(
-      "copy every context candidate field exactly",
+      "For permission_accepted, use inputClass explicit_commitment",
     );
+    expect(body.instructions).toContain(
+      "definitionOfDone, targetAt, targetTimeZone, simpleAction, possibleWorkSession, durationMinutes, offerWorkWindowHelp, and timingConstraints",
+    );
+    expect(body.instructions).toContain(
+      "derive missingFields from the unchanged candidate in definition_of_done then target order",
+    );
+    expect(body.instructions).toContain(
+      "use nextAction ask_definition when definition is missing, otherwise ask_target when target is missing, otherwise ready for a complete simple action, otherwise offer_work_window for a complete valid work candidate",
+    );
+    expect(body.instructions).toContain(
+      "Every successful decision must include a non-empty response.",
+    );
+    expect(JSON.parse(String(body.input))).toEqual(privateDecisionInput);
     expect(body).not.toHaveProperty("previous_response_id");
     expect(String(request?.body)).not.toMatch(
-      /previous_response_id|transcript|priorMessages|providerOutput|authority/,
+      /previous_response_id|priorMessages|providerOutput|authority/,
     );
   });
+
+  it.each([
+    {
+      decision: {
+        definitionOfDone: null,
+        durationMinutes: null,
+        inputClass: "explicit_commitment",
+        missingFields: ["definition_of_done", "target"],
+        nextAction: "ask_definition",
+        offerWorkWindowHelp: false,
+        possibleWorkSession: false,
+        response: "What would count as done?",
+        simpleAction: false,
+        targetAt: null,
+        targetTimeZone: null,
+        timingConstraints: [],
+        turnRelation: "permission_accepted",
+      } satisfies DecisionResult,
+      input: {
+        context: {
+          fields: {
+            definitionOfDone: null,
+            durationMinutes: null,
+            offerWorkWindowHelp: false,
+            possibleWorkSession: false,
+            simpleAction: false,
+            targetAt: null,
+            targetTimeZone: null,
+            timingConstraints: [],
+          },
+          phase: "awaiting_permission",
+        },
+        ownerText: "yes",
+      } satisfies DecisionInput,
+      label: "an accepted candidate missing definition and target",
+      smoke: false,
+    },
+    {
+      decision: {
+        definitionOfDone: "Submit the synthetic test note",
+        durationMinutes: null,
+        inputClass: "explicit_commitment",
+        missingFields: ["target"],
+        nextAction: "ask_target",
+        offerWorkWindowHelp: false,
+        possibleWorkSession: false,
+        response: "When should it be done?",
+        simpleAction: false,
+        targetAt: null,
+        targetTimeZone: null,
+        timingConstraints: [],
+        turnRelation: "permission_accepted",
+      } satisfies DecisionResult,
+      input: {
+        context: {
+          fields: {
+            definitionOfDone: "Submit the synthetic test note",
+            durationMinutes: null,
+            offerWorkWindowHelp: false,
+            possibleWorkSession: false,
+            simpleAction: false,
+            targetAt: null,
+            targetTimeZone: null,
+            timingConstraints: [],
+          },
+          phase: "awaiting_permission",
+        },
+        ownerText: "yes",
+      } satisfies DecisionInput,
+      label: "an accepted candidate missing its target",
+      smoke: false,
+    },
+    {
+      decision: {
+        definitionOfDone: "Submit the synthetic test note",
+        durationMinutes: null,
+        inputClass: "explicit_commitment",
+        missingFields: [],
+        nextAction: "ready",
+        offerWorkWindowHelp: false,
+        possibleWorkSession: false,
+        response: "I have the details.",
+        simpleAction: true,
+        targetAt: "2026-07-25T10:00:00+08:00",
+        targetTimeZone: "Asia/Singapore",
+        timingConstraints: [],
+        turnRelation: "permission_accepted",
+      } satisfies DecisionResult,
+      input: {
+        context: {
+          fields: {
+            definitionOfDone: "Submit the synthetic test note",
+            durationMinutes: null,
+            offerWorkWindowHelp: false,
+            possibleWorkSession: false,
+            simpleAction: true,
+            targetAt: "2026-07-25T10:00:00+08:00",
+            targetTimeZone: "Asia/Singapore",
+            timingConstraints: [],
+          },
+          phase: "awaiting_permission",
+        },
+        ownerText: "yes",
+      } satisfies DecisionInput,
+      label: "the exact complete simple-action smoke input",
+      smoke: true,
+    },
+    {
+      decision: {
+        definitionOfDone: "Draft the synthetic test note",
+        durationMinutes: null,
+        inputClass: "explicit_commitment",
+        missingFields: [],
+        nextAction: "offer_work_window",
+        offerWorkWindowHelp: false,
+        possibleWorkSession: true,
+        response: "Would you like help finding a work window?",
+        simpleAction: false,
+        targetAt: "2026-07-25T10:00:00+08:00",
+        targetTimeZone: "Asia/Singapore",
+        timingConstraints: ["Avoid the morning commute", "Before lunch"],
+        turnRelation: "permission_accepted",
+      } satisfies DecisionResult,
+      input: {
+        context: {
+          fields: {
+            definitionOfDone: "Draft the synthetic test note",
+            durationMinutes: null,
+            offerWorkWindowHelp: false,
+            possibleWorkSession: true,
+            simpleAction: false,
+            targetAt: "2026-07-25T10:00:00+08:00",
+            targetTimeZone: "Asia/Singapore",
+            timingConstraints: [
+              "Avoid the morning commute",
+              "Before lunch",
+            ],
+          },
+          phase: "awaiting_permission",
+        },
+        ownerText: "yes",
+      } satisfies DecisionInput,
+      label: "a complete valid work candidate",
+      smoke: false,
+    },
+  ])(
+    "accepts controlled adapter output for $label",
+    async ({ decision, input, smoke }) => {
+      const fetchFromOpenAI = vi.fn(async () =>
+        providerResponse(decision),
+      );
+
+      await expect(engineWith(fetchFromOpenAI).decide(input)).resolves.toEqual(
+        {
+          decision,
+          ok: true,
+        },
+      );
+      expect(fetchFromOpenAI).toHaveBeenCalledOnce();
+      const [, request] = fetchFromOpenAI.mock.calls[0];
+      const body = JSON.parse(String(request?.body)) as Record<
+        string,
+        unknown
+      >;
+      expect(JSON.parse(String(body.input))).toEqual(input);
+      expect(decision.response?.trim().length).toBeGreaterThan(0);
+
+      if (smoke) {
+        expect(
+          isExpectedSmokeDecision(decision, input.context.fields!),
+        ).toBe(true);
+      }
+    },
+  );
 
   it.each([
     {
