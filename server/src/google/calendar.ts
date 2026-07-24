@@ -8,6 +8,7 @@ const MAX_EVENT_SUMMARIES = 50;
 
 export type GoogleCalendarFailure =
   | "authorization_expired"
+  | "provider_failure"
   | "unavailable";
 
 export type GoogleCalendarTokenResult =
@@ -263,7 +264,7 @@ function eventSummaries(value: unknown): readonly CalendarEventSummary[] | undef
 function failureFor(response: Response): GoogleCalendarFailure {
   return response.status === 401 || response.status === 403
     ? "authorization_expired"
-    : "unavailable";
+    : "provider_failure";
 }
 
 export class GoogleCalendarAdapter {
@@ -329,11 +330,11 @@ export class GoogleCalendarAdapter {
         !primary ||
         (Array.isArray(primary.errors) && primary.errors.length > 0)
       ) {
-        return { status: "unavailable" };
+        return { status: "provider_failure" };
       }
       const busyIntervals = normalizeBusyIntervals(primary.busy, range);
       if (!busyIntervals) {
-        return { status: "unavailable" };
+        return { status: "provider_failure" };
       }
 
       const eventsUrl = new URL(GOOGLE_EVENTS_URL);
@@ -358,11 +359,11 @@ export class GoogleCalendarAdapter {
       }
       const events = record(await eventsResponse.json());
       if (!events) {
-        return { status: "unavailable" };
+        return { status: "provider_failure" };
       }
       const summaries = eventSummaries(events.items ?? []);
       if (!summaries) {
-        return { status: "unavailable" };
+        return { status: "provider_failure" };
       }
 
       return {
@@ -372,7 +373,7 @@ export class GoogleCalendarAdapter {
         status: "ok",
       };
     } catch {
-      return { status: "unavailable" };
+      return { status: "provider_failure" };
     }
   }
 }

@@ -47,6 +47,19 @@ export type GoogleConnectionRecord = Readonly<{
   verifiedEmail: string;
 }>;
 
+export type GoogleCalendarCredential = Readonly<{
+  calendarId: "primary";
+  encryptedRefreshToken: EncryptedSecret;
+  scopes: readonly string[];
+  status: "authorization_expired" | "connected";
+  verifiedEmail: string;
+}>;
+
+export interface GoogleCalendarCredentialRepository {
+  markAuthorizationExpired(): Promise<void>;
+  readCredential(): Promise<GoogleCalendarCredential | undefined>;
+}
+
 export interface GoogleOAuthRepository {
   claimAttempt(
     stateDigest: string,
@@ -131,7 +144,39 @@ function isConnectionRecord(value: unknown): value is {
   );
 }
 
-export class SupabaseGoogleOAuthRepository implements GoogleOAuthRepository {
+function isCredentialRecord(value: unknown): value is {
+  calendar_id: "primary";
+  key_version: number;
+  refresh_token_ciphertext: string;
+  refresh_token_nonce: string;
+  refresh_token_tag: string;
+  scopes: string[];
+  status: "authorization_expired" | "connected";
+  verified_email: string;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    row.calendar_id === "primary" &&
+    Number.isSafeInteger(row.key_version) &&
+    Number(row.key_version) > 0 &&
+    typeof row.refresh_token_ciphertext === "string" &&
+    row.refresh_token_ciphertext.length > 0 &&
+    typeof row.refresh_token_nonce === "string" &&
+    row.refresh_token_nonce.length > 0 &&
+    typeof row.refresh_token_tag === "string" &&
+    row.refresh_token_tag.length > 0 &&
+    hasExactGoogleScopes(row.scopes) &&
+    (row.status === "connected" || row.status === "authorization_expired") &&
+    typeof row.verified_email === "string"
+  );
+}
+
+export class SupabaseGoogleOAuthRepository
+  implements GoogleOAuthRepository, GoogleCalendarCredentialRepository
+{
   readonly #fetch: typeof fetch;
   readonly #supabaseSecretKey: string;
   readonly #supabaseUrl: string;
@@ -280,5 +325,40 @@ export class SupabaseGoogleOAuthRepository implements GoogleOAuthRepository {
       status: result.status,
       verifiedEmail: result.verified_email,
     };
+  }
+
+  async readCredential(): Promise<GoogleCalendarCredential | undefined> {
+    const result = await this.#rpc(
+      "read_google_calendar_credential",
+      {},
+    );
+    if (result === null) {
+      return undefined;
+    }
+    if (!isCredentialRecord(result)) {
+      throw new Error("Google credential persistence returned invalid data");
+    }
+    return {
+      calendarId: result.calendar_id,
+      encryptedRefreshToken: {
+        ciphertext: result.refresh_token_ciphertext,
+        keyVersion: result.key_version,
+        nonce: result.refresh_token_nonce,
+        tag: result.refresh_token_tag,
+      },
+      scopes: result.scopes,
+      status: result.status,
+      verifiedEmail: result.verified_email,
+    };
+  }
+
+  async markAuthorizationExpired(): Promise<void> {
+    const result = await this.#rpc(
+      "mark_google_calendar_authorization_expired",
+      {},
+    );
+    if (result !== true) {
+      throw new Error("Google credential persistence failed");
+    }
   }
 }

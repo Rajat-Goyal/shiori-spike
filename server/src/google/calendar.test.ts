@@ -266,13 +266,13 @@ describe("GoogleCalendarAdapter", () => {
       name: "expired event-list authorization",
     },
     {
-      expected: "unavailable",
+      expected: "provider_failure",
       freeBusyStatus: 503,
       name: "unavailable FreeBusy",
     },
     {
       eventsStatus: 503,
-      expected: "unavailable",
+      expected: "provider_failure",
       name: "unavailable event list",
     },
   ])("returns $expected for $name", async (fixture) => {
@@ -294,6 +294,7 @@ describe("GoogleCalendarAdapter", () => {
 
   it.each([
     { status: "authorization_expired" as const },
+    { status: "provider_failure" as const },
     { status: "unavailable" as const },
   ])("propagates token-provider $status without an HTTP request", async (token) => {
     const test = controlled([], {
@@ -329,7 +330,7 @@ describe("GoogleCalendarAdapter", () => {
     expect(provider.getToken).not.toHaveBeenCalled();
   });
 
-  it("returns unavailable for malformed provider objects without exposing them", async () => {
+  it("returns provider_failure for malformed provider objects without exposing them", async () => {
     const test = controlled([
       response({
         calendars: {
@@ -341,6 +342,6 @@ describe("GoogleCalendarAdapter", () => {
     ]);
     await expect(
       test.adapter.read({ calendarId: "primary", range }),
-    ).resolves.toEqual({ status: "unavailable" });
+    ).resolves.toEqual({ status: "provider_failure" });
   });
 });
