@@ -937,7 +937,10 @@
         ]
       },
       "status": "todo",
-      "open_questions": []
+      "open_questions": [
+        "AC2 requires reminder buttons Done and Cancel, but S01-04 excludes the destructive saved-commitment cancellation confirmation assigned to S01-06. PM recommends that S01-04 make Cancel return the non-mutating response `Cancellation requires confirmation. Nothing was changed.` with no product transition; S01-06 will add the full destructive confirmation flow. Owner approval is required before implementation.",
+        "AC5 requires bounded retries for known-safe failures but defines no cap. PM recommends three total delivery attempts (the initial attempt plus two validated HTTP 429 retries); ambiguous outcomes become terminal delivery_unknown and are never resent. Owner approval is required before implementation."
+      ]
     },
     {
       "id": "S01-05",
