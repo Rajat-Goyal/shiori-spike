@@ -1,24 +1,29 @@
-import type { DecisionResult } from "./schema.js";
+import type {
+  DecisionContextFields,
+  DecisionResult,
+} from "./schema.js";
 
 export function isExpectedSmokeDecision(
   decision: DecisionResult,
+  expectedFields: DecisionContextFields,
 ): boolean {
-  if (
-    decision.inputClass !== "explicit_commitment" ||
-    decision.targetAt === null
-  ) {
-    return false;
-  }
-
-  const asksForDefinition =
-    decision.nextAction === "ask_definition" &&
-    decision.definitionOfDone === null &&
-    decision.missingFields.length === 1 &&
-    decision.missingFields[0] === "definition_of_done";
-  const extractedDefinition =
+  return (
+    decision.inputClass === "explicit_commitment" &&
+    decision.turnRelation === "permission_accepted" &&
     decision.nextAction === "ready" &&
-    decision.definitionOfDone !== null &&
-    decision.missingFields.length === 0;
-
-  return asksForDefinition || extractedDefinition;
+    decision.missingFields.length === 0 &&
+    decision.definitionOfDone === expectedFields.definitionOfDone &&
+    decision.durationMinutes === expectedFields.durationMinutes &&
+    decision.offerWorkWindowHelp === expectedFields.offerWorkWindowHelp &&
+    decision.possibleWorkSession === expectedFields.possibleWorkSession &&
+    decision.simpleAction === expectedFields.simpleAction &&
+    decision.targetAt === expectedFields.targetAt &&
+    decision.targetTimeZone === expectedFields.targetTimeZone &&
+    decision.timingConstraints.length ===
+      expectedFields.timingConstraints.length &&
+    decision.timingConstraints.every(
+      (constraint, index) =>
+        constraint === expectedFields.timingConstraints[index],
+    )
+  );
 }

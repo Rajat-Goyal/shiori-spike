@@ -1,9 +1,14 @@
 import {
   decisionJsonSchema,
+  type DecisionInput,
   type DecisionResult,
+  parseDecisionInputStructure,
   parseDecisionStructure,
 } from "./schema.js";
-import { validateDecisionSemantics } from "./semantic.js";
+import {
+  validateDecisionInputSemantics,
+  validateDecisionSemantics,
+} from "./semantic.js";
 
 export type DecisionFailureClass =
   | "http"
@@ -27,7 +32,7 @@ export type DecisionOutcome =
     };
 
 export interface DecisionEngine {
-  decide(input: string): Promise<DecisionOutcome>;
+  decide(input: DecisionInput): Promise<DecisionOutcome>;
 }
 
 type OpenAIDecisionEngineOptions = {
@@ -160,6 +165,12 @@ function instructions(promptVersion: string): string {
     "simpleAction and possibleWorkSession must not both be true. Use only the schema's next actions.",
     "For explicit commitments, missingFields must exactly list absent definition_of_done then target.",
     "For implied intentions and ordinary questions, missingFields must be empty.",
+    "turnRelation is descriptive and never authorizes a transition.",
+    "With phase none, use new_request for explicit or implied input and none for an ordinary question.",
+    "With awaiting_permission, use permission_accepted for a clear yes, permission_declined for a clear no, clarification_continuation for an unclear on-topic response, separate_request for a separate explicit or implied request, and none only for an unrelated ordinary question.",
+    "With awaiting_definition or awaiting_target, use clarification_continuation only when filling missing candidate fields without changing populated fields, correction only when changing or clearing at least one populated field, separate_request for a separate explicit or implied request, and none for an unrelated ordinary question.",
+    "With complete, use correction only when changing or clearing at least one populated field, separate_request for a separate explicit or implied request, and none for an unrelated ordinary question.",
+    "For permission_accepted, copy every context candidate field exactly, including nulls and timingConstraints order; do not fill, change, clear, normalize, reorder, or infer candidate fields.",
   ].join(" ");
 }
 
@@ -178,13 +189,20 @@ export class OpenAIDecisionEngine implements DecisionEngine {
     this.#promptVersion = options.promptVersion;
   }
 
-  async decide(input: string): Promise<DecisionOutcome> {
+  async decide(input: DecisionInput): Promise<DecisionOutcome> {
     let response: Response;
+    const structuredInput = parseDecisionInputStructure(input);
+    if (
+      !structuredInput ||
+      !validateDecisionInputSemantics(structuredInput, this.#now())
+    ) {
+      return failed("semantic");
+    }
 
     try {
       response = await this.#fetch(RESPONSES_URL, {
         body: JSON.stringify({
-          input,
+          input: JSON.stringify(structuredInput),
           instructions: instructions(this.#promptVersion),
           model: this.#model,
           store: false,
@@ -252,7 +270,13 @@ export class OpenAIDecisionEngine implements DecisionEngine {
     if (!decision) {
       return failed("schema");
     }
-    if (!validateDecisionSemantics(decision, this.#now())) {
+    if (
+      !validateDecisionSemantics(
+        decision,
+        structuredInput,
+        this.#now(),
+      )
+    ) {
       return failed("semantic");
     }
 

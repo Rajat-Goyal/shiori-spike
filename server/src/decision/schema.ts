@@ -63,19 +63,84 @@ type InferSpec<S extends Spec> = S extends {
                 >
               : never;
 
+const candidateFieldSpecs = {
+  definitionOfDone: {
+    kind: "string",
+    maxLength: 500,
+    minLength: 1,
+    nullable: true,
+  },
+  durationMinutes: {
+    enum: [30, 60, 90, 120],
+    kind: "integer",
+    nullable: true,
+  },
+  offerWorkWindowHelp: {
+    kind: "boolean",
+  },
+  possibleWorkSession: {
+    kind: "boolean",
+  },
+  simpleAction: {
+    kind: "boolean",
+  },
+  targetAt: {
+    kind: "string",
+    maxLength: 25,
+    minLength: 25,
+    nullable: true,
+  },
+  targetTimeZone: {
+    kind: "string",
+    maxLength: 64,
+    minLength: 1,
+    nullable: true,
+  },
+  timingConstraints: {
+    items: {
+      kind: "string",
+      maxLength: 200,
+      minLength: 1,
+    },
+    kind: "array",
+    maxItems: 4,
+  },
+} as const satisfies Readonly<Record<string, Spec>>;
+
+export const decisionInputSpec = {
+  fields: {
+    context: {
+      fields: {
+        fields: {
+          fields: candidateFieldSpecs,
+          kind: "object",
+          nullable: true,
+        },
+        phase: {
+          enum: [
+            "none",
+            "awaiting_permission",
+            "awaiting_definition",
+            "awaiting_target",
+            "complete",
+          ],
+          kind: "string",
+        },
+      },
+      kind: "object",
+    },
+    ownerText: {
+      kind: "string",
+      maxLength: 4_096,
+      minLength: 1,
+    },
+  },
+  kind: "object",
+} as const satisfies Spec;
+
 export const decisionSpec = {
   fields: {
-    definitionOfDone: {
-      kind: "string",
-      maxLength: 500,
-      minLength: 1,
-      nullable: true,
-    },
-    durationMinutes: {
-      enum: [30, 60, 90, 120],
-      kind: "integer",
-      nullable: true,
-    },
+    ...candidateFieldSpecs,
     inputClass: {
       enum: [
         "explicit_commitment",
@@ -104,47 +169,33 @@ export const decisionSpec = {
       ],
       kind: "string",
     },
-    offerWorkWindowHelp: {
-      kind: "boolean",
-    },
-    possibleWorkSession: {
-      kind: "boolean",
-    },
     response: {
       kind: "string",
       maxLength: 1_000,
       minLength: 1,
       nullable: true,
     },
-    simpleAction: {
-      kind: "boolean",
-    },
-    targetAt: {
+    turnRelation: {
+      enum: [
+        "none",
+        "new_request",
+        "clarification_continuation",
+        "correction",
+        "separate_request",
+        "permission_accepted",
+        "permission_declined",
+      ],
       kind: "string",
-      maxLength: 25,
-      minLength: 25,
-      nullable: true,
-    },
-    targetTimeZone: {
-      kind: "string",
-      maxLength: 64,
-      minLength: 1,
-      nullable: true,
-    },
-    timingConstraints: {
-      items: {
-        kind: "string",
-        maxLength: 200,
-        minLength: 1,
-      },
-      kind: "array",
-      maxItems: 4,
     },
   },
   kind: "object",
 } as const satisfies Spec;
 
+export type DecisionInput = InferSpec<typeof decisionInputSpec>;
+export type DecisionContext = DecisionInput["context"];
+export type DecisionContextFields = NonNullable<DecisionContext["fields"]>;
 export type DecisionResult = InferSpec<typeof decisionSpec>;
+export type TurnRelation = DecisionResult["turnRelation"];
 
 type JsonSchema = Readonly<Record<string, unknown>>;
 
@@ -253,5 +304,13 @@ function structurallyMatches(spec: Spec, value: unknown): boolean {
 export function parseDecisionStructure(value: unknown): DecisionResult | null {
   return structurallyMatches(decisionSpec, value)
     ? (value as DecisionResult)
+    : null;
+}
+
+export function parseDecisionInputStructure(
+  value: unknown,
+): DecisionInput | null {
+  return structurallyMatches(decisionInputSpec, value)
+    ? (value as DecisionInput)
     : null;
 }

@@ -1,5 +1,6 @@
 import { readServerConfig } from "../src/config.js";
 import { OpenAIDecisionEngine } from "../src/decision/engine.js";
+import type { DecisionContextFields } from "../src/decision/schema.js";
 import { isExpectedSmokeDecision } from "../src/decision/smoke-shape.js";
 
 function tomorrowAtTenSingapore(now: Date): string {
@@ -22,24 +23,42 @@ function tomorrowAtTenSingapore(now: Date): string {
 
 const config = readServerConfig();
 const target = tomorrowAtTenSingapore(new Date());
+const candidate: DecisionContextFields = {
+  definitionOfDone: "Submit the synthetic test note",
+  durationMinutes: null,
+  offerWorkWindowHelp: false,
+  possibleWorkSession: false,
+  simpleAction: true,
+  targetAt: target,
+  targetTimeZone: "Asia/Singapore",
+  timingConstraints: [],
+};
 const engine = new OpenAIDecisionEngine({
   apiKey: config.openaiApiKey,
   model: config.openaiModel,
   promptVersion: config.openaiPromptVersion,
 });
 
-const outcome = await engine.decide(
-  `Synthetic smoke only: submit a synthetic test note by ${target}.`,
-);
+const outcome = await engine.decide({
+  context: {
+    fields: candidate,
+    phase: "awaiting_permission",
+  },
+  ownerText: "yes",
+});
 
-const expectedShape =
-  outcome.ok &&
-  isExpectedSmokeDecision(outcome.decision);
-
-if (!outcome.ok || !expectedShape) {
+if ("failure" in outcome) {
   console.log(
     JSON.stringify({
-      failure: outcome.ok ? "unexpected_decision_shape" : outcome.failure,
+      failure: outcome.failure,
+      ok: false,
+    }),
+  );
+  process.exitCode = 1;
+} else if (!isExpectedSmokeDecision(outcome.decision, candidate)) {
+  console.log(
+    JSON.stringify({
+      failure: "unexpected_decision_shape",
       ok: false,
     }),
   );
@@ -53,6 +72,9 @@ if (!outcome.ok || !expectedShape) {
       missingFieldCount: outcome.decision.missingFields.length,
       nextAction: outcome.decision.nextAction,
       ok: true,
+      phase: "awaiting_permission",
+      relation: outcome.decision.turnRelation,
+      retainedCandidateExactly: true,
     }),
   );
 }

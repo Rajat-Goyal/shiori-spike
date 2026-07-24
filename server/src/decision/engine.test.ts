@@ -4,17 +4,31 @@ import {
   OpenAIDecisionEngine,
 } from "./engine.js";
 import {
+  type DecisionContextFields,
+  type DecisionInput,
   decisionJsonSchema,
+  decisionInputSpec,
   decisionSpec,
   type DecisionResult,
+  parseDecisionInputStructure,
   parseDecisionStructure,
 } from "./schema.js";
-import { validateDecisionSemantics } from "./semantic.js";
+import {
+  validateDecisionInputSemantics,
+  validateDecisionSemantics,
+} from "./semantic.js";
 import { isExpectedSmokeDecision } from "./smoke-shape.js";
 
 const now = new Date("2026-07-24T12:00:00.000Z");
 const apiKey = "unit-test-api-key-that-must-not-leak";
 const privateInput = "synthetic private input that must not leak";
+const privateDecisionInput: DecisionInput = {
+  context: {
+    fields: null,
+    phase: "none",
+  },
+  ownerText: privateInput,
+};
 const explicitDecision: DecisionResult = {
   definitionOfDone: "Submit the expense report",
   durationMinutes: null,
@@ -28,7 +42,59 @@ const explicitDecision: DecisionResult = {
   targetAt: "2026-07-25T10:00:00+08:00",
   targetTimeZone: "Asia/Singapore",
   timingConstraints: [],
+  turnRelation: "new_request",
 };
+const completeFields: DecisionContextFields = {
+  definitionOfDone: explicitDecision.definitionOfDone,
+  durationMinutes: explicitDecision.durationMinutes,
+  offerWorkWindowHelp: explicitDecision.offerWorkWindowHelp,
+  possibleWorkSession: explicitDecision.possibleWorkSession,
+  simpleAction: explicitDecision.simpleAction,
+  targetAt: explicitDecision.targetAt,
+  targetTimeZone: explicitDecision.targetTimeZone,
+  timingConstraints: explicitDecision.timingConstraints,
+};
+const permissionInput: DecisionInput = {
+  context: {
+    fields: completeFields,
+    phase: "awaiting_permission",
+  },
+  ownerText: "yes",
+};
+const impliedDecision: DecisionResult = {
+  ...explicitDecision,
+  definitionOfDone: "Renew the library book",
+  inputClass: "implied_intention",
+  missingFields: [],
+  nextAction: "ask_permission",
+  response: "Would you like help managing that?",
+  targetAt: null,
+  targetTimeZone: null,
+  turnRelation: "new_request",
+};
+const ordinaryDecision: DecisionResult = {
+  ...explicitDecision,
+  definitionOfDone: null,
+  inputClass: "ordinary_question",
+  missingFields: [],
+  nextAction: "answer",
+  possibleWorkSession: false,
+  response: "Singapore is eight hours ahead of UTC.",
+  simpleAction: false,
+  targetAt: null,
+  targetTimeZone: null,
+  turnRelation: "none",
+};
+
+function contextInput(
+  phase: DecisionInput["context"]["phase"],
+  fields: DecisionContextFields | null,
+): DecisionInput {
+  return {
+    context: { fields, phase },
+    ownerText: privateInput,
+  };
+}
 
 function providerResponse(value: unknown): Response {
   return Response.json({
@@ -78,6 +144,7 @@ describe("DecisionEngine contract", () => {
         response: "Would you like help managing that?",
         targetAt: null,
         targetTimeZone: null,
+        turnRelation: "new_request",
       } satisfies DecisionResult,
       inputClass: "implied_intention",
     },
@@ -93,6 +160,7 @@ describe("DecisionEngine contract", () => {
         simpleAction: false,
         targetAt: null,
         targetTimeZone: null,
+        turnRelation: "none",
       } satisfies DecisionResult,
       inputClass: "ordinary_question",
     },
@@ -101,10 +169,12 @@ describe("DecisionEngine contract", () => {
     async ({ decision, inputClass }) => {
       const fetchFromOpenAI = vi.fn(async () => providerResponse(decision));
 
-      await expect(engineWith(fetchFromOpenAI).decide("synthetic")).resolves.toEqual({
-        decision,
-        ok: true,
-      });
+      await expect(
+        engineWith(fetchFromOpenAI).decide({
+          ...privateDecisionInput,
+          ownerText: "synthetic",
+        }),
+      ).resolves.toEqual({ decision, ok: true });
       expect(decision.inputClass).toBe(inputClass);
     },
   );
@@ -116,6 +186,29 @@ describe("DecisionEngine contract", () => {
       type: "object",
     });
     expect(parseDecisionStructure(explicitDecision)).toEqual(explicitDecision);
+    expect(parseDecisionInputStructure(privateDecisionInput)).toEqual(
+      privateDecisionInput,
+    );
+    expect(decisionInputSpec).toMatchObject({
+      fields: {
+        context: {
+          fields: {
+            fields: {
+              nullable: true,
+            },
+            phase: {
+              enum: [
+                "none",
+                "awaiting_permission",
+                "awaiting_definition",
+                "awaiting_target",
+                "complete",
+              ],
+            },
+          },
+        },
+      },
+    });
     expect(
       parseDecisionStructure({
         ...explicitDecision,
@@ -136,7 +229,7 @@ describe("DecisionEngine contract", () => {
     const fetchFromOpenAI = vi.fn(async () => providerResponse(explicitDecision));
     const engine = engineWith(fetchFromOpenAI);
 
-    await expect(engine.decide(privateInput)).resolves.toMatchObject({
+    await expect(engine.decide(privateDecisionInput)).resolves.toMatchObject({
       ok: true,
     });
 
@@ -156,7 +249,7 @@ describe("DecisionEngine contract", () => {
 
     const body = JSON.parse(String(request?.body)) as Record<string, unknown>;
     expect(body).toMatchObject({
-      input: privateInput,
+      input: JSON.stringify(privateDecisionInput),
       model: "gpt-test-model",
       store: false,
       text: {
@@ -170,7 +263,14 @@ describe("DecisionEngine contract", () => {
       tools: [],
     });
     expect(body.instructions).toContain("shiori-test-v1");
+    expect(body.instructions).toContain("descriptive and never authorizes");
+    expect(body.instructions).toContain(
+      "copy every context candidate field exactly",
+    );
     expect(body).not.toHaveProperty("previous_response_id");
+    expect(String(request?.body)).not.toMatch(
+      /previous_response_id|transcript|priorMessages|providerOutput|authority/,
+    );
   });
 
   it.each([
@@ -231,7 +331,13 @@ describe("DecisionEngine contract", () => {
       }),
     },
   ])("semantically rejects $label", ({ mutate }) => {
-    expect(validateDecisionSemantics(mutate(explicitDecision), now)).toBe(false);
+    expect(
+      validateDecisionSemantics(
+        mutate(explicitDecision),
+        privateDecisionInput,
+        now,
+      ),
+    ).toBe(false);
   });
 
   it("requires definition before target in canonical missing-field order", () => {
@@ -251,17 +357,550 @@ describe("DecisionEngine contract", () => {
       targetTimeZone: null,
     };
 
-    expect(validateDecisionSemantics(missingBoth, now)).toBe(true);
-    expect(validateDecisionSemantics(missingTarget, now)).toBe(true);
+    expect(
+      validateDecisionSemantics(missingBoth, privateDecisionInput, now),
+    ).toBe(true);
+    expect(
+      validateDecisionSemantics(missingTarget, privateDecisionInput, now),
+    ).toBe(true);
     expect(
       validateDecisionSemantics(
         {
           ...missingBoth,
           missingFields: ["target", "definition_of_done"],
         },
+        privateDecisionInput,
         now,
       ),
     ).toBe(false);
+  });
+
+  describe("bounded context and turn-relation semantics", () => {
+    const awaitingDefinitionFields: DecisionContextFields = {
+      ...completeFields,
+      definitionOfDone: null,
+    };
+    const awaitingTargetFields: DecisionContextFields = {
+      ...completeFields,
+      targetAt: null,
+      targetTimeZone: null,
+    };
+    const changedTargetFields: DecisionContextFields = {
+      ...awaitingDefinitionFields,
+      targetAt: "2026-07-26T10:00:00+08:00",
+    };
+    const phaseInputs = {
+      awaiting_definition: contextInput(
+        "awaiting_definition",
+        awaitingDefinitionFields,
+      ),
+      awaiting_permission: permissionInput,
+      awaiting_target: contextInput(
+        "awaiting_target",
+        awaitingTargetFields,
+      ),
+      complete: contextInput("complete", completeFields),
+      none: privateDecisionInput,
+    } as const;
+
+    it("uses exactly the PM-approved candidate fields and rejects extra context", () => {
+      expect(
+        Object.keys(
+          decisionInputSpec.fields.context.fields.fields.fields,
+        ),
+      ).toEqual([
+        "definitionOfDone",
+        "durationMinutes",
+        "offerWorkWindowHelp",
+        "possibleWorkSession",
+        "simpleAction",
+        "targetAt",
+        "targetTimeZone",
+        "timingConstraints",
+      ]);
+      expect(
+        parseDecisionInputStructure({
+          ...permissionInput,
+          context: {
+            ...permissionInput.context,
+            fields: {
+              ...completeFields,
+              version: 4,
+            },
+          },
+        }),
+      ).toBeNull();
+      expect(
+        parseDecisionInputStructure({
+          ...permissionInput,
+          context: {
+            ...permissionInput.context,
+            priorOwnerText: "private prior turn",
+          },
+        }),
+      ).toBeNull();
+    });
+
+    it.each([
+      {
+        input: contextInput("none", completeFields),
+        label: "fields in phase none",
+      },
+      {
+        input: contextInput("awaiting_permission", null),
+        label: "missing permission fields",
+      },
+      {
+        input: contextInput("awaiting_definition", completeFields),
+        label: "populated awaited definition",
+      },
+      {
+        input: contextInput("awaiting_target", {
+          ...awaitingTargetFields,
+          definitionOfDone: null,
+        }),
+        label: "missing definition while awaiting target",
+      },
+      {
+        input: contextInput("complete", awaitingTargetFields),
+        label: "incomplete complete phase",
+      },
+      {
+        input: contextInput("complete", {
+          ...completeFields,
+          possibleWorkSession: false,
+          simpleAction: false,
+        }),
+        label: "invalid complete mode",
+      },
+      {
+        input: {
+          ...privateDecisionInput,
+          ownerText: "   ",
+        },
+        label: "blank owner text",
+      },
+    ])("rejects $label before provider use", async ({ input }) => {
+      const fetchFromOpenAI = vi.fn(async () =>
+        providerResponse(explicitDecision),
+      );
+      await expect(engineWith(fetchFromOpenAI).decide(input)).resolves.toEqual({
+        failure: "semantic",
+        ok: false,
+      });
+      expect(fetchFromOpenAI).not.toHaveBeenCalled();
+    });
+
+    it("rejects structurally malformed input before provider use", async () => {
+      const fetchFromOpenAI = vi.fn(async () =>
+        providerResponse(explicitDecision),
+      );
+      const malformed = {
+        ...privateDecisionInput,
+        transcript: ["private prior message"],
+      } as unknown as DecisionInput;
+
+      await expect(
+        engineWith(fetchFromOpenAI).decide(malformed),
+      ).resolves.toEqual({
+        failure: "semantic",
+        ok: false,
+      });
+      expect(fetchFromOpenAI).not.toHaveBeenCalled();
+    });
+
+    const allowedCases: Array<{
+      decision: DecisionResult;
+      input: DecisionInput;
+      label: string;
+    }> = [
+      {
+        decision: explicitDecision,
+        input: privateDecisionInput,
+        label: "new explicit request without context",
+      },
+      {
+        decision: impliedDecision,
+        input: privateDecisionInput,
+        label: "new implied request without context",
+      },
+      {
+        decision: ordinaryDecision,
+        input: privateDecisionInput,
+        label: "ordinary question without context",
+      },
+      {
+        decision: {
+          ...explicitDecision,
+          turnRelation: "permission_accepted",
+        },
+        input: permissionInput,
+        label: "permission accepted",
+      },
+      {
+        decision: {
+          ...ordinaryDecision,
+          turnRelation: "permission_declined",
+        },
+        input: permissionInput,
+        label: "permission declined",
+      },
+      {
+        decision: {
+          ...ordinaryDecision,
+          turnRelation: "clarification_continuation",
+        },
+        input: permissionInput,
+        label: "unclear on-topic permission response",
+      },
+      {
+        decision: {
+          ...explicitDecision,
+          turnRelation: "separate_request",
+        },
+        input: permissionInput,
+        label: "separate explicit request during permission",
+      },
+      {
+        decision: {
+          ...impliedDecision,
+          turnRelation: "separate_request",
+        },
+        input: permissionInput,
+        label: "separate implied request during permission",
+      },
+      {
+        decision: ordinaryDecision,
+        input: permissionInput,
+        label: "unrelated ordinary question during permission",
+      },
+      {
+        decision: {
+          ...explicitDecision,
+          turnRelation: "clarification_continuation",
+        },
+        input: phaseInputs.awaiting_definition,
+        label: "definition clarification",
+      },
+      {
+        decision: {
+          ...explicitDecision,
+          turnRelation: "clarification_continuation",
+        },
+        input: phaseInputs.awaiting_target,
+        label: "target clarification",
+      },
+      {
+        decision: {
+          ...explicitDecision,
+          turnRelation: "correction",
+        },
+        input: contextInput(
+          "awaiting_definition",
+          changedTargetFields,
+        ),
+        label: "correction while awaiting definition",
+      },
+      {
+        decision: {
+          ...explicitDecision,
+          definitionOfDone: "Submit the corrected expense report",
+          turnRelation: "correction",
+        },
+        input: phaseInputs.awaiting_target,
+        label: "correction while awaiting target",
+      },
+      {
+        decision: {
+          ...explicitDecision,
+          definitionOfDone: "Submit the corrected expense report",
+          turnRelation: "correction",
+        },
+        input: phaseInputs.complete,
+        label: "correction of a complete candidate",
+      },
+      ...(["awaiting_definition", "awaiting_target", "complete"] as const).flatMap(
+        (phase) => [
+          {
+            decision: {
+              ...explicitDecision,
+              turnRelation: "separate_request" as const,
+            },
+            input: phaseInputs[phase],
+            label: `separate explicit request during ${phase}`,
+          },
+          {
+            decision: {
+              ...impliedDecision,
+              turnRelation: "separate_request" as const,
+            },
+            input: phaseInputs[phase],
+            label: `separate implied request during ${phase}`,
+          },
+          {
+            decision: ordinaryDecision,
+            input: phaseInputs[phase],
+            label: `unrelated ordinary question during ${phase}`,
+          },
+        ],
+      ),
+    ];
+
+    it.each(allowedCases)("accepts $label", ({ decision, input }) => {
+      expect(validateDecisionSemantics(decision, input, now)).toBe(true);
+    });
+
+    it("rejects every relation/class/phase tuple outside the allowlist", () => {
+      const relations: DecisionResult["turnRelation"][] = [
+        "none",
+        "new_request",
+        "clarification_continuation",
+        "correction",
+        "separate_request",
+        "permission_accepted",
+        "permission_declined",
+      ];
+      const classes: DecisionResult["inputClass"][] = [
+        "explicit_commitment",
+        "implied_intention",
+        "ordinary_question",
+      ];
+      const allowed = new Set(
+        allowedCases.map(
+          ({ decision, input }) =>
+            `${input.context.phase}:${decision.turnRelation}:${decision.inputClass}`,
+        ),
+      );
+      const baseByClass = {
+        explicit_commitment: explicitDecision,
+        implied_intention: impliedDecision,
+        ordinary_question: ordinaryDecision,
+      } as const;
+
+      for (const [phase, input] of Object.entries(phaseInputs)) {
+        for (const relation of relations) {
+          for (const inputClass of classes) {
+            const key = `${phase}:${relation}:${inputClass}`;
+            if (allowed.has(key)) {
+              continue;
+            }
+            expect(
+              validateDecisionSemantics(
+                {
+                  ...baseByClass[inputClass],
+                  turnRelation: relation,
+                },
+                input,
+                now,
+              ),
+              key,
+            ).toBe(false);
+          }
+        }
+      }
+    });
+
+    it("distinguishes clarification from correction using populated fields", () => {
+      const fillOnly = {
+        ...explicitDecision,
+        turnRelation: "correction",
+      } satisfies DecisionResult;
+      const changesPopulated = {
+        ...explicitDecision,
+        targetAt: "2026-07-26T10:00:00+08:00",
+        turnRelation: "clarification_continuation",
+      } satisfies DecisionResult;
+
+      expect(
+        validateDecisionSemantics(
+          fillOnly,
+          phaseInputs.awaiting_definition,
+          now,
+        ),
+      ).toBe(false);
+      expect(
+        validateDecisionSemantics(
+          changesPopulated,
+          phaseInputs.awaiting_definition,
+          now,
+        ),
+      ).toBe(false);
+
+    });
+
+    it("requires exact option-A candidate equality for permission acceptance", () => {
+      const accepted = {
+        ...explicitDecision,
+        turnRelation: "permission_accepted",
+      } satisfies DecisionResult;
+      expect(
+        validateDecisionSemantics(accepted, permissionInput, now),
+      ).toBe(true);
+
+      const mismatches: DecisionResult[] = [
+        {
+          ...accepted,
+          definitionOfDone: "Changed definition",
+        },
+        {
+          ...accepted,
+          targetAt: "2026-07-26T10:00:00+08:00",
+        },
+        {
+          ...accepted,
+          timingConstraints: ["after lunch"],
+        },
+        {
+          ...accepted,
+          definitionOfDone: null,
+          missingFields: ["definition_of_done"],
+          nextAction: "ask_definition",
+        },
+        {
+          ...accepted,
+          missingFields: ["target"],
+          nextAction: "ask_target",
+          targetAt: null,
+          targetTimeZone: null,
+        },
+        {
+          ...accepted,
+          nextAction: "offer_work_window",
+          possibleWorkSession: true,
+          simpleAction: false,
+        },
+      ];
+      for (const mismatch of mismatches) {
+        expect(
+          validateDecisionSemantics(mismatch, permissionInput, now),
+        ).toBe(false);
+      }
+
+      const orderedFields: DecisionContextFields = {
+        ...completeFields,
+        timingConstraints: ["first", "second"],
+      };
+      expect(
+        validateDecisionSemantics(
+          {
+            ...accepted,
+            timingConstraints: ["second", "first"],
+          },
+          contextInput("awaiting_permission", orderedFields),
+          now,
+        ),
+      ).toBe(false);
+
+      const possibleWorkFields: DecisionContextFields = {
+        ...completeFields,
+        offerWorkWindowHelp: true,
+        possibleWorkSession: true,
+        simpleAction: false,
+      };
+      const acceptedPossibleWork: DecisionResult = {
+        ...explicitDecision,
+        nextAction: "ask_duration",
+        offerWorkWindowHelp: true,
+        possibleWorkSession: true,
+        simpleAction: false,
+        turnRelation: "permission_accepted",
+      };
+      const possibleWorkInput = contextInput(
+        "awaiting_permission",
+        possibleWorkFields,
+      );
+      expect(
+        validateDecisionSemantics(
+          acceptedPossibleWork,
+          possibleWorkInput,
+          now,
+        ),
+      ).toBe(true);
+      expect(
+        validateDecisionSemantics(
+          {
+            ...acceptedPossibleWork,
+            nextAction: "offer_work_window",
+            offerWorkWindowHelp: false,
+          },
+          possibleWorkInput,
+          now,
+        ),
+      ).toBe(false);
+      expect(
+        validateDecisionSemantics(
+          {
+            ...acceptedPossibleWork,
+            durationMinutes: 30,
+            nextAction: "ready",
+          },
+          possibleWorkInput,
+          now,
+        ),
+      ).toBe(false);
+    });
+
+    it("preserves nulls and derives canonical action on permission acceptance", () => {
+      const incompleteFields: DecisionContextFields = {
+        ...completeFields,
+        definitionOfDone: null,
+        targetAt: null,
+        targetTimeZone: null,
+      };
+      const acceptedIncomplete: DecisionResult = {
+        ...explicitDecision,
+        definitionOfDone: null,
+        missingFields: ["definition_of_done", "target"],
+        nextAction: "ask_definition",
+        targetAt: null,
+        targetTimeZone: null,
+        turnRelation: "permission_accepted",
+      };
+      const input = contextInput(
+        "awaiting_permission",
+        incompleteFields,
+      );
+
+      expect(
+        validateDecisionSemantics(acceptedIncomplete, input, now),
+      ).toBe(true);
+      expect(
+        validateDecisionSemantics(
+          {
+            ...acceptedIncomplete,
+            definitionOfDone: explicitDecision.definitionOfDone,
+            missingFields: ["target"],
+            nextAction: "ask_target",
+          },
+          input,
+          now,
+        ),
+      ).toBe(false);
+    });
+
+    it("validates every phase invariant for a structurally bounded input", () => {
+      expect(
+        validateDecisionInputSemantics(privateDecisionInput, now),
+      ).toBe(true);
+      expect(
+        validateDecisionInputSemantics(permissionInput, now),
+      ).toBe(true);
+      expect(
+        validateDecisionInputSemantics(
+          phaseInputs.awaiting_definition,
+          now,
+        ),
+      ).toBe(true);
+      expect(
+        validateDecisionInputSemantics(
+          phaseInputs.awaiting_target,
+          now,
+        ),
+      ).toBe(true);
+      expect(
+        validateDecisionInputSemantics(phaseInputs.complete, now),
+      ).toBe(true);
+    });
   });
 
   it.each([
@@ -282,10 +921,9 @@ describe("DecisionEngine contract", () => {
       }
       const fetchFromOpenAI = vi.fn(async () => Response.json(envelope));
 
-      await expect(engineWith(fetchFromOpenAI).decide(privateInput)).resolves.toEqual({
-        failure: expected,
-        ok: false,
-      });
+      await expect(
+        engineWith(fetchFromOpenAI).decide(privateDecisionInput),
+      ).resolves.toEqual({ failure: expected, ok: false });
     },
   );
 
@@ -308,10 +946,9 @@ describe("DecisionEngine contract", () => {
       }
       const fetchFromOpenAI = vi.fn(async () => Response.json(envelope));
 
-      await expect(engineWith(fetchFromOpenAI).decide(privateInput)).resolves.toEqual({
-        failure: expected,
-        ok: false,
-      });
+      await expect(
+        engineWith(fetchFromOpenAI).decide(privateDecisionInput),
+      ).resolves.toEqual({ failure: expected, ok: false });
     },
   );
 });
@@ -433,7 +1070,9 @@ describe("OpenAI decision failure boundary", () => {
       label: "semantically invalid output",
     },
   ])("returns only a bounded class for $label", async ({ expected, fetch }) => {
-    const outcome = await engineWith(fetch as typeof fetch).decide(privateInput);
+    const outcome = await engineWith(fetch as typeof fetch).decide(
+      privateDecisionInput,
+    );
 
     expect(outcome).toEqual({ failure: expected, ok: false });
     expect(JSON.stringify(outcome)).not.toContain(privateInput);
@@ -449,10 +1088,9 @@ describe("OpenAI decision failure boundary", () => {
       throw error;
     });
 
-    await expect(engineWith(fetchFromOpenAI).decide(privateInput)).resolves.toEqual({
-      failure: "timeout",
-      ok: false,
-    });
+    await expect(
+      engineWith(fetchFromOpenAI).decide(privateDecisionInput),
+    ).resolves.toEqual({ failure: "timeout", ok: false });
   });
 
   it.each([
@@ -468,10 +1106,9 @@ describe("OpenAI decision failure boundary", () => {
       } as Response;
     });
 
-    await expect(engineWith(fetchFromOpenAI).decide(privateInput)).resolves.toEqual({
-      failure: "timeout",
-      ok: false,
-    });
+    await expect(
+      engineWith(fetchFromOpenAI).decide(privateDecisionInput),
+    ).resolves.toEqual({ failure: "timeout", ok: false });
   });
 
   it("maps other transport exceptions to an opaque HTTP failure", async () => {
@@ -479,76 +1116,65 @@ describe("OpenAI decision failure boundary", () => {
       throw new Error("private network detail");
     });
 
-    await expect(engineWith(fetchFromOpenAI).decide(privateInput)).resolves.toEqual({
-      failure: "http",
-      ok: false,
-    });
+    await expect(
+      engineWith(fetchFromOpenAI).decide(privateDecisionInput),
+    ).resolves.toEqual({ failure: "http", ok: false });
   });
 });
 
 describe("OpenAI smoke decision shape", () => {
-  it("accepts either a missing or extracted definition for the fixed synthetic input", () => {
-    const asksForDefinition: DecisionResult = {
-      ...explicitDecision,
-      definitionOfDone: null,
-      missingFields: ["definition_of_done"],
-      nextAction: "ask_definition",
-    };
+  const accepted: DecisionResult = {
+    ...explicitDecision,
+    turnRelation: "permission_accepted",
+  };
 
-    expect(isExpectedSmokeDecision(asksForDefinition)).toBe(true);
-    expect(isExpectedSmokeDecision(explicitDecision)).toBe(true);
+  it("accepts only an exact permission acceptance for the fixed synthetic context", () => {
+    expect(isExpectedSmokeDecision(accepted, completeFields)).toBe(true);
   });
 
   it.each([
     {
+      label: "a non-acceptance relation",
+      decision: {
+        ...accepted,
+        turnRelation: "correction",
+      } satisfies DecisionResult,
+    },
+    {
+      label: "a changed candidate field",
+      decision: {
+        ...accepted,
+        definitionOfDone: "Changed synthetic definition",
+      } satisfies DecisionResult,
+    },
+    {
+      label: "reordered timing constraints",
+      decision: {
+        ...accepted,
+        timingConstraints: ["second", "first"],
+      } satisfies DecisionResult,
+      expected: {
+        ...completeFields,
+        timingConstraints: ["first", "second"],
+      } satisfies DecisionContextFields,
+    },
+    {
       label: "a non-explicit class",
       decision: {
-        ...explicitDecision,
+        ...accepted,
         inputClass: "implied_intention",
       } satisfies DecisionResult,
     },
     {
-      label: "a missing target",
+      label: "a non-ready action",
       decision: {
-        ...explicitDecision,
-        missingFields: ["target"],
+        ...accepted,
         nextAction: "ask_target",
-        targetAt: null,
-        targetTimeZone: null,
       } satisfies DecisionResult,
     },
-    {
-      label: "ask_definition with an extracted definition",
-      decision: {
-        ...explicitDecision,
-        missingFields: ["definition_of_done"],
-        nextAction: "ask_definition",
-      } satisfies DecisionResult,
-    },
-    {
-      label: "ask_definition without the exact missing field",
-      decision: {
-        ...explicitDecision,
-        definitionOfDone: null,
-        missingFields: [],
-        nextAction: "ask_definition",
-      } satisfies DecisionResult,
-    },
-    {
-      label: "ready without a definition",
-      decision: {
-        ...explicitDecision,
-        definitionOfDone: null,
-      } satisfies DecisionResult,
-    },
-    {
-      label: "ready with a missing-field claim",
-      decision: {
-        ...explicitDecision,
-        missingFields: ["definition_of_done"],
-      } satisfies DecisionResult,
-    },
-  ])("rejects $label", ({ decision }) => {
-    expect(isExpectedSmokeDecision(decision)).toBe(false);
+  ])("rejects $label", ({ decision, expected }) => {
+    expect(
+      isExpectedSmokeDecision(decision, expected ?? completeFields),
+    ).toBe(false);
   });
 });
