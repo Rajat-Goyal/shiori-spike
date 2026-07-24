@@ -1,6 +1,6 @@
 {
   "slice": "01-a-promise-that-fits",
-  "generated_at": "2026-07-24T20:11:12Z",
+  "generated_at": "2026-07-24T20:45:19Z",
   "source_docs": [
     "docs/product-slices/01-a-promise-that-fits/scope.md",
     "docs/product-slices/01-a-promise-that-fits/adr.md",
@@ -1015,7 +1015,7 @@
       "verification": {
         "method": "script",
         "commands": [
-          "npm run test:db -- --scenario scheduler-claims",
+          "npm run test:db -- server/test/scheduler-db.integration.ts",
           "npm run test --workspace @shiori/server -- src/scheduler/scheduler.test.ts",
           "npm run check"
         ],
@@ -1069,10 +1069,8 @@
           "server/src/telegram/"
         ]
       },
-      "status": "todo",
-      "open_questions": [
-        "The required command `npm run test:db -- --scenario scheduler-claims` is invalid because the current Vitest runner does not support a --scenario option. PM recommends replacing it with the positional focused command `npm run test:db -- server/test/scheduler-db.integration.ts` instead of adding a custom wrapper and extra test infrastructure. Owner approval is required before implementation."
-      ]
+      "status": "in_progress",
+      "open_questions": []
     },
     {
       "id": "S01-06",
