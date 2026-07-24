@@ -1,12 +1,18 @@
-# Shiori — first product iteration contract
+# Shiori — product contract
 
-Status: canonical contract for the first product iteration
+Status: canonical product contract, delivered incrementally through bounded product slices
 
 ## Full product vision
 
 Shiori is a personal follow-through agent. Telegram is the primary interface for turning intentions into clear commitments, fitting them around real constraints, and following through. A web dashboard provides a complementary view of what Shiori is tracking and what has actually happened.
 
-The first iteration delivers one complete product slice, not that entire vision.
+The product is delivered through shaped vertical slices. Each slice must ship a meaningful end-to-end user experience while moving toward this contract; no slice is required to implement the entire contract at once.
+
+## Product slices
+
+1. [A Promise That Fits](./product-slices/01-a-promise-that-fits/scope.md) — the first product slice turns a one-off intention into a confirmed, Calendar-aware commitment, follows one work session at a time, records what happened, and shows the same live state on the dashboard.
+
+Each slice keeps its scope, architecture decisions, and evidence inside its own folder. Slice-specific behavior is not represented with runtime mock data.
 
 ## Product promise
 
@@ -17,18 +23,20 @@ For one owner, Shiori can:
 - Read relevant Google Calendar event details and availability when understanding or timing a commitment.
 - Warn about a calendar conflict and suggest available alternatives without changing the calendar.
 - Link a commitment to a matching calendar event after the user confirms the relationship.
-- Send the scheduled Telegram reminder.
-- Record Done, Snooze, or Skip responses.
+- Optionally schedule one work session at a time without creating a Calendar event.
+- Send scheduled Telegram reminders and work-session check-ins.
+- Record commitment and work-session outcomes, including Done, More work needed, Missed this session, Snooze, or Skip where the relevant flow supports them.
 - Show the same live commitments, calendar availability, and recorded outcomes in a read-only dashboard.
 
-The whole slice uses one backend and source of truth. It is deployed to Railway as an always-available service so Telegram webhooks, scheduled reminders, the product API, and the dashboard remain reachable without a local development machine running.
+The product uses one backend and source of truth. It is deployed to Railway as an always-available service so Telegram webhooks, scheduled reminders and check-ins, the product API, and the dashboard remain reachable without a local development machine running.
 
 ## User and access boundary
 
 - One configured Telegram owner.
 - One owner-protected dashboard.
 - No onboarding or multi-user account system.
-- Telegram text messages only.
+- Telegram text messages plus Shiori-provided inline action buttons.
+- No Telegram voice, images, files, group chats, channels, or arbitrary interactive UI.
 
 Google Calendar access is read-only. For events in the relevant time window, Shiori may access:
 
@@ -40,7 +48,7 @@ Google Calendar access is read-only. For events in the relevant time window, Shi
 - Recurrence information.
 - Event status, such as confirmed or cancelled.
 
-Descriptions, attendees, locations, attachments, conference links, and calendar-write permissions are outside the slice.
+Descriptions, attendees, locations, attachments, conference links, and calendar-write permissions are outside the product contract.
 
 Shiori requests calendar data only when it is relevant to the current interaction, reminder, `/today` response, or dashboard time window. It does not copy complete calendar event records into long-term memory.
 
@@ -65,7 +73,7 @@ The decision core represents intent, extracted fields, missing fields, and next 
 Before a commitment becomes active, it needs:
 
 - A clear definition of done.
-- A target time or a check-in time.
+- A target time for a one-off commitment or an occurrence time for a recurring commitment.
 - A recurrence rule when it is recurring.
 - An expected duration when the user asks Shiori to find time for the work.
 
@@ -73,13 +81,13 @@ Shiori asks one concise clarification question at a time. Before confirmation, t
 
 ### Supported commitments
 
-The first iteration supports:
+The product contract supports:
 
 - One-off commitments.
 - Daily commitments at a fixed time.
 - Weekly commitments on one or more selected weekdays at a fixed time.
 
-More complex recurrence rules are outside the slice.
+More complex recurrence rules are outside the product contract.
 
 ### Calendar-aware timing
 
@@ -102,6 +110,19 @@ When a commitment has a proposed time, Shiori checks relevant Calendar events an
 
 These are fixed rules. Shiori does not learn or adapt reminder timing from behaviour.
 
+### Work sessions
+
+A commitment represents the promised outcome. A work session is an optional scheduled attempt that supports completing it.
+
+- Shiori offers help finding work time only when the commitment appears to need work before its target and no work window was already supplied.
+- A work session has an explicit start, end, and expected duration.
+- The commitment target remains separate and is never silently moved.
+- Shiori plans at most one next work session at a time.
+- A commitment may retain the history of multiple past work sessions.
+- A session scheduled after the target is a recovery session; the unchanged commitment remains overdue until it is done or cancelled.
+- Every additional session requires an explicit user decision and confirmation.
+- Work sessions do not create, reserve, move, or delete Google Calendar events.
+
 ### Managing active commitments
 
 Through Telegram, the owner can:
@@ -116,7 +137,7 @@ Changes to saved commitments require an explicit confirmation before they take e
 
 ## Reminder and outcome loop
 
-At the stored target or check-in time, Shiori sends one Telegram reminder for the commitment occurrence.
+For a simple action without an expected duration, Shiori sends one Telegram reminder at the stored target or occurrence time.
 
 The user can respond:
 
@@ -124,13 +145,23 @@ The user can respond:
 - **Snooze** — asks for a new reminder time and checks it against calendar availability.
 - **Skip** — closes this occurrence without completing it.
 
-Shiori does not repeatedly nag after non-response. Each delivery and response is recorded in a small append-only event ledger. Duplicate delivery protection prevents the same occurrence from being reminded twice.
+For a duration-based work session:
+
+- Shiori sends one reminder at the session start.
+- Shiori sends one check-in at the session end unless the commitment was already completed or cancelled.
+- **Done** closes the commitment when its definition of done has been achieved.
+- **More work needed** records partial progress without inferring a percentage and may begin the explicitly confirmed scheduling of one next work session.
+- **Missed this session** records that no work occurred and may begin the explicitly confirmed scheduling of one next work session.
+
+Shiori does not repeatedly nag after non-response. The planned end check-in is part of a confirmed work session, not an escalation. No further message follows an unanswered reminder or check-in.
+
+Each delivery and response is recorded in a small append-only event ledger. Duplicate delivery protection prevents the same logical reminder or check-in from being deliberately sent twice.
 
 For a recurring commitment, Done or Skip closes only the current occurrence. The recurrence remains active unless the user pauses or cancels it.
 
 ## Telegram-powered capabilities
 
-The first iteration includes these Telegram behaviours:
+The product contract includes these Telegram behaviours:
 
 - Three-way input classification.
 - Structured extraction and missing-field handling.
@@ -138,9 +169,10 @@ The first iteration includes these Telegram behaviours:
 - One-off versus recurring commitment handling.
 - Calendar-event matching, conflict explanation, and free-window suggestions.
 - Confirmation before creating or changing a commitment.
+- Inline Confirm, Cancel, Done, More work needed, and Missed this session actions where applicable.
 - Orchestration of create, update, cancel, pause, and resume tools.
 - `/status` and `/today` responses.
-- Done, Snooze, and Skip outcome handling.
+- Simple reminder and duration-based work-session outcome handling.
 - Clear statements of what was read, suggested, saved, or changed.
 
 ## Live dashboard
@@ -165,14 +197,15 @@ The dashboard includes:
 - Confirmed relationships between commitments and calendar events.
 - Calendar-conflict indicators for commitments whose timing overlaps a busy period.
 - Up to two upcoming free windows when duration data makes that calculation possible.
-- Real Done, Snooze, Skip, and outstanding counts for the current week.
+- Real Done, More work needed, Missed this session, Snooze, Skip, and outstanding counts where those outcomes apply.
+- Work-session history showing planned time, reminder and check-in delivery, and recorded result.
 - A short event history derived from the live commitment event ledger.
 - A commitment detail view or expansion showing its real reminder and outcome events.
 - A visible last-updated time or refresh control.
 - Populated, empty, loading, and error states.
 - Responsive layouts for phone and desktop widths.
 
-The dashboard is read-only. Telegram remains the place to create, change, complete, snooze, skip, pause, or cancel commitments.
+The dashboard is read-only for commitments. Telegram remains the place to create, change, complete, schedule more work, snooze, skip, pause, or cancel commitments. The dashboard may manage the read-only Google connection required to provide Calendar context.
 
 The dashboard does not present behavioural patterns, personal inferences, coaching, or suggested experiments.
 
@@ -181,7 +214,8 @@ The dashboard does not present behavioural patterns, personal inferences, coachi
 - Telegram webhook ingress and response delivery.
 - Supabase schema and persistence client.
 - Durable primitives for saving and changing commitments.
-- A small append-only reminder and outcome event ledger.
+- Durable work-session and scheduled-message primitives.
+- A small append-only reminder, check-in, and outcome event ledger.
 - Owner-scoped read primitives shared by Telegram and the dashboard API.
 - A reliable scheduler primitive with duplicate delivery protection.
 - Google Calendar authorization and a bounded `get_calendar_context` primitive that returns only the allowed fields for a specified time window.
@@ -197,7 +231,7 @@ These are platform foundations rather than end-user product capabilities.
 
 This is an end-to-end smoke verification, not a formal behavioural evaluation.
 
-Verify against the deployed Railway service:
+Verify the applicable behavior against the deployed Railway service:
 
 1. Ordinary question → helpful answer, no commitment, and no dashboard change.
 2. Implied intention → permission question and no save before agreement.
@@ -205,28 +239,30 @@ Verify against the deployed Railway service:
 4. Simple recurring commitment → correct recurrence and next occurrence in Telegram and the dashboard.
 5. Named calendar event → proposed match and no link until the user confirms it.
 6. Proposed busy time → calendar conflict explanation and available alternatives without a calendar write.
-7. Reminder time arrives → one Telegram reminder and one delivery event.
-8. Done, Snooze, and Skip → correct occurrence state and live dashboard update.
-9. Restart or repeated webhook delivery → no duplicate commitment, reminder, or outcome event.
-10. Dashboard access outside the owner boundary → refused.
-11. Calendar boundary → only the allowed event fields are requested or exposed, and no calendar-write permission is present.
+7. Simple reminder time arrives → one Telegram reminder and one delivery event.
+8. Duration-based work session → one start reminder, one end check-in, and no follow-up after non-response.
+9. Done, More work needed, and Missed this session → correct commitment or session state and live dashboard update.
+10. Explicit continuation → at most one newly confirmed next work session, without moving the target.
+11. Restart or repeated webhook delivery → no duplicate commitment, reminder, check-in, or outcome event.
+12. Dashboard access outside the owner boundary → refused.
+13. Calendar boundary → only the allowed event fields are requested or exposed, and no calendar-write permission is present.
 
-Record the input, structured decision, tool call, stored state, Telegram response, and dashboard evidence in `PRODUCT-EVIDENCE.md`.
+Record the input, structured decision, application action, stored state, Telegram response, and dashboard evidence in the applicable product slice's evidence file.
 
-## Explicitly outside the first iteration
+## Explicitly outside the product contract
 
 - Voice notes.
 - Calendar descriptions, attendees, locations, attachments, conference links, or calendar writes.
 - Creating, moving, or deleting meetings.
 - Complex recurrence language.
-- Multiple reminder escalation or persistent nagging.
+- Multiple reminder escalation or persistent nagging after an unanswered reminder or check-in.
 - Adaptive reminder timing, wording, or frequency.
 - Behavioural inference.
 - Advanced or semantic memory.
 - Memory export or complete deletion workflows.
 - Prompt management platforms such as Langfuse.
 - Formal eval platforms, repeated runs, trace review, cost analysis, or latency analysis.
-- Dashboard write controls.
+- Dashboard commitment write controls.
 - Email, WhatsApp, wearables, or ambient listening.
 - Multi-user onboarding and account management.
 - Broad project management or autonomous consequential actions.
@@ -235,12 +271,12 @@ Record the input, structured decision, tool call, stored state, Telegram respons
 
 Historical patterns, personal inferences, suggested experiments, richer coaching, and adaptive reminders may be introduced only after enough real outcome evidence exists and the product has the evaluation and prompt-management infrastructure to validate them safely.
 
-Additional context sources such as email or activity data remain separate product decisions. Read-only Calendar events are the only external context in this slice.
+Additional context sources such as email or activity data remain separate product decisions. Read-only Calendar events are the only external context in the current product contract.
 
 ## Decision record
 
-- **Core product behaviour:** intent judgment, structured output, permission, one-off and simple recurring commitments, calendar-event matching, calendar-aware timing, commitment management, reminder outcomes, the live dashboard, and honest end-to-end evidence.
-- **Platform foundation:** Telegram ingress, persistence, event ledger primitives, scheduler, read-only Calendar authorization and bounded event access, secret loading, owner boundaries, Railway configuration, duplicate protection, and recovery checkpoints.
-- **Dashboard scope:** real commitments, relevant read-only calendar events, confirmed commitment-event relationships, real reminder outcomes, factual summaries, history derived from the event ledger, operational states, accessibility, and responsive design.
+- **Core product behaviour:** intent judgment, structured output, permission, one-off and simple recurring commitments, calendar-event matching, calendar-aware timing, optional work sessions, commitment management, reminders, check-ins, outcomes, the live dashboard, and honest end-to-end evidence.
+- **Platform foundation:** Telegram ingress and inline actions, persistence, event-ledger primitives, scheduler, read-only Calendar authorization and bounded event access, secret loading, owner boundaries, Railway configuration, duplicate protection, and recovery checkpoints.
+- **Dashboard scope:** real commitments, relevant read-only calendar events, confirmed commitment-event relationships, real work-session and reminder outcomes, factual summaries, history derived from the event ledger, operational states, accessibility, and responsive design.
 - **Deferred until supported by evidence and tooling:** behavioural inference, adaptation, coaching, experiments, advanced memory, prompt versioning, and formal evaluation.
 - **Never represented with runtime mock data:** commitments, outcomes, calendar state, history, or dashboard summaries.
