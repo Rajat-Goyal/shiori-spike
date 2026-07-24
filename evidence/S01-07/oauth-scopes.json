@@ -1,0 +1,51 @@
+{
+  "schema": "shiori.evidence.oauth-scopes.v1",
+  "story": "S01-07",
+  "commit": "670a5c21101deb93ff8fbe09ed1f871bc39bb8d1",
+  "generated_at": "2026-07-24T15:03:45Z",
+  "controlled_gate": "pass",
+  "requested_scopes": [
+    "openid",
+    "email",
+    "https://www.googleapis.com/auth/calendar.events.readonly",
+    "https://www.googleapis.com/auth/calendar.freebusy"
+  ],
+  "provider_granted_scopes_source": "controlled_google_token_response",
+  "provider_granted_scopes": [
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/calendar.events.readonly",
+    "https://www.googleapis.com/auth/calendar.freebusy"
+  ],
+  "normalized_policy_scopes": [
+    "openid",
+    "email",
+    "https://www.googleapis.com/auth/calendar.events.readonly",
+    "https://www.googleapis.com/auth/calendar.freebusy"
+  ],
+  "identity_scope_alias_normalized": true,
+  "unexpected_scope_count": 0,
+  "required_policy_match": true,
+  "requested_scope_count": 4,
+  "normalized_scope_count": 4,
+  "access_type": "offline",
+  "prompt": "consent",
+  "pkce_method": "S256",
+  "calendar_identifier": "primary",
+  "calendar_identifier_literal_asserted": true,
+  "calendar_write_scope_count": 0,
+  "non_primary_calendar_identifier_count": 0,
+  "extra_scope_rejected": true,
+  "calendar_write_scope_rejected": true,
+  "owner_assisted_google": {
+    "status": "blocked",
+    "connect_result": "blocked",
+    "reconnect_result": "pending",
+    "bounded_failure_class": "redirect_uri_mismatch",
+    "consent_reached": false,
+    "grant_created": false,
+    "provider_granted_scopes": null,
+    "calendar_identifier": null,
+    "note": "No real Google grant exists. The Connect attempt was blocked before consent because the required local callback is not registered."
+  }
+}

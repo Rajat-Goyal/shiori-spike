@@ -1,0 +1,157 @@
+{
+  "schema": "shiori.evidence.oauth-state-and-identity.v1",
+  "story": "S01-07",
+  "commit": "670a5c21101deb93ff8fbe09ed1f871bc39bb8d1",
+  "generated_at": "2026-07-24T15:03:45Z",
+  "controlled_gate": "pass",
+  "uses_real_google_credentials": false,
+  "oauth_state": {
+    "attempt_lifetime_seconds": 600,
+    "owner_session_required": true,
+    "session_bound": true,
+    "one_use": true,
+    "pkce_method": "S256",
+    "offline_access": true,
+    "consent_prompt": true,
+    "state_plaintext_persisted": false,
+    "session_plaintext_persisted": false,
+    "nonce_plaintext_persisted": false,
+    "pkce_verifier_plaintext_persisted": false
+  },
+  "identity_validation": {
+    "configured_email_match": "exact",
+    "claims_checked": [
+      "signature",
+      "issuer",
+      "audience",
+      "expiration",
+      "nonce",
+      "email_verified",
+      "email"
+    ],
+    "cases": [
+      {
+        "case": "valid_owner_session_start",
+        "result": "pass",
+        "provider_exchange_calls": 0,
+        "connection_replacements": 0
+      },
+      {
+        "case": "missing_or_invalid_state",
+        "result": "pass",
+        "provider_exchange_calls": 0,
+        "connection_replacements": 0
+      },
+      {
+        "case": "wrong_owner_session",
+        "result": "pass",
+        "provider_exchange_calls": 0,
+        "connection_replacements": 0
+      },
+      {
+        "case": "expired_state",
+        "result": "pass",
+        "provider_exchange_calls": 0,
+        "connection_replacements": 0
+      },
+      {
+        "case": "replayed_state",
+        "result": "pass",
+        "provider_exchange_calls": 1,
+        "connection_replacements": 1
+      },
+      {
+        "case": "owner_denied",
+        "result": "pass",
+        "provider_exchange_calls": 0,
+        "connection_replacements": 0
+      },
+      {
+        "case": "configured_email_mismatch",
+        "result": "pass",
+        "provider_exchange_calls": 1,
+        "connection_replacements": 0
+      },
+      {
+        "case": "invalid_signature_issuer_audience_expiry_nonce_or_email_verification",
+        "result": "pass",
+        "provider_exchange_calls": 1,
+        "connection_replacements": 0
+      },
+      {
+        "case": "missing_refresh_token_or_unapproved_scope",
+        "result": "pass",
+        "provider_exchange_calls": 1,
+        "connection_replacements": 0
+      },
+      {
+        "case": "matching_owner_success",
+        "result": "pass",
+        "provider_exchange_calls": 1,
+        "connection_replacements": 1
+      }
+    ]
+  },
+  "database_cardinality": {
+    "pre_reset": {
+      "google_oauth_attempts": 0,
+      "google_oauth_outcomes": 0,
+      "google_calendar_connection": 0
+    },
+    "after_start": {
+      "google_oauth_attempts": 1
+    },
+    "after_claim": {
+      "google_oauth_attempts": 0
+    },
+    "after_outcome_store": {
+      "google_oauth_outcomes": 1
+    },
+    "after_outcome_consume": {
+      "google_oauth_outcomes": 0
+    },
+    "after_connect": {
+      "google_calendar_connection": 1
+    },
+    "after_reconnect": {
+      "google_calendar_connection": 1
+    },
+    "failed_reconnect_connection_snapshot_unchanged": true,
+    "failure_outcomes_checked": [
+      "denied",
+      "failed",
+      "identity_mismatch"
+    ],
+    "post_reset": {
+      "google_oauth_attempts": 0,
+      "google_oauth_outcomes": 0,
+      "google_calendar_connection": 0
+    }
+  },
+  "retention": {
+    "expired_outcomes_pruned": true,
+    "authorization_code_persisted": false,
+    "access_token_persisted": false,
+    "provider_payload_persisted": false,
+    "plaintext_refresh_token_persisted": false,
+    "controlled_sentinel_matches": 0
+  },
+  "owner_assisted_google": {
+    "status": "blocked",
+    "connect_result": "blocked",
+    "reconnect_result": "pending",
+    "verified_owner_match": null,
+    "bounded_failure_class": "redirect_uri_mismatch",
+    "consent_reached": false,
+    "token_exchange_reached": false,
+    "callback_reached": false,
+    "connection_rows_created": 0,
+    "post_attempt_database_reset": true,
+    "post_attempt_row_counts": {
+      "google_oauth_attempts": 0,
+      "google_oauth_outcomes": 0,
+      "google_calendar_connection": 0
+    },
+    "note": "The real Connect attempt was blocked before consent because the required local callback is not registered. Reconnect remains pending."
+  }
+}

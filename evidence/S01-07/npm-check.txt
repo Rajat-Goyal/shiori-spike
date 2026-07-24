@@ -1,0 +1,130 @@
+S01-07 — controlled verification transcript
+============================================================
+Commit: 670a5c21101deb93ff8fbe09ed1f871bc39bb8d1
+Generated: 2026-07-24T15:03:45Z
+Final controlled status: PASS
+Real Google owner-assisted Connect: BLOCKED
+Real Google owner-assisted Reconnect: PENDING
+
+Final host bridge
+------------------------------------------------------------
+Runtime: Node v24.18.0, npm 11.17.0
+Database safety preflight: PASS
+Target: disposable Docker-generated loopback Supabase API on port 54321
+Pre-verification reset: PASS
+Pre-verification row counts:
+  google_oauth_attempts=0
+  google_oauth_outcomes=0
+  google_calendar_connection=0
+
+$ npm run test --workspace @shiori/server -- src/google/oauth.test.ts
+Exit: 0
+Result: 1 file passed; 19/19 tests passed
+
+$ npm run test:e2e -- tests/e2e/google-connection.spec.ts --project=chromium
+Exit: 0
+Result: 13/13 Chromium tests passed
+Provider-host requests observed: 0
+
+$ npm run test:db
+Exit: 0
+Result: 3 files passed; 4/4 tests passed
+Google Calendar integration: 2/2 tests passed
+Verified:
+  attempt count 1 -> 0 and replay claim rejected
+  outcome count 1 -> 0 and replay consume rejected
+  connection singleton count remained 1
+  denied/failed/identity_mismatch preserved the prior row byte-for-byte
+  successful Reconnect replaced the encrypted envelope atomically
+  expired outcomes were pruned
+
+$ npm run check
+Exit: 0
+Result:
+  typecheck passed
+  107/107 server tests passed
+  web and server production builds passed
+  46/46 desktop/mobile isolated E2E tests passed
+
+$ CAPTURE_GOOGLE_CONNECTION_STATES=1 npm run test:e2e -- tests/e2e/google-connection.spec.ts --project=chromium
+Exit: 0
+Result: 13/13 Chromium tests passed; four synthetic state panels captured
+
+Post-verification reset: PASS
+Post-verification row counts:
+  google_oauth_attempts=0
+  google_oauth_outcomes=0
+  google_calendar_connection=0
+
+Independent QA sandbox
+------------------------------------------------------------
+Runtime available in QA sandbox: Node v26.5.0, npm 11.17.0
+Exact focused OAuth command: 19/19 PASS
+Focused OAuth/crypto/repository tests: 34/34 PASS
+Production build: PASS
+git diff --check: PASS
+Browser bundle exposure scan:
+  built files=3
+  loaded secret classes=7
+  controlled sentinels=7
+  forbidden credential patterns=7
+  matches=0
+Browser persistence/direct-data patterns: 6 checked, 0 matches
+Database schema inspection:
+  tables=3
+  allowlisted columns=26
+  forbidden plaintext/provider columns=8
+  matches=0
+Google-unavailable isolation injection:
+  Google state HTTP 200, state=unavailable
+  dashboard summary HTTP 200, commitment data intact
+  Telegram webhook HTTP 200, handler invoked once
+  health HTTP 200, status=ok
+
+The QA sandbox itself denied local TCP access:
+  Chromium web-server bind: denied
+  Supabase fetch: EPERM 127.0.0.1:54321
+Those denials are environment limitations, not recorded as application passes.
+The final Node-24 command results above are the immutable lead-run bridge from
+the same clean commit; independent QA verified the source contracts, focused
+logic, build, artifact contents, and secret scans separately.
+
+Architecture gate
+------------------------------------------------------------
+Final architecture review at 670a5c2: PASS
+Confirmed:
+  canonical userinfo.email alias normalizes to approved policy scope
+  extra and Calendar-write scopes remain rejected
+  persisted scopes remain the approved four
+  success notices use status; failures use alert
+  long configured emails wrap without mobile overflow
+
+Acceptance criteria
+------------------------------------------------------------
+AC1 PASS — owner-session-bound, one-use PKCE flow; offline access; approved scopes
+AC2 PASS — invalid/replayed state and identity mismatch store no connection/token
+AC3 PASS — server-side exchange and authenticated-encrypted refresh-token storage
+AC4 PASS — atomic singleton Reconnect replacement and rollback preservation
+AC5 PASS — exact disconnected/connected/expired/unavailable and initiating UI states
+AC6 PASS — currently implemented non-Calendar surfaces and health remain available
+AC7 PASS — read-only primary Calendar policy and zero controlled secret exposure
+
+Required evidence
+------------------------------------------------------------
+evidence/S01-07/npm-check.txt
+evidence/S01-07/oauth-state-and-identity.json
+evidence/S01-07/oauth-scopes.json
+evidence/S01-07/token-exposure-audit.md
+evidence/S01-07/google-connection-states.png
+
+Owner-assisted status
+------------------------------------------------------------
+Connect: BLOCKED
+Reconnect: PENDING
+Bounded failure class: redirect_uri_mismatch
+
+The owner authenticated to the protected local dashboard and initiated Connect
+once. Google rejected before consent because the required local callback is not
+registered. There was no grant, provider API, callback, connection row, token,
+or Reconnect. The temporary server was stopped; disposable local Supabase was
+reset and attempts/outcomes/connection counts were confirmed as 0/0/0.
