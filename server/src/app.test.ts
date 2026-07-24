@@ -27,6 +27,9 @@ function passwordHash(password: string): string {
 const testConfig: ServerConfig = {
   dashboardPasswordHash: passwordHash("owner-password"),
   dashboardSessionSecret: Buffer.alloc(32, 7).toString("base64"),
+  openaiApiKey: "unit-test-openai-key",
+  openaiModel: "gpt-test-model",
+  openaiPromptVersion: "shiori-test-v1",
   ownerTimeZone: "Asia/Singapore",
   publicAppBaseUrl: "http://localhost:3000",
   supabaseSecretKey: "unit-test-supabase-key",

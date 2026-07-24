@@ -16,6 +16,9 @@ const config: ServerConfig = {
   dashboardPasswordHash:
     "$argon2id$v=19$m=65536,t=3,p=1$c2hpb3JpLXRlc3Qtc2FsdA$YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ",
   dashboardSessionSecret: Buffer.alloc(32, 9).toString("base64"),
+  openaiApiKey: "unit-test-openai-key",
+  openaiModel: "gpt-test-model",
+  openaiPromptVersion: "shiori-test-v1",
   ownerTimeZone: "Asia/Singapore",
   publicAppBaseUrl: "http://localhost:3000",
   supabaseSecretKey: "unit-test-supabase-key",

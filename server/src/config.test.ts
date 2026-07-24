@@ -5,6 +5,9 @@ const validEnvironment = {
   DASHBOARD_PASSWORD_HASH:
     "$argon2id$v=19$m=65536,t=3,p=1$c2hpb3JpLXRlc3Qtc2FsdA$YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ",
   DASHBOARD_SESSION_SECRET: Buffer.alloc(32, 11).toString("base64"),
+  OPENAI_API_KEY: "unit-test-openai-key",
+  OPENAI_MODEL: "gpt-test-model",
+  OPENAI_PROMPT_VERSION: "shiori-test-v1",
   OWNER_TIME_ZONE: "Asia/Singapore",
   PUBLIC_APP_BASE_URL: "http://localhost:3000",
   SUPABASE_SECRET_KEY: "sb_secret_test-only",
@@ -68,6 +71,22 @@ describe("readServerConfig", () => {
       expect(() => readServerConfig(environment)).toThrow(
         /TELEGRAM_(OWNER_USER_ID|WEBHOOK_SECRET)/,
       );
+    }
+  });
+
+  it("requires opaque OpenAI credentials and bounded identifiers", () => {
+    expect(readServerConfig(validEnvironment)).toMatchObject({
+      openaiApiKey: "unit-test-openai-key",
+      openaiModel: "gpt-test-model",
+      openaiPromptVersion: "shiori-test-v1",
+    });
+
+    for (const environment of [
+      { ...validEnvironment, OPENAI_API_KEY: "<openai-api-key>" },
+      { ...validEnvironment, OPENAI_MODEL: "has spaces" },
+      { ...validEnvironment, OPENAI_PROMPT_VERSION: "x".repeat(129) },
+    ]) {
+      expect(() => readServerConfig(environment)).toThrow(/OPENAI_/);
     }
   });
 });

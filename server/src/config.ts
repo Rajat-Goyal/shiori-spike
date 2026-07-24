@@ -1,6 +1,9 @@
 export type ServerConfig = Readonly<{
   dashboardPasswordHash: string;
   dashboardSessionSecret: string;
+  openaiApiKey: string;
+  openaiModel: string;
+  openaiPromptVersion: string;
   ownerTimeZone: "Asia/Singapore";
   publicAppBaseUrl: string;
   supabaseSecretKey: string;
@@ -75,11 +78,27 @@ function sessionSecret(value: string): string {
   return value;
 }
 
+function boundedIdentifier(value: string, key: string): string {
+  if (
+    value.length > 128 ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
+  ) {
+    throw new Error(
+      `Invalid server configuration: ${key} must be a 1-128 character identifier`,
+    );
+  }
+
+  return value;
+}
+
 export function readServerConfig(
   environment: NodeJS.ProcessEnv = process.env,
 ): ServerConfig {
   const dashboardPasswordHash = required(environment, "DASHBOARD_PASSWORD_HASH");
   const dashboardSessionSecret = required(environment, "DASHBOARD_SESSION_SECRET");
+  const openaiApiKey = required(environment, "OPENAI_API_KEY");
+  const openaiModel = required(environment, "OPENAI_MODEL");
+  const openaiPromptVersion = required(environment, "OPENAI_PROMPT_VERSION");
   const ownerTimeZone = required(environment, "OWNER_TIME_ZONE");
   const telegramBotToken = required(environment, "TELEGRAM_BOT_TOKEN");
   const telegramOwnerUserIdValue = required(
@@ -125,6 +144,12 @@ export function readServerConfig(
   return {
     dashboardPasswordHash,
     dashboardSessionSecret: sessionSecret(dashboardSessionSecret),
+    openaiApiKey,
+    openaiModel: boundedIdentifier(openaiModel, "OPENAI_MODEL"),
+    openaiPromptVersion: boundedIdentifier(
+      openaiPromptVersion,
+      "OPENAI_PROMPT_VERSION",
+    ),
     ownerTimeZone,
     publicAppBaseUrl: httpUrl(
       required(environment, "PUBLIC_APP_BASE_URL"),
