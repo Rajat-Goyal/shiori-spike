@@ -343,32 +343,30 @@
     },
     {
       "id": "S01-03a",
-      "title": "Understand and collect one simple-action promise",
-      "user_story": "As the owner, I want Shiori to distinguish my request and collect one clear simple-action draft, so that nothing consequential happens before my intent is understood.",
-      "why_now": "Telegram ingress is safe and replay-aware; this establishes the bounded language and restart-safe draft contract before any actionable confirmation is exposed.",
+      "title": "Validate one bounded three-way decision",
+      "user_story": "As the owner, I want Shiori to distinguish a promise request, implied intention, and ordinary question safely, so that language judgment cannot authorize product changes.",
+      "why_now": "Telegram ingress is safe and replay-aware; this isolates the strict provider contract and semantic boundary before durable conversation state is introduced.",
       "scope_refs": [
         "Scope §Main user journeys — Simple action",
         "Scope §Main user journeys — Implied intention",
         "Scope §Main user journeys — Ordinary question",
         "Scope §Input and decision contract",
-        "Scope §Draft rules",
-        "ADR Decisions 2–4 and 13–14"
+        "ADR Decision 2",
+        "ADR Decisions 13–14"
       ],
       "in_scope": [
         "Introduce a provider-neutral DecisionEngine with strict structured output and an OpenAI Responses API implementation.",
         "Classify explicit commitments, implied intentions, and ordinary questions without giving the model authorization.",
-        "Clarify one missing field at a time and validate definition of done, target, owner time zone, and simple-action mode.",
-        "Persist one restart-safe, versioned active draft with 24-hour inactivity expiry.",
-        "Ask permission before advancing an implied intention; before agreement, persist at most its validated non-actionable model-decision audit row and no draft, commitment, session, schedule, reminder, or raw transcript.",
-        "Answer ordinary questions without actionable product-state mutation.",
-        "Preserve an existing active draft when another request arrives, and accept bounded corrections by incrementing its version.",
-        "Reach a complete collected draft without exposing Confirm or Cancel until S01-03b lands the atomic transition."
+        "Generate the API JSON schema, TypeScript result type, and runtime structural validation from one source without a new runtime dependency.",
+        "Semantically validate definition of done, absolute Asia/Singapore target, simple-action mode, missing fields, class, and bounded next action.",
+        "Use a tool-free, stateless Responses request with strict JSON schema, configured model and prompt version, server-only credential, and bounded timeout.",
+        "Map refusal, timeout, incomplete, HTTP, JSON, schema, and semantic failures into bounded non-authorizing results.",
+        "Verify one sanitized real-provider smoke and exhaustive deterministic adapter fixtures without retaining raw input, output, trace, or chain-of-thought."
       ],
       "out_of_scope": [
-        "Confirmation summary, inline Confirm or Cancel actions, commitment creation, or reminder creation.",
-        "Reminder delivery or Done/cancel transitions on a saved commitment.",
-        "Calendar access, work sessions, recurrence, or saved-commitment editing.",
-        "Open-ended tool selection, chain-of-thought storage, or runtime decision mock data."
+        "Telegram conversational orchestration, persistence, drafts, corrections, permissions, or inline actions.",
+        "Commitment, session, event, scheduled-message, Calendar, or dashboard state.",
+        "Open-ended tool selection, provider-managed conversation state, chain-of-thought storage, or runtime decision mock data."
       ],
       "acceptance_criteria": [
         {
@@ -379,40 +377,33 @@
         },
         {
           "id": "AC2",
-          "given": "an explicit simple-action request missing required information",
-          "when": "the conversation continues",
-          "then": "Shiori asks one concise question at a time and persists restart-safe draft state without creating a commitment or reminder."
+          "given": "the production OpenAI adapter",
+          "when": "a request is inspected",
+          "then": "it uses configured server credentials, model, and prompt version with strict text-format JSON schema, no tools, store false, and a bounded timeout."
         },
         {
           "id": "AC3",
-          "given": "an implied intention or ordinary question",
-          "when": "it is processed",
-          "then": "the implied intention asks permission before commitment flow, at most a validated non-actionable model-decision audit row is stored, and neither input creates or changes a draft, commitment, session, or scheduled message."
+          "given": "a structurally valid decision",
+          "when": "application semantic validation runs",
+          "then": "invalid time zones, targets, simple-action/work-session combinations, class/action combinations, and missing-field claims are rejected."
         },
         {
           "id": "AC4",
-          "given": "one active draft, a correction, or a second commitment request",
-          "when": "the turn is processed",
-          "then": "the draft is never silently overwritten, accepted corrections increment its version once, and replay does not increment it again."
+          "given": "a refused, timed-out, incomplete, HTTP-failed, non-JSON, schema-invalid, or semantically invalid provider result",
+          "when": "the adapter finishes",
+          "then": "it returns only a bounded failure class and no authorized application action."
         },
         {
           "id": "AC5",
-          "given": "a refused, timed-out, incomplete, schema-invalid, semantically invalid, expired, or unsupported work-session-shaped decision",
-          "when": "processing finishes",
-          "then": "no consequential transition occurs, the current draft is preserved when applicable, and the user receives a safe retry or expiry response."
-        },
-        {
-          "id": "AC6",
-          "given": "any S01-03a conversation path",
-          "when": "persistence and logs are inspected",
-          "then": "no raw Telegram message, transcript, provider trace, chain-of-thought, commitment, session, or scheduled message has been retained."
+          "given": "deterministic fixtures and one benign synthetic real-provider request",
+          "when": "tests, logs, tracked files, and evidence are inspected",
+          "then": "the three-way contract is proven without tools, product mutation, raw input or output, provider trace, credential, or chain-of-thought retention."
         }
       ],
       "verification": {
         "method": "automated-test",
         "commands": [
-          "npm run test --workspace @shiori/server -- src/decision/engine.test.ts src/telegram/conversation.test.ts",
-          "npm run test:db",
+          "npm run test --workspace @shiori/server -- src/decision/engine.test.ts",
           "npm run check"
         ],
         "evidence": [
@@ -422,43 +413,42 @@
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-03a/three-way-decisions.json"
+            "path": "evidence/S01-03a/decision-contract.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-03a/draft-lifecycle.json"
+            "path": "evidence/S01-03a/responses-request-contract.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-03a/pre-confirmation-state.json"
+            "path": "evidence/S01-03a/provider-failure-and-smoke.json"
           }
         ],
-        "done_when": "A reviewer can prove all three input classes, one-question restart-safe draft collection, no pre-permission actionable state beyond the allowed audit row, safe failures, and zero consequential records."
+        "done_when": "A reviewer can inspect the single-source strict schema, exhaustively exercise three-way and failure fixtures, and run one sanitized real-provider smoke without any product mutation or retained provider material."
       },
       "depends_on": [
         "S01-02"
       ],
       "blocks": [
-        "S01-03b",
-        "S01-08"
+        "S01-03b"
       ],
       "squad": {
-        "type": "decision-flow",
+        "type": "contract-design",
         "members": [
           "pm",
           "designer",
           "staff-engineer",
           "qa"
         ],
-        "rationale": "This half isolates language judgment, safe conversational copy, and the restart-safe draft boundary so PM and QA can prove no consequential action precedes understanding."
+        "rationale": "This story isolates the security-sensitive provider contract so staff can implement one bounded interface while PM and QA independently prove it cannot authorize state changes."
       },
       "context": {
         "read_first": [
           "docs/product-slices/01-a-promise-that-fits/scope.md#input-and-decision-contract",
           "docs/product-slices/01-a-promise-that-fits/adr.md#decision-2-bounded-openai-decision-engine",
-          "server/src/telegram/",
           "server/src/config.ts",
-          "supabase/migrations/20260724130000_add_telegram_ingress.sql"
+          ".env.example",
+          "server/package.json"
         ]
       },
       "status": "in_progress",
@@ -466,9 +456,130 @@
     },
     {
       "id": "S01-03b",
+      "title": "Collect one restart-safe simple-action draft",
+      "user_story": "As the owner, I want Shiori to ask permission or one clarification at a time and remember the structured draft, so that my intent survives a restart without becoming a commitment.",
+      "why_now": "S01-03a provides a non-authorizing decision contract; this story can now integrate it with Telegram and durable draft state while still exposing no consequential action.",
+      "scope_refs": [
+        "Scope §Main user journeys — Simple action",
+        "Scope §Main user journeys — Implied intention",
+        "Scope §Main user journeys — Ordinary question",
+        "Scope §Draft rules",
+        "ADR Decisions 2–4 and 13–14"
+      ],
+      "in_scope": [
+        "Pass authorized owner text and bounded current draft context through the S01-03a DecisionEngine without retaining raw messages.",
+        "Ask for definition of done before target when both are missing, and ask exactly one concise question per turn.",
+        "Interpret and persist absolute targets in Asia/Singapore while rejecting ambiguous, past, invalid, or work-session-shaped decisions.",
+        "Ask permission before an implied intention can create a draft, retaining at most one validated non-actionable audit row that can correlate the immediately following agreement.",
+        "Answer ordinary questions without creating or changing draft, commitment, session, scheduled-message, Calendar, or dashboard state.",
+        "Persist at most one 24-hour restart-safe active draft, preserve it on collisions, and increment its version once for an accepted replay-safe correction.",
+        "Represent a complete collected draft with exact no-save copy and no Confirm, Cancel, or other inline action."
+      ],
+      "out_of_scope": [
+        "Confirmation summary, inline Confirm or Cancel actions, commitment creation, reminder creation, or product events.",
+        "Reminder delivery, saved-commitment outcomes, Calendar access, work sessions, recurrence, or dashboard changes.",
+        "Prompt or schema expansion beyond the S01-03a DecisionEngine contract."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "an explicit simple-action request missing definition, target, or both",
+          "when": "the authorized conversation continues across an application restart",
+          "then": "Shiori asks one concise question at a time in definition-then-target order and restores the structured draft without creating consequential records."
+        },
+        {
+          "id": "AC2",
+          "given": "an implied intention and its immediately following owner response",
+          "when": "the turns are processed",
+          "then": "permission is requested first, at most a bounded non-actionable audit row exists before agreement, and only a validated agreement may begin a draft."
+        },
+        {
+          "id": "AC3",
+          "given": "an ordinary question with or without an active draft",
+          "when": "it is answered",
+          "then": "the bounded answer is sent without changing the current draft or any other product state."
+        },
+        {
+          "id": "AC4",
+          "given": "one active draft, a correction, a replay, or a second commitment request",
+          "when": "the turn is processed",
+          "then": "the draft is never silently overwritten, an accepted correction increments its version once, and replay does not increment it again."
+        },
+        {
+          "id": "AC5",
+          "given": "a complete, expired, refused, failed, or semantically invalid conversation decision",
+          "when": "application orchestration finishes",
+          "then": "complete state exposes no action, expiry is terminal, failures preserve current state, and only the approved safe response is sent."
+        },
+        {
+          "id": "AC6",
+          "given": "conversation persistence, logs, and evidence",
+          "when": "they are inspected",
+          "then": "they contain no raw owner message, transcript, provider payload or trace, chain-of-thought, commitment, session, event, or scheduled message."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/telegram/conversation.test.ts",
+          "npm run test:db",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-03b/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03b/draft-lifecycle.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03b/pre-confirmation-state.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03b/conversation-failures.json"
+          }
+        ],
+        "done_when": "A reviewer can exercise all three conversation classes across restart, permission, correction, replay, collision, and expiry while observing one bounded draft and zero consequential records or raw-message retention."
+      },
+      "depends_on": [
+        "S01-03a"
+      ],
+      "blocks": [
+        "S01-03c",
+        "S01-08"
+      ],
+      "squad": {
+        "type": "conversation-state",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "This story isolates user-facing clarification and permission behavior with restart-safe persistence, requiring design-owned copy and independent mutation/retention verification."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#draft-rules",
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "server/src/decision/",
+          "server/src/telegram/service.ts",
+          "server/src/telegram/repository.ts",
+          "supabase/migrations/20260724130000_add_telegram_ingress.sql"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-03c",
       "title": "Confirm or cancel the current simple-action promise",
       "user_story": "As the owner, I want to review and explicitly confirm or cancel the collected simple action, so that exactly the approved promise and reminder become durable.",
-      "why_now": "S01-03a establishes a validated versioned draft; this half can now expose actions only alongside their atomic, replay-safe transition.",
+      "why_now": "S01-03b establishes a validated versioned draft; this story can now expose actions only alongside their atomic, replay-safe transition.",
       "scope_refs": [
         "Scope §Main user journeys — Simple action",
         "Scope §Draft rules",
@@ -544,29 +655,29 @@
         "evidence": [
           {
             "type": "test-output",
-            "path": "evidence/S01-03b/npm-check.txt"
+            "path": "evidence/S01-03c/npm-check.txt"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-03b/confirmation-summary.json"
+            "path": "evidence/S01-03c/confirmation-summary.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-03b/draft-versioning.json"
+            "path": "evidence/S01-03c/draft-versioning.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-03b/simple-confirmation-transaction.json"
+            "path": "evidence/S01-03c/simple-confirmation-transaction.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-03b/callback-replay.json"
+            "path": "evidence/S01-03c/callback-replay.json"
           }
         ],
         "done_when": "A reviewer can inspect a current complete draft, confirm or cancel it, replay every action class, and prove one all-or-nothing simple commitment and reminder transition."
       },
       "depends_on": [
-        "S01-03a"
+        "S01-03b"
       ],
       "blocks": [
         "S01-04",
@@ -690,7 +801,7 @@
         "done_when": "A reviewer can advance a due reminder, observe one logical delivery, press Done once, replay it safely, and inspect that non-response schedules no follow-up."
       },
       "depends_on": [
-        "S01-03b"
+        "S01-03c"
       ],
       "blocks": [
         "S01-05",
@@ -1203,7 +1314,7 @@
         "done_when": "A reviewer can run fixed Calendar timelines through every availability and ranking rule and inspect that no event data crosses into the model or durable history."
       },
       "depends_on": [
-        "S01-03a",
+        "S01-03b",
         "S01-07"
       ],
       "blocks": [
@@ -1338,7 +1449,7 @@
         "done_when": "A reviewer can exercise free, busy, kept-conflict, newly changed, and unavailable Calendar timelines and observe only the explicitly confirmed single work session and two durable messages."
       },
       "depends_on": [
-        "S01-03b",
+        "S01-03c",
         "S01-05",
         "S01-08"
       ],
