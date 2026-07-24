@@ -109,6 +109,7 @@ export interface WorkSessionFlowRepository {
 }
 
 export type WorkSessionCommitRequest = Readonly<{
+  action: "confirm" | "save_unverified";
   calendar: Readonly<{
     attemptedAt: string;
     checkedAt: string | null;
@@ -116,16 +117,26 @@ export type WorkSessionCommitRequest = Readonly<{
     finalObservation: "conflict" | "free" | "unavailable";
     status: "conflict_kept" | "free" | "unverified";
   }>;
+  chatId: number;
   definitionOfDone: string;
   draft: DraftReference;
   durationMinutes: 30 | 60 | 90 | 120;
+  expectedStage:
+    | "confirming"
+    | "conflict_confirming"
+    | "unverified_confirming";
   selectedWindow: WorkWindow;
   targetAt: string;
   timingConstraints: string;
+  updateId: number;
+}>;
+
+export type WorkSessionCommitResult = Readonly<{
+  kind: "applied" | "replay" | "resolved" | "stale";
 }>;
 
 export interface WorkSessionCommitter {
-  commit(request: WorkSessionCommitRequest): Promise<void>;
+  commit(request: WorkSessionCommitRequest): Promise<WorkSessionCommitResult>;
 }
 
 export type WorkSessionAvailabilityChecker = (
@@ -179,7 +190,6 @@ export const workSessionFlowCopy = {
   reconnect:
     "Reconnect Google Calendar from the protected dashboard, then press Check again.",
   replay: "",
-  saved: "The version-current work-session request was accepted.",
   stale: "That action is stale. I didn’t change anything.",
 } as const;
 
@@ -311,6 +321,26 @@ function ownerTimeReply(snapshot: WorkSessionDraftSnapshot): TelegramReply {
 
 function formatWindow(window: WorkWindow): string {
   return `${formatSingaporeTarget(window.startAt)} to ${formatSingaporeTarget(window.endAt)}`;
+}
+
+function savedReply(
+  request: WorkSessionCommitRequest,
+): TelegramReply {
+  const outcome =
+    request.calendar.status === "conflict_kept"
+      ? ["You kept the conflicting time."]
+      : request.calendar.status === "unverified"
+        ? ["This was saved without a Calendar check."]
+        : [];
+  return {
+    text: [
+      "Promise and work session saved.",
+      `Start reminder: ${formatSingaporeTarget(request.selectedWindow.startAt)}`,
+      `End check-in: ${formatSingaporeTarget(request.selectedWindow.endAt)}`,
+      "Google Calendar was not changed.",
+      ...outcome,
+    ].join("\n"),
+  };
 }
 
 function choicesReply(
@@ -710,6 +740,7 @@ export class WorkSessionFlow {
         chatId,
         parsed,
         snapshot,
+        "save_unverified",
         "unavailable",
         null,
       );
@@ -970,6 +1001,7 @@ export class WorkSessionFlow {
           chatId,
           draftReference,
           snapshot,
+          "confirm",
           availability.proposed.status,
           availability.checkedAt,
         );
@@ -1021,56 +1053,59 @@ export class WorkSessionFlow {
     chatId: number,
     draftReference: DraftReference,
     snapshot: WorkSessionDraftSnapshot,
+    action: "confirm" | "save_unverified",
     observation: "conflict" | "free" | "unavailable",
     checkedAt: string | null,
   ): Promise<TelegramReply | null> {
-    const attemptedAt = this.#now().toISOString();
-    const result = await this.#repository.transition({
-      calendarAttemptedAt: attemptedAt,
-      calendarCheckedAt: checkedAt,
-      chatId,
-      expectedStage: snapshot.stage,
-      finalObservation: observation,
-      nextStage: "commit_pending",
-      options: [],
-      reference: draftReference,
-      updateId,
-    });
-    if (result.kind !== "applied") {
-      return transitioned(result, () => ({
-        text: workSessionFlowCopy.saved,
-      }));
-    }
-    const current = result.snapshot;
+    const attemptedAt =
+      observation === "unavailable"
+        ? snapshot.calendarAttemptedAt
+        : this.#now().toISOString();
     if (
-      !current.durationMinutes ||
-      !current.selectedWindow ||
-      !current.timingConstraints ||
-      !current.calendarAttemptedAt ||
-      !current.finalObservation
+      !snapshot.durationMinutes ||
+      !snapshot.selectedWindow ||
+      !snapshot.timingConstraints ||
+      !attemptedAt ||
+      ![
+        "confirming",
+        "conflict_confirming",
+        "unverified_confirming",
+      ].includes(snapshot.stage)
     ) {
       throw new Error("Incomplete work-session commit request");
     }
-    await this.#committer.commit({
+    const request: WorkSessionCommitRequest = {
+      action,
       calendar: {
-        attemptedAt: current.calendarAttemptedAt,
-        checkedAt: current.calendarCheckedAt,
-        conflictConsent: current.conflictConsent,
-        finalObservation: current.finalObservation,
+        attemptedAt,
+        checkedAt,
+        conflictConsent: snapshot.conflictConsent,
+        finalObservation: observation,
         status:
-          current.finalObservation === "unavailable"
+          observation === "unavailable"
             ? "unverified"
-            : current.conflictConsent
+            : snapshot.conflictConsent
               ? "conflict_kept"
               : "free",
       },
-      definitionOfDone: current.definitionOfDone,
-      draft: reference(current),
-      durationMinutes: current.durationMinutes,
-      selectedWindow: current.selectedWindow,
-      targetAt: current.targetAt,
-      timingConstraints: current.timingConstraints,
-    });
-    return { text: workSessionFlowCopy.saved };
+      chatId,
+      definitionOfDone: snapshot.definitionOfDone,
+      draft: draftReference,
+      durationMinutes: snapshot.durationMinutes,
+      expectedStage:
+        snapshot.stage as WorkSessionCommitRequest["expectedStage"],
+      selectedWindow: snapshot.selectedWindow,
+      targetAt: snapshot.targetAt,
+      timingConstraints: snapshot.timingConstraints,
+      updateId,
+    };
+    const result = await this.#committer.commit(request);
+    if (result.kind === "replay") {
+      return null;
+    }
+    if (result.kind === "stale") {
+      return { text: workSessionFlowCopy.stale };
+    }
+    return savedReply(request);
   }
 }

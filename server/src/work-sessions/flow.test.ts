@@ -158,7 +158,9 @@ function setup(
   repository = new MemoryRepository(),
   availability = checker(),
 ) {
-  const commit = vi.fn<WorkSessionCommitter["commit"]>(async () => undefined);
+  const commit = vi.fn<WorkSessionCommitter["commit"]>(
+    async () => ({ kind: "applied" }),
+  );
   return {
     availability,
     commit,
@@ -353,7 +355,7 @@ describe("WorkSessionFlow", () => {
     );
     expect(test.commit).not.toHaveBeenCalled();
 
-    await test.flow.handle(
+    const saved = await test.flow.handle(
       8024,
       42,
       callback(test.repository.snapshot, "confirm"),
@@ -361,6 +363,7 @@ describe("WorkSessionFlow", () => {
     expect(test.commit).toHaveBeenCalledOnce();
     expect(test.commit).toHaveBeenCalledWith(
       expect.objectContaining({
+        action: "confirm",
         calendar: {
           attemptedAt: NOW.toISOString(),
           checkedAt: "2026-07-27T00:03:00.000Z",
@@ -368,10 +371,17 @@ describe("WorkSessionFlow", () => {
           finalObservation: "free",
           status: "conflict_kept",
         },
+        chatId: 42,
+        expectedStage: "conflict_confirming",
         selectedWindow: OWNER_WINDOW,
+        updateId: 8024,
       }),
     );
-    expect(test.repository.snapshot.stage).toBe("commit_pending");
+    expect(test.repository.snapshot.stage).toBe("conflict_confirming");
+    expect(saved?.text).toContain("Start reminder:");
+    expect(saved?.text).toContain("End check-in:");
+    expect(saved?.text).toContain("Google Calendar was not changed.");
+    expect(saved?.text).toContain("You kept the conflicting time.");
   });
 
   it("blocks a newly conflicting final recheck and requires a new keep confirmation", async () => {
@@ -409,6 +419,39 @@ describe("WorkSessionFlow", () => {
     expect(test.commit).not.toHaveBeenCalled();
   });
 
+  it("leaves the authorized draft untouched when the atomic committer fails", async () => {
+    const snapshot = initialSnapshot({
+      calendarAttemptedAt: "2026-07-27T00:01:00.000Z",
+      calendarCheckedAt: "2026-07-27T00:01:00.000Z",
+      durationMinutes: 60,
+      selectedWindow: OWNER_WINDOW,
+      stage: "confirming",
+      timingConstraints: "default",
+      version: 11,
+    });
+    const test = setup(
+      new MemoryRepository(snapshot),
+      checker({
+        alternatives: [],
+        checkedAt: "2026-07-27T00:06:00.000Z",
+        proposed: { status: "free", window: OWNER_WINDOW },
+        status: "available",
+      }),
+    );
+    test.commit.mockRejectedValueOnce(new Error("transaction failed"));
+
+    await expect(
+      test.flow.handle(
+        8035,
+        42,
+        callback(snapshot, "confirm"),
+      ),
+    ).rejects.toThrow("transaction failed");
+
+    expect(test.repository.snapshot).toEqual(snapshot);
+    expect(test.repository.transitions).toHaveLength(0);
+  });
+
   it("offers a distinct unverified action only for a concrete selection and commits it once", async () => {
     const snapshot = initialSnapshot({
       durationMinutes: 60,
@@ -432,7 +475,7 @@ describe("WorkSessionFlow", () => {
     );
     expect(test.commit).not.toHaveBeenCalled();
 
-    await test.flow.handle(
+    const saved = await test.flow.handle(
       8041,
       42,
       callback(test.repository.snapshot, "save_unverified"),
@@ -440,13 +483,19 @@ describe("WorkSessionFlow", () => {
     expect(test.commit).toHaveBeenCalledOnce();
     expect(test.commit).toHaveBeenCalledWith(
       expect.objectContaining({
+        action: "save_unverified",
         calendar: expect.objectContaining({
+          attemptedAt: NOW.toISOString(),
           checkedAt: null,
           finalObservation: "unavailable",
           status: "unverified",
         }),
+        expectedStage: "unverified_confirming",
+        updateId: 8041,
       }),
     );
+    expect(saved?.text).toContain("saved without a Calendar check");
+    expect(saved?.text).toContain("Google Calendar was not changed.");
   });
 
   it("offers reconnect without unverified save before a concrete time exists", async () => {
