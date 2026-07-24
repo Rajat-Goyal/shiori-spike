@@ -56,6 +56,7 @@ describe("local Supabase Telegram ingress", () => {
     const ownerRecord = (ownerState as Array<Record<string, unknown>>)[0];
 
     expect(Object.keys(updateRecord).sort()).toEqual([
+      "is_owner_private",
       "processed_at",
       "processing_result",
       "processing_status",
