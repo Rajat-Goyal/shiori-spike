@@ -15,6 +15,10 @@ test-results/
 # Railway local link state
 .railway/
 
+# Supabase local CLI state
+supabase/.branches/
+supabase/.temp/
+
 # Logs
 *.log
 
