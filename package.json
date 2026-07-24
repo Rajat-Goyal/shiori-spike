@@ -18,6 +18,7 @@
     "dev:server": "npm run dev --workspace @shiori/server",
     "dev:web": "npm run dev --workspace @shiori/web",
     "start": "npm run start --workspace @shiori/server",
+    "test:openai:smoke": "npm run smoke:openai --workspace @shiori/server",
     "test": "npm run test:api && npm run build && npm run test:e2e:isolated",
     "test:db": "node --env-file=.env.local node_modules/vitest/vitest.mjs run --config vitest.db.config.ts",
     "tests": "npm test",
