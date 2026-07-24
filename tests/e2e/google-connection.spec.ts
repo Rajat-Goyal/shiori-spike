@@ -317,16 +317,19 @@ test("stacks the Calendar action on mobile and keeps it at least 44px tall", asy
     action: "connect",
     state: "disconnected",
   });
-  const panel = await page.locator(".calendar-panel").boundingBox();
+  const content = await page
+    .locator(".calendar-panel__content")
+    .boundingBox();
   const copy = await page.locator(".calendar-panel__copy").boundingBox();
   const action = await page.locator(".calendar-action").boundingBox();
 
-  expect(panel).not.toBeNull();
+  expect(content).not.toBeNull();
   expect(copy).not.toBeNull();
   expect(action).not.toBeNull();
   expect(action!.height).toBeGreaterThanOrEqual(44);
   if (page.viewportSize()!.width <= 680) {
     expect(action!.y).toBeGreaterThan(copy!.y + copy!.height);
-    expect(action!.width).toBeCloseTo(panel!.width - 40, -1);
+    expect(action!.x).toBeCloseTo(content!.x, 0);
+    expect(action!.width).toBeCloseTo(content!.width, 0);
   }
 });
