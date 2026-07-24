@@ -1065,7 +1065,9 @@
         ]
       },
       "status": "todo",
-      "open_questions": []
+      "open_questions": [
+        "The required command `npm run test:db -- --scenario scheduler-claims` is invalid because the current Vitest runner does not support a --scenario option. PM recommends replacing it with the positional focused command `npm run test:db -- server/test/scheduler-db.integration.ts` instead of adding a custom wrapper and extra test infrastructure. Owner approval is required before implementation."
+      ]
     },
     {
       "id": "S01-06",
