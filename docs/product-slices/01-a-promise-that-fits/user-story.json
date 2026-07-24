@@ -1,6 +1,6 @@
 {
   "slice": "01-a-promise-that-fits",
-  "generated_at": "2026-07-24T14:33:13Z",
+  "generated_at": "2026-07-24T19:50:05Z",
   "source_docs": [
     "docs/product-slices/01-a-promise-that-fits/scope.md",
     "docs/product-slices/01-a-promise-that-fits/adr.md",
@@ -883,6 +883,7 @@
         "method": "automated-test",
         "commands": [
           "npm run test --workspace @shiori/server -- src/scheduler/scheduler.test.ts src/commitments/simple-action.test.ts",
+          "npm run test:db -- server/test/simple-reminder-db.integration.ts",
           "npm run test:db",
           "npm run check"
         ],
@@ -931,15 +932,20 @@
         "read_first": [
           "docs/product-slices/01-a-promise-that-fits/scope.md#reminder-and-check-in-rules",
           "docs/product-slices/01-a-promise-that-fits/adr.md#decision-10-database-backed-in-process-scheduler",
-          "server/src/commitments/",
-          "server/src/persistence/",
-          "server/src/telegram/"
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "supabase/migrations/20260725030000_add_simple_confirmation.sql",
+          "server/src/confirmation.ts",
+          "server/src/telegram/client.ts",
+          "server/src/telegram/service.ts",
+          "server/src/telegram/confirmation.test.ts",
+          "server/test/conversation-db.integration.ts"
         ]
       },
       "status": "todo",
       "open_questions": [
         "AC2 requires reminder buttons Done and Cancel, but S01-04 excludes the destructive saved-commitment cancellation confirmation assigned to S01-06. PM recommends that S01-04 make Cancel return the non-mutating response `Cancellation requires confirmation. Nothing was changed.` with no product transition; S01-06 will add the full destructive confirmation flow. Owner approval is required before implementation.",
-        "AC5 requires bounded retries for known-safe failures but defines no cap. PM recommends three total delivery attempts (the initial attempt plus two validated HTTP 429 retries); ambiguous outcomes become terminal delivery_unknown and are never resent. Owner approval is required before implementation."
+        "AC5 requires bounded retries for known-safe failures but defines no cap. PM recommends three total delivery attempts (the initial attempt plus two validated HTTP 429 retries); ambiguous outcomes become terminal delivery_unknown and are never resent. Owner approval is required before implementation.",
+        "The durable terminal status after the third validated HTTP 429 is unspecified. QA recommends retaining retryable_failure as a terminal exhausted state with attempt_count 3 and no next attempt or return to pending; S01-05 may later formalize the broader scheduler state machine. Owner approval is required before implementation."
       ]
     },
     {
@@ -1043,7 +1049,7 @@
       ],
       "blocks": [
         "S01-09c",
-        "S01-10a",
+        "S01-10a1",
         "S01-12a"
       ],
       "squad": {
@@ -1169,7 +1175,7 @@
         "S01-04"
       ],
       "blocks": [
-        "S01-10a",
+        "S01-10a1",
         "S01-11"
       ],
       "squad": {
@@ -1719,10 +1725,10 @@
       },
       "status": "todo",
       "open_questions": [
-        "When the owner declines planning help, should the original intention return unchanged to ordinary explicit confirmation?",
-        "Should authorization_expired offer only Reconnect, or also save without Calendar verification?",
-        "Which durable representation owns two version-bound alternatives without colliding with the single active conversation draft?",
-        "If a kept conflict is free at final recheck, which audit state should the commit request carry?"
+        "When planning help is declined, PM recommends preserving the same possible-work draft, collecting supported duration and an owner-chosen exact session start as needed, and keeping Cancel as a separate explicit action instead of silently converting the intention to simple-action confirmation. Owner approval is required.",
+        "When Google authorization has expired, PM recommends that a concrete selected time offer Reconnect, Check again, explicit Save without Calendar check, and Cancel; without a concrete time the flow offers Reconnect, Check again, owner-chosen time, and Cancel but cannot offer an unverified save. Owner approval is required.",
+        "PM recommends that the single conversation draft own all planning state while at most two sanitized ephemeral option rows are bound to its current ID and version, replaced or cleared atomically on every accepted version change. No second active scheduling draft is created. Owner approval is required.",
+        "If an explicitly kept conflict is free at final recheck, PM recommends that the committer receive both the final free observation and the earlier conflict-consent audit, display the final state as Free when checked, and retain the explicit keep decision only in audit history. Owner approval is required."
       ]
     },
     {
@@ -1836,7 +1842,7 @@
         "S01-09b"
       ],
       "blocks": [
-        "S01-10a",
+        "S01-10a1",
         "S01-11"
       ],
       "squad": {
@@ -1862,77 +1868,219 @@
       },
       "status": "todo",
       "open_questions": [
-        "S01-05 must publish its stable schedule-creation states and logical-key contract before this story begins.",
-        "For an unverified save, should calendar_checked_at be null or record the failed-attempt time?",
-        "When a kept conflict is free at final recheck, should persistence retain the keep audit, the final free observation, or both?"
+        "S01-05 must publish a stable schedule-creation handoff before this story begins. PM recommends logicalKey, commitmentId, optional workSessionId, kind, and dueAt as creation inputs; pending state, attempt zero, and null lease/provider/error fields as defaults; kinds work_session_start and work_session_end; and keys ws:<session-uuid>:start|end. The dependency's actual output must be checked before implementation.",
+        "For an unverified save, PM recommends calendar_checked_at remain null and a separate calendar_attempted_at record the failed-attempt time, so failed verification is never represented as a successful check. Owner approval is required.",
+        "For a kept conflict that becomes free at final recheck, PM recommends separate final observation and conflict-consent fields so both the final free result and earlier explicit keep audit survive honestly. Owner approval is required.",
+        "PM recommends frozen success copy that states the promise was saved, names the start and end reminder times, explicitly says Google Calendar was not changed, and adds either `You kept the conflicting time.` or `saved without a Calendar check` only for the applicable outcome. Owner approval is required."
       ]
     },
     {
-      "id": "S01-10a",
-      "title": "Deliver and resolve one work session",
-      "user_story": "As the owner, I want one start reminder and one end check-in with bounded outcome actions, so that one work attempt is recorded without repeated notifications.",
-      "why_now": "Delivery, status, and confirmed-session contracts can now close one attempt end to end.",
+      "id": "S01-10a1",
+      "title": "Deliver one work-session start and end",
+      "user_story": "As the owner, I want one truthful start reminder and one end check-in, so that a work attempt remains visible without duplicate or misleading notifications.",
+      "why_now": "S01-05 provides durable delivery and S01-09c creates the planned session and message pair; notification eligibility can be completed before outcome mutation is added.",
       "scope_refs": [
-        "Scope §Main user journeys — Missed or incomplete work session",
         "Scope §Reminder and check-in rules",
-        "ADR Decisions 3–5 and 10–11"
+        "Scope §Telegram behavior — Inline actions",
+        "Scope §Telegram behavior — Idempotency",
+        "ADR Decisions 3, 5 and 10–11"
       ],
       "in_scope": [
-        "Deliver one start reminder with Done and one end check-in with Done, Need more time, and Missed this session.",
-        "Suppress unsent end and future messages after completion or cancellation.",
-        "Accept Done from start, end, or status once.",
-        "Record Need more time as partial work without a percentage and ask remaining duration.",
-        "Record Missed as no work and ask whether another window is wanted.",
-        "Create no next session from an outcome.",
-        "Preserve idempotency across non-response, restart, retry, replay, and concurrency."
+        "Render and deliver the approved factual start reminder with Done.",
+        "Render and deliver the approved end check-in with Done, Need more time, and Missed this session.",
+        "Maintain one unique logical start and one unique logical end per work session.",
+        "Keep the end check-in eligible after start non-response, permanent failure, or delivery uncertainty while the commitment remains active.",
+        "Suppress eligible unsent messages after commitment completion or cancellation.",
+        "Cancel a currently claimed message only while an atomic pre-send marker proves that the provider attempt has not started.",
+        "Preserve delivery eligibility and uniqueness across restart, lease recovery, known-safe retry, replay, and concurrency."
       ],
       "out_of_scope": [
-        "Selecting or creating another session.",
-        "Recovery evaluation.",
-        "Automatic continuation, percentages, coaching, Calendar writes, or monitoring."
+        "Applying Done, Need more time, or Missed this session outcomes.",
+        "Collecting remaining duration or another-window consent.",
+        "Creating a next or recovery session.",
+        "Calendar checks or writes.",
+        "Changing S01-05 retry and ambiguity guarantees."
       ],
       "acceptance_criteria": [
         {
           "id": "AC1",
-          "given": "a due planned session",
-          "when": "start and end arrive",
-          "then": "one start with Done and, if still active, one end with Done, Need more time, and Missed this session are delivered."
+          "given": "a due planned session start",
+          "when": "the start notification is rendered",
+          "then": "the text is exactly `Work session start.\\n\\nDefinition of done: {stored definition}\\nSession: {formatted start} to {formatted end}\\nTarget: {formatted immutable target}` and one row contains only Done."
         },
         {
           "id": "AC2",
-          "given": "the commitment is done or cancelled before an unsent message",
-          "when": "due work is claimed",
-          "then": "the message is cancelled and no notification is attempted."
+          "given": "a due session end while the commitment remains active",
+          "when": "the end check-in is rendered",
+          "then": "the text is exactly `Work session check-in.\\n\\nDefinition of done: {stored definition}\\nSession: {formatted start} to {formatted end}\\nTarget: {formatted immutable target}\\n\\nWhat happened?`, row one contains Done and Need more time, and row two contains Missed this session."
         },
         {
           "id": "AC3",
-          "given": "current Done from start, end, or status",
-          "when": "accepted",
-          "then": "the commitment and applicable session close once and unsent end or future messages are cancelled."
+          "given": "one planned work session",
+          "when": "start and end delivery are scheduled and claimed",
+          "then": "exactly one logical start and one logical end exist, each retaining its original logical identity across every known-safe retry."
         },
         {
           "id": "AC4",
-          "given": "current Need more time",
-          "when": "accepted",
-          "then": "partial work is recorded once, the commitment stays active, one duration question is sent, and no session is created."
+          "given": "the owner does not respond to the start reminder",
+          "when": "the session end arrives",
+          "then": "the end check-in remains eligible, while non-response to the end creates no additional schedule or notification."
         },
         {
           "id": "AC5",
-          "given": "current Missed this session",
-          "when": "accepted",
-          "then": "no work is recorded once, the commitment stays active, one another-window question is sent, and no session is created."
+          "given": "the start reminder reaches permanent_failure or delivery_unknown",
+          "when": "the session end arrives",
+          "then": "the start is not resent and the distinct end check-in remains eligible if the commitment and session remain active."
         },
         {
           "id": "AC6",
-          "given": "no response",
-          "when": "time advances",
-          "then": "start non-response does not suppress the end check-in and end non-response creates no follow-up."
+          "given": "the commitment becomes done or cancelled before an unsent message",
+          "when": "pending, retry-delayed, or claimed work is inspected",
+          "then": "pending and retry-delayed work is cancelled, claimed work is cancelled only before atomic provider-start, and delivered or terminal delivery history is never rewritten."
         },
         {
           "id": "AC7",
-          "given": "restart, replay, concurrency, known-safe retry, or ambiguous delivery",
-          "when": "state is inspected",
-          "then": "one logical start, one logical end, at most one outcome, and no unsafe resend or duplicate event exist."
+          "given": "restart, expired lease, replay, concurrent polling, known-safe retry, or ambiguous delivery",
+          "when": "schedule, attempt, event, and Telegram counts are inspected",
+          "then": "there is one logical message of each kind, no unsafe resend, and no duplicate delivery or cancellation event."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/work-sessions/notifications.test.ts",
+          "npm run test:db -- server/test/work-session-notifications-db.integration.ts",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-10a1/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10a1/start-and-end-copy.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10a1/delivery-timeline.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10a1/cancellation-race.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10a1/restart-replay-and-non-response.json"
+          }
+        ],
+        "done_when": "A reviewer can observe the exact start and end messages, exercise every pending or claimed cancellation boundary, restart the service, replay delivery work, and still find one logical start and one logical end."
+      },
+      "depends_on": [
+        "S01-05",
+        "S01-06",
+        "S01-09c"
+      ],
+      "blocks": [
+        "S01-10a2"
+      ],
+      "squad": {
+        "type": "notification-reliability",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "Designer and PM own truthful exact copy while staff and QA prove scheduler eligibility and the claimed-before-send race."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#reminder-and-check-in-rules",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-10-database-backed-in-process-scheduler",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-11-work-session-notification-model",
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "server/src/scheduler/",
+          "server/src/work-sessions/",
+          "server/src/telegram/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": [
+        "Approve the exact factual start/end copy and button rows in AC1 and AC2. PM and Designer recommend approval because the copy remains true after late delivery. Owner approval is required.",
+        "PM recommends that permanent_failure or delivery_unknown at start leave the distinct end check-in eligible while never retrying the terminal or ambiguous start. Owner approval is required.",
+        "PM recommends that S01-05 add an atomic provider-attempt-start marker and lease-token compare-and-swap so claimed-but-not-started work can be cancelled safely. Owner approval is required."
+      ]
+    },
+    {
+      "id": "S01-10a2",
+      "title": "Resolve one work-session outcome",
+      "user_story": "As the owner, I want Done, Need more time, or Missed this session recorded exactly once, so that the commitment reflects what actually happened without automatically scheduling more work.",
+      "why_now": "S01-10a1 establishes stable notification and cancellation semantics; bounded owner outcomes can now transition durable state without re-deriving delivery behavior.",
+      "scope_refs": [
+        "Scope §Main user journeys — Missed or incomplete work session",
+        "Scope §Telegram behavior — Inline actions",
+        "Scope §Telegram behavior — Idempotency",
+        "ADR Decisions 3–5 and 11"
+      ],
+      "in_scope": [
+        "Parse strict versioned work-session outcome callbacks.",
+        "Accept Done from the start reminder, end check-in, or /status exactly once.",
+        "Cancel a not-yet-started planned session when /status Done completes the commitment.",
+        "Record Need more time as partial work without a percentage and ask for remaining duration.",
+        "Record Missed this session as no work and ask whether another window is wanted.",
+        "Write the approved minimal append-only lifecycle, outcome, commitment, and message-cancellation events.",
+        "Preserve outcome idempotency across stale actions, replay, restart, and conflicting concurrency."
+      ],
+      "out_of_scope": [
+        "Selecting, Calendar-checking, confirming, or creating another session.",
+        "Recovery evaluation.",
+        "Automatic continuation, percentages, coaching, or behavioral inference.",
+        "Changing start/end delivery, retry, or cancellation eligibility defined by S01-10a1.",
+        "Calendar writes or ongoing monitoring."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "work-session callback data",
+          "when": "it is parsed",
+          "then": "only a full-match `w:<lowercase UUID>:<positive decimal action_version>:done|more|missed` value of at most 64 bytes is accepted, and the callback contains no product text, Calendar data, owner identifier, or secret."
+        },
+        {
+          "id": "AC2",
+          "given": "current /status Done before the planned session starts",
+          "when": "the transition commits",
+          "then": "the commitment becomes done once, the planned session becomes cancelled rather than done, eligible unsent messages follow S01-10a1 cancellation rules, and the response is exactly `Promise completed.`"
+        },
+        {
+          "id": "AC3",
+          "given": "current Done from a started or awaiting-check-in session",
+          "when": "the transition commits",
+          "then": "the work session and commitment become done once at one database timestamp, eligible unsent messages are cancelled, and the response is exactly `Promise completed.`"
+        },
+        {
+          "id": "AC4",
+          "given": "current Need more time while awaiting check-in",
+          "when": "the transition commits",
+          "then": "the session becomes more_work_needed once, the commitment remains active, no percentage or next session is stored, and the exact response is `Partial progress recorded. How much focused time do you still need?\\n\\nReply with 30, 60, 90, or 120 minutes.` with no buttons."
+        },
+        {
+          "id": "AC5",
+          "given": "current Missed this session while awaiting check-in",
+          "when": "the transition commits",
+          "then": "the session becomes missed once, the commitment remains active, no work or next session is stored, and the exact response is `Missed session recorded. Would you like help finding another work window?` with no buttons."
+        },
+        {
+          "id": "AC6",
+          "given": "any lifecycle, Done, more-work-needed, missed, or message-cancellation transition",
+          "when": "the ledger is inspected",
+          "then": "only the approved minimal event type, actor, source or reason enum, entity references, idempotency key, and one transaction-stable database timestamp exist, with no message text, percentage, duration answer, or Calendar data."
+        },
+        {
+          "id": "AC7",
+          "given": "a repeated update, stale action, same-action concurrency, or conflicting Done/more/missed concurrency",
+          "when": "callbacks resolve",
+          "then": "exactly one valid transition wins, later actions cannot overwrite it, no duplicate event or visible success exists, and no next session is created."
         }
       ],
       "verification": {
@@ -1945,66 +2093,62 @@
         "evidence": [
           {
             "type": "test-output",
-            "path": "evidence/S01-10a/npm-check.txt"
+            "path": "evidence/S01-10a2/npm-check.txt"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-10a/start-and-end-delivery.json"
+            "path": "evidence/S01-10a2/done-transition.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-10a/done-transition.json"
+            "path": "evidence/S01-10a2/more-time-flow.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-10a/more-time-flow.json"
+            "path": "evidence/S01-10a2/missed-flow.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-10a/missed-flow.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-10a/replay-and-non-response.json"
+            "path": "evidence/S01-10a2/ledger-replay-and-concurrency.json"
           }
         ],
-        "done_when": "A reviewer can drive start, end, every outcome, cancellation, non-response, restart, and replay with one logical message of each kind and at most one outcome."
+        "done_when": "A reviewer can drive Done from start, end, and status plus Need more time and Missed, then replay or race every action while observing one approved outcome, minimal ledger state, exact copy, and zero automatic continuation."
       },
       "depends_on": [
-        "S01-05",
-        "S01-06",
-        "S01-09c"
+        "S01-10a1"
       ],
       "blocks": [
         "S01-10b"
       ],
       "squad": {
-        "type": "outcome-delivery",
+        "type": "outcome-transitions",
         "members": [
           "pm",
           "designer",
           "staff-engineer",
           "qa"
         ],
-        "rationale": "The story combines exact actions, scheduler idempotency, and atomic outcome transitions."
+        "rationale": "The story combines exact post-action copy with an atomic owner-authorized state machine and independent concurrency verification."
       },
       "context": {
         "read_first": [
           "docs/product-slices/01-a-promise-that-fits/scope.md#missed-or-incomplete-work-session",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-3-explicit-state-machines",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-5-telegram-text-plus-versioned-inline-actions",
           "docs/product-slices/01-a-promise-that-fits/adr.md#decision-11-work-session-notification-model",
           "docs/product-slices/01-a-promise-that-fits/progress.json",
           "server/src/work-sessions/",
-          "server/src/scheduler/",
-          "server/src/telegram/"
+          "server/src/telegram/",
+          "server/src/persistence/"
         ]
       },
       "status": "todo",
       "open_questions": [
-        "What exact text accompanies the start reminder, end check-in, remaining-duration question, and another-window question?",
-        "When status Done is accepted before a session starts, does that session become cancelled rather than done?",
-        "Does permanent or ambiguous start delivery affect end-check-in eligibility?",
-        "Can a claimed but not externally sent end message be cancelled atomically?",
-        "Which exact ledger event types represent Done, partial work, missed work, and message cancellation?"
+        "PM recommends that /status Done before start cancel the planned session rather than mark it done because no work session occurred. Owner approval is required.",
+        "Approve the exact Done, remaining-duration, and another-window responses in AC2 through AC5, with no follow-up buttons. PM and Designer recommend approval because owner text remains the explicit continuation boundary.",
+        "PM recommends callback grammar `w:<uuid>:<action_version>:done|more|missed`, with work-session action_version unchanged across normal start/check-in phases and terminal state invalidating it. Owner approval is required.",
+        "PM recommends lifecycle events work_session.started and work_session.awaiting_check_in; outcome events commitment.done, work_session.done, work_session.cancelled, work_session.more_work_needed, and work_session.missed; and one scheduled_message.cancelled event per newly cancelled row. Owner approval is required.",
+        "PM recommends metadata limited to source for Done, reason and source for pre-start cancellation, reason for scheduled-message cancellation, and empty metadata for other session outcomes, all with one database transaction timestamp. Owner approval is required."
       ]
     },
     {
@@ -2111,7 +2255,7 @@
         "done_when": "A reviewer can decline or explicitly confirm one checked continuation with immutable history, one future session, two messages, and replay-safe final recheck."
       },
       "depends_on": [
-        "S01-10a"
+        "S01-10a2"
       ],
       "blocks": [
         "S01-10c"
@@ -2138,11 +2282,11 @@
       },
       "status": "todo",
       "open_questions": [
-        "After Need more time, must a separate consent question occur before Calendar search?",
-        "Which durable state owns continuation without colliding with the one active commitment draft?",
-        "What exact copy and actions represent continue, decline, select, correct, and confirm?",
-        "Does declining continuation require a separate ledger event?",
-        "The timing-constraint normalization contract must be complete before this story starts."
+        "PM recommends a separate current Find a time opt-in before any Calendar search after Need more time; supplying remaining duration only retains that field. For Missed, the existing Find a time action is the opt-in and duration is collected afterward. Owner approval is required.",
+        "PM recommends a separate durable versioned work_session_continuations aggregate, one nonterminal continuation per source session with 24-hour inactivity expiry, rather than reusing conversation_drafts. It preserves the immutable source result and may coexist with an ordinary commitment draft. Owner approval is required.",
+        "Approve the frozen continuation copy/action matrix: explicit Find a time or Not now, bounded duration choices, S01-09a timing input, at most two versioned choices, factual confirmation with Change or Cancel, strict `n:<continuation-uuid>:<version>:<action>` callbacks, and exact inheritance of S01-09b conflict and unverified behavior. PM and Designer recommend approval.",
+        "PM recommends no commitment ledger event for decline, expiry, field collection, choice, or correction; only the continuation aggregate records those states. Successful confirmation adds work_session.planned and two scheduled_message.created events atomically. Owner approval is required.",
+        "S01-10b must consume S01-09a strict normalized timing and S01-09b final-recheck contracts unchanged, with no model translation or new free-form parser. The squad must stop if either dependency handoff differs."
       ]
     },
     {
