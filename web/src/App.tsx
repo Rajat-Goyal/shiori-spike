@@ -388,6 +388,8 @@ function CalendarPanel({
   onCalendarConnect,
 }: CalendarPanelProps) {
   const noticeRef = useRef<HTMLParagraphElement>(null);
+  const successfulNotice =
+    calendarNotice === "connected" || calendarNotice === "reconnected";
   useEffect(() => {
     if (calendarNotice) {
       noticeRef.current?.focus();
@@ -435,7 +437,7 @@ function CalendarPanel({
         <p
           className="notice calendar-notice"
           ref={noticeRef}
-          role="alert"
+          role={successfulNotice ? "status" : "alert"}
           tabIndex={-1}
         >
           {calendarNoticeCopy[calendarNotice]}

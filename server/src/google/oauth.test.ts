@@ -303,6 +303,43 @@ describe("GoogleOAuthService", () => {
     expect(tokenBody.get("code_verifier")).toBeTruthy();
   });
 
+  it.each([
+    {
+      label: "canonical email URI only",
+      scope: googleOAuthScopes
+        .map((scope) =>
+          scope === "email"
+            ? "https://www.googleapis.com/auth/userinfo.email"
+            : scope,
+        )
+        .join(" "),
+    },
+    {
+      label: "email alias plus canonical email URI",
+      scope: [
+        ...googleOAuthScopes,
+        "https://www.googleapis.com/auth/userinfo.email",
+      ].join(" "),
+    },
+  ])("normalizes $label to the approved four scopes", async ({ scope }) => {
+    const h = harness();
+    const started = await begin(h);
+    h.setTokenBody({
+      id_token: jwt(String(started.url.searchParams.get("nonce"))),
+      refresh_token: "private-refresh-token",
+      scope,
+    });
+
+    await h.service.complete(sessionToken, {
+      code: "private-authorization-code",
+      state: started.state,
+    });
+
+    expect(h.repository.replacements).toHaveLength(1);
+    expect(h.repository.connection?.scopes).toEqual(googleOAuthScopes);
+    expect(h.repository.outcomes.get(digest(sessionToken))).toBe("connected");
+  });
+
   it("claims state before denial and never exchanges or stores a connection", async () => {
     const h = harness();
     const { state } = await begin(h);
@@ -437,6 +474,11 @@ describe("GoogleOAuthService", () => {
         id_token: jwt(nonce),
         refresh_token: "private-refresh-token",
         scope: `${googleOAuthScopes.join(" ")} profile`,
+      }),
+      (nonce: string) => ({
+        id_token: jwt(nonce),
+        refresh_token: "private-refresh-token",
+        scope: `${googleOAuthScopes.join(" ")} https://www.googleapis.com/auth/calendar.events`,
       }),
     ]) {
       const h = harness();

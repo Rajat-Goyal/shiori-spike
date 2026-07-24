@@ -516,6 +516,7 @@ p {
   color: #414c45;
   font-size: 0.94rem;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .calendar-meta {
@@ -526,6 +527,7 @@ p {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.72rem;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .calendar-action {

@@ -26,6 +26,8 @@ const JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
 const ATTEMPT_LIFETIME_MS = 10 * 60 * 1_000;
 const PROVIDER_TIMEOUT_MS = 5_000;
 const OWNER_REFERENCE = "owner";
+const CANONICAL_EMAIL_SCOPE =
+  "https://www.googleapis.com/auth/userinfo.email";
 
 export type GoogleConnectionState =
   | Readonly<{
@@ -122,12 +124,23 @@ function sameDigest(left: string, right: string): boolean {
 
 function exactScopes(value: string): string[] | undefined {
   const actual = value.split(/\s+/).filter(Boolean);
+  const uniqueActual = new Set(actual);
+  if (uniqueActual.size !== actual.length) {
+    return undefined;
+  }
+  const allowed = new Set<string>([
+    ...googleOAuthScopes,
+    CANONICAL_EMAIL_SCOPE,
+  ]);
+  if (actual.some((scope) => !allowed.has(scope))) {
+    return undefined;
+  }
+  const normalized = new Set(
+    actual.map((scope) => (scope === CANONICAL_EMAIL_SCOPE ? "email" : scope)),
+  );
   return (
-    actual.length === googleOAuthScopes.length &&
-      googleOAuthScopes.every((scope) => actual.includes(scope)) &&
-      actual.every((scope) =>
-        (googleOAuthScopes as readonly string[]).includes(scope),
-      )
+    normalized.size === googleOAuthScopes.length &&
+      googleOAuthScopes.every((scope) => normalized.has(scope))
   )
     ? [...googleOAuthScopes]
     : undefined;

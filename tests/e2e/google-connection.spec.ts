@@ -303,8 +303,14 @@ for (const [outcome, copy] of [
       outcome,
       state: "disconnected",
     });
-    const notice = page.getByRole("alert");
+    const notice = page.locator(".calendar-notice");
     await expect(notice).toHaveText(copy);
+    await expect(notice).toHaveAttribute(
+      "role",
+      outcome === "connected" || outcome === "reconnected"
+        ? "status"
+        : "alert",
+    );
     await expect(notice).toBeFocused();
     await expect(page).toHaveURL("/");
   });
@@ -313,9 +319,12 @@ for (const [outcome, copy] of [
 test("stacks the Calendar action on mobile and keeps it at least 44px tall", async ({
   page,
 }) => {
+  const longEmail = `${"long-owner-address-".repeat(10)}@example.com`;
   await openDashboard(page, {
-    action: "connect",
-    state: "disconnected",
+    action: "reconnect",
+    lastSuccessfulCheckAt: null,
+    state: "connected",
+    verifiedEmail: longEmail,
   });
   const content = await page
     .locator(".calendar-panel__content")
@@ -331,5 +340,18 @@ test("stacks the Calendar action on mobile and keeps it at least 44px tall", asy
     expect(action!.y).toBeGreaterThan(copy!.y + copy!.height);
     expect(action!.x).toBeCloseTo(content!.x, 0);
     expect(action!.width).toBeCloseTo(content!.width, 0);
+    await expect(
+      page.getByText(`Connected as ${longEmail}`, { exact: true }),
+    ).toBeVisible();
+    expect(
+      await page.locator(".calendar-body").evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
   }
 });
