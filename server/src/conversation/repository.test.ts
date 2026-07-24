@@ -234,6 +234,54 @@ describe("SupabaseConversationRepository", () => {
     });
   });
 
+  it("routes accepted work-session permission through the bounded work RPC", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({
+        completed: true,
+        draftCreated: true,
+        draftReference: {
+          id: "55555555-5555-4555-8555-555555555555",
+          version: 1,
+        },
+        status: "applied",
+      }),
+    );
+    const fields: DecisionContextFields = {
+      ...simpleFields,
+      possibleWorkSession: true,
+      simpleAction: false,
+    };
+
+    await repositoryWith(fetchFromSupabase as typeof fetch).applyTurn({
+      action: "accept_work_permission",
+      audit: explicitAudit,
+      expected: {
+        correlatedUpdateId: 9012,
+        id: "66666666-6666-4666-8666-666666666666",
+        kind: "permission",
+        sourceUpdateId: 9011,
+      },
+      fields,
+      phase: "complete",
+      processingResult: "conversation",
+      updateId: 9012,
+    });
+
+    const [url, options] = fetchFromSupabase.mock.calls[0];
+    expect(url).toBe(
+      "http://127.0.0.1:54321/rest/v1/rpc/accept_work_session_permission",
+    );
+    expect(JSON.parse(String(options?.body))).toMatchObject({
+      p_expected_correlated_update_id: 9012,
+      p_expected_id: "66666666-6666-4666-8666-666666666666",
+      p_expected_kind: "permission",
+      p_expected_source_update_id: 9011,
+      p_possible_work_session: true,
+      p_simple_action: false,
+      p_update_id: 9012,
+    });
+  });
+
   it.each([
     { kind: "busy", completed: true },
     { kind: "expired", completed: true },

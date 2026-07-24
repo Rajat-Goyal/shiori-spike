@@ -26,6 +26,10 @@ import {
   type DecisionAudit,
   type PermissionCandidate,
 } from "./repository.js";
+import {
+  isEligibleWorkSessionCandidate,
+  workSessionPlanningOffer,
+} from "../work-sessions/flow.js";
 
 type ConversationServiceOptions = {
   decisionEngine: DecisionEngine;
@@ -63,16 +67,26 @@ function phaseFor(
   if (fields.targetAt === null) {
     return "awaiting_target";
   }
-  return fields.simpleAction ? "complete" : undefined;
+  return fields.simpleAction !== fields.possibleWorkSession
+    ? "complete"
+    : undefined;
 }
 
 function draftable(fields: DecisionContextFields): boolean {
-  return (
-    !fields.possibleWorkSession &&
-    fields.durationMinutes === null &&
-    !fields.offerWorkWindowHelp &&
-    phaseFor(fields) !== undefined
-  );
+  const phase = phaseFor(fields);
+  if (phase === undefined || fields.offerWorkWindowHelp) {
+    return false;
+  }
+  if (phase !== "complete") {
+    return (
+      !fields.simpleAction &&
+      !fields.possibleWorkSession &&
+      fields.durationMinutes === null
+    );
+  }
+  return fields.simpleAction
+    ? !fields.possibleWorkSession && fields.durationMinutes === null
+    : isEligibleWorkSessionCandidate(fields);
 }
 
 function expectedSnapshot(snapshot: ConversationSnapshot) {
@@ -306,14 +320,26 @@ export class ConversationService {
         const phase = phaseFor(snapshot.fields);
         const draftIsAllowed =
           draftable(snapshot.fields) && phase !== undefined;
+        const command: ConversationCommand =
+          snapshot.fields.possibleWorkSession
+            ? {
+                action: "accept_work_permission",
+                audit: this.#audit(decision),
+                expected: expectedSnapshot(snapshot),
+                fields: snapshot.fields,
+                phase: "complete",
+                processingResult: "conversation",
+                updateId,
+              }
+            : {
+                action: "accept_permission",
+                audit: this.#audit(decision),
+                expected: expectedSnapshot(snapshot),
+                processingResult: "conversation",
+                updateId,
+              };
         return this.#finish(
-          {
-            action: "accept_permission",
-            audit: this.#audit(decision),
-            expected: expectedSnapshot(snapshot),
-            processingResult: "conversation",
-            updateId,
-          },
+          command,
           snapshot,
           draftIsAllowed
             ? collectedReply(phase, snapshot.fields)
@@ -557,11 +583,17 @@ export class ConversationService {
           if (!result.draftReference) {
             throw new Error("Complete draft reference is missing");
           }
-          return confirmationSummary(
-            copy.completeFields,
-            result.draftReference,
-            copy.prefix,
-          );
+          return isEligibleWorkSessionCandidate(copy.completeFields)
+            ? workSessionPlanningOffer(
+                copy.completeFields,
+                result.draftReference,
+                copy.prefix,
+              )
+            : confirmationSummary(
+                copy.completeFields,
+                result.draftReference,
+                copy.prefix,
+              );
         }
         return copy;
       }

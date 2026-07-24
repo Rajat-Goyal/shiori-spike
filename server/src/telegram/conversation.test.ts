@@ -28,6 +28,7 @@ import type {
   PermissionCandidate,
 } from "../conversation/repository.js";
 import { ConversationService } from "../conversation/service.js";
+import { workSessionPlanningOffer } from "../work-sessions/flow.js";
 
 const completeFields: DecisionContextFields = {
   definitionOfDone: "Submit the synthetic note",
@@ -177,7 +178,8 @@ class ControlledRepository implements ConversationRepository {
       ...this.applyResult,
       draftCreated:
         this.applyResult.draftCreated ||
-        command.action === "create_draft",
+        command.action === "create_draft" ||
+        command.action === "accept_work_permission",
     };
   }
 
@@ -404,7 +406,7 @@ describe("ConversationService", () => {
     expect(test.repository.audits).toHaveLength(0);
   });
 
-  it("terminally rejects an accepted work candidate without a draft", async () => {
+  it("accepts an eligible work candidate into the same versioned draft", async () => {
     const permission = permissionCandidate(workFields);
     const test = controlled(
       permission,
@@ -415,11 +417,16 @@ describe("ConversationService", () => {
       ),
     );
 
-    await expect(test.service.handle(7002, "yes")).resolves.toBe(
-      conversationCopy.failureNoDraft,
+    await expect(test.service.handle(7002, "yes")).resolves.toEqual(
+      workSessionPlanningOffer(workFields, {
+        id: "11111111-1111-4111-8111-111111111111",
+        version: 1,
+      }),
     );
     expect(test.repository.commands[0]).toMatchObject({
-      action: "accept_permission",
+      action: "accept_work_permission",
+      fields: workFields,
+      phase: "complete",
     });
   });
 
@@ -533,7 +540,7 @@ describe("ConversationService", () => {
     },
   );
 
-  it("rejects a work-shaped clarification and preserves draft version and expiry", async () => {
+  it("accepts a work-shaped clarification and invalidates the prior draft version", async () => {
     const snapshot = activeDraft(
       "awaiting_target",
       targetMissingFields,
@@ -547,17 +554,28 @@ describe("ConversationService", () => {
         }),
       ),
     );
+    test.repository.applyResult = {
+      completed: true,
+      draftCreated: false,
+      draftReference: { id: snapshot.id, version: 7 },
+      status: "applied",
+    };
 
-    await expect(test.service.handle(7011, "work-shaped")).resolves.toBe(
-      conversationCopy.failureWithDraft,
+    await expect(test.service.handle(7011, "work-shaped")).resolves.toEqual(
+      workSessionPlanningOffer(workFields, {
+        id: snapshot.id,
+        version: 7,
+      }),
     );
     expect(test.repository.commands[0]).toEqual({
-      action: "preserve",
+      action: "update_draft",
       expected: {
         id: snapshot.id,
         kind: "draft",
         version: 6,
       },
+      fields: workFields,
+      phase: "complete",
       processingResult: "conversation",
       updateId: 7011,
     });

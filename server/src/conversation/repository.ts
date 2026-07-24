@@ -61,7 +61,10 @@ export type DecisionAudit = {
 
 type ConversationAction =
   | (CandidateAction & {
-      action: "create_draft" | "update_draft";
+      action:
+        | "accept_work_permission"
+        | "create_draft"
+        | "update_draft";
       expected: ExpectedSnapshot;
       updateId: number;
     })
@@ -350,8 +353,12 @@ export class SupabaseConversationRepository
       p_prompt_version: command.audit?.promptVersion ?? null,
       p_update_id: command.updateId,
     };
+    const rpc =
+      command.action === "accept_work_permission"
+        ? "accept_work_session_permission"
+        : "apply_conversation_turn";
     const response = await this.#fetch(
-      `${this.#supabaseUrl}/rest/v1/rpc/apply_conversation_turn`,
+      `${this.#supabaseUrl}/rest/v1/rpc/${rpc}`,
       {
         body: JSON.stringify(body),
         headers: supabaseHeaders(
@@ -364,7 +371,11 @@ export class SupabaseConversationRepository
     );
 
     if (!response.ok) {
-      throw new Error("Conversation apply failed");
+      throw new Error(
+        command.action === "accept_work_permission"
+          ? "Work-session permission acceptance failed"
+          : "Conversation apply failed",
+      );
     }
     return parseApplyResult(await response.json());
   }
