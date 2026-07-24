@@ -31,8 +31,19 @@ const outcome = await engine.decide(
   `Synthetic smoke only: submit a synthetic test note by ${target}.`,
 );
 
-if (!outcome.ok) {
-  console.log(JSON.stringify({ failure: outcome.failure, ok: false }));
+const expectedShape =
+  outcome.ok &&
+  outcome.decision.inputClass === "explicit_commitment" &&
+  outcome.decision.nextAction === "ask_definition" &&
+  outcome.decision.targetAt !== null;
+
+if (!outcome.ok || !expectedShape) {
+  console.log(
+    JSON.stringify({
+      failure: outcome.ok ? "unexpected_decision_shape" : outcome.failure,
+      ok: false,
+    }),
+  );
   process.exitCode = 1;
 } else {
   console.log(

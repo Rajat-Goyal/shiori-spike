@@ -39,6 +39,7 @@ function providerResponse(value: unknown): Response {
             type: "output_text",
           },
         ],
+        status: "completed",
         type: "message",
       },
     ],
@@ -261,6 +262,57 @@ describe("DecisionEngine contract", () => {
       ),
     ).toBe(false);
   });
+
+  it.each([
+    { expected: "incomplete", status: "queued" },
+    { expected: "incomplete", status: "in_progress" },
+    { expected: "incomplete", status: "incomplete" },
+    { expected: "provider_error", status: "unknown" },
+    { expected: "provider_error", status: undefined },
+  ] as const)(
+    "rejects top-level provider status $status",
+    async ({ expected, status }) => {
+      const envelope = (await providerResponse(explicitDecision).json()) as
+        Record<string, unknown>;
+      if (status === undefined) {
+        delete envelope.status;
+      } else {
+        envelope.status = status;
+      }
+      const fetchFromOpenAI = vi.fn(async () => Response.json(envelope));
+
+      await expect(engineWith(fetchFromOpenAI).decide(privateInput)).resolves.toEqual({
+        failure: expected,
+        ok: false,
+      });
+    },
+  );
+
+  it.each([
+    { expected: "incomplete", status: "queued" },
+    { expected: "incomplete", status: "in_progress" },
+    { expected: "incomplete", status: "incomplete" },
+    { expected: "provider_error", status: "unknown" },
+    { expected: "provider_error", status: undefined },
+  ] as const)(
+    "rejects output message status $status",
+    async ({ expected, status }) => {
+      const envelope = (await providerResponse(explicitDecision).json()) as {
+        output: Array<Record<string, unknown>>;
+      };
+      if (status === undefined) {
+        delete envelope.output[0].status;
+      } else {
+        envelope.output[0].status = status;
+      }
+      const fetchFromOpenAI = vi.fn(async () => Response.json(envelope));
+
+      await expect(engineWith(fetchFromOpenAI).decide(privateInput)).resolves.toEqual({
+        failure: expected,
+        ok: false,
+      });
+    },
+  );
 });
 
 describe("OpenAI decision failure boundary", () => {
@@ -313,6 +365,8 @@ describe("OpenAI decision failure boundary", () => {
                   type: "refusal",
                 },
               ],
+              status: "completed",
+              type: "message",
             },
           ],
           status: "completed",
@@ -323,15 +377,37 @@ describe("OpenAI decision failure boundary", () => {
       expected: "missing_output",
       fetch: async () =>
         Response.json({
-          output: [],
+          output: [
+            {
+              content: [],
+              status: "completed",
+              type: "message",
+            },
+          ],
           status: "completed",
         }),
       label: "missing output",
     },
     {
+      expected: "provider_error",
+      fetch: async () =>
+        Response.json({
+          output: [],
+          status: "completed",
+        }),
+      label: "completed response without a message",
+    },
+    {
       expected: "non_json",
       fetch: async () =>
         Response.json({
+          output: [
+            {
+              content: [],
+              status: "completed",
+              type: "message",
+            },
+          ],
           output_text: "private non-JSON output",
           status: "completed",
         }),
@@ -370,6 +446,25 @@ describe("OpenAI decision failure boundary", () => {
   ])("maps %s to timeout without leaking details", async (error) => {
     const fetchFromOpenAI = vi.fn(async () => {
       throw error;
+    });
+
+    await expect(engineWith(fetchFromOpenAI).decide(privateInput)).resolves.toEqual({
+      failure: "timeout",
+      ok: false,
+    });
+  });
+
+  it.each([
+    new DOMException("private body timeout", "TimeoutError"),
+    new DOMException("private body abort", "AbortError"),
+  ])("maps response JSON %s to timeout without leaking details", async (error) => {
+    const fetchFromOpenAI = vi.fn(async () => {
+      return {
+        json: async () => {
+          throw error;
+        },
+        ok: true,
+      } as Response;
     });
 
     await expect(engineWith(fetchFromOpenAI).decide(privateInput)).resolves.toEqual({

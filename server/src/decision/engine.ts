@@ -61,8 +61,10 @@ function outputItems(body: Record<string, unknown>): Record<string, unknown>[] {
   });
 }
 
-function contentItems(body: Record<string, unknown>): Record<string, unknown>[] {
-  return outputItems(body).flatMap((item) => {
+function contentItems(
+  messages: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return messages.flatMap((item) => {
     if (!Array.isArray(item.content)) {
       return [];
     }
@@ -73,10 +75,13 @@ function contentItems(body: Record<string, unknown>): Record<string, unknown>[] 
   });
 }
 
-function containsRefusal(body: Record<string, unknown>): boolean {
+function containsRefusal(
+  body: Record<string, unknown>,
+  messages: Record<string, unknown>[],
+): boolean {
   return (
     typeof body.refusal === "string" ||
-    contentItems(body).some(
+    contentItems(messages).some(
       (content) =>
         content.type === "refusal" &&
         typeof content.refusal === "string",
@@ -84,12 +89,15 @@ function containsRefusal(body: Record<string, unknown>): boolean {
   );
 }
 
-function readOutputText(body: Record<string, unknown>): string | undefined {
+function readOutputText(
+  body: Record<string, unknown>,
+  messages: Record<string, unknown>[],
+): string | undefined {
   if (typeof body.output_text === "string") {
     return body.output_text;
   }
 
-  const texts = contentItems(body)
+  const texts = contentItems(messages)
     .filter(
       (content) =>
         content.type === "output_text" &&
@@ -98,6 +106,49 @@ function readOutputText(body: Record<string, unknown>): string | undefined {
     .map((content) => content.text as string);
 
   return texts.length > 0 ? texts.join("") : undefined;
+}
+
+function isTimeout(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    ["AbortError", "TimeoutError"].includes(error.name)
+  );
+}
+
+function completionState(
+  body: Record<string, unknown>,
+): { failure: DecisionFailureClass } | { messages: Record<string, unknown>[] } {
+  if (["incomplete", "in_progress", "queued"].includes(String(body.status))) {
+    return { failure: "incomplete" };
+  }
+  if (body.status !== "completed") {
+    return { failure: "provider_error" };
+  }
+  if (
+    body.incomplete_details !== undefined &&
+    body.incomplete_details !== null
+  ) {
+    return { failure: "incomplete" };
+  }
+
+  const messages = outputItems(body).filter(
+    (item) => item.type === "message",
+  );
+  if (messages.length === 0) {
+    return { failure: "provider_error" };
+  }
+  if (
+    messages.some((message) =>
+      ["incomplete", "in_progress", "queued"].includes(String(message.status)),
+    )
+  ) {
+    return { failure: "incomplete" };
+  }
+  if (messages.some((message) => message.status !== "completed")) {
+    return { failure: "provider_error" };
+  }
+
+  return { messages };
 }
 
 function instructions(promptVersion: string): string {
@@ -156,12 +207,7 @@ export class OpenAIDecisionEngine implements DecisionEngine {
         signal: AbortSignal.timeout(5_000),
       });
     } catch (error) {
-      return failed(
-        error instanceof Error &&
-          ["AbortError", "TimeoutError"].includes(error.name)
-          ? "timeout"
-          : "http",
-      );
+      return failed(isTimeout(error) ? "timeout" : "http");
     }
 
     if (!response.ok) {
@@ -171,31 +217,26 @@ export class OpenAIDecisionEngine implements DecisionEngine {
     let body: unknown;
     try {
       body = await response.json();
-    } catch {
-      return failed("provider_error");
+    } catch (error) {
+      return failed(isTimeout(error) ? "timeout" : "provider_error");
     }
 
     const record = asRecord(body);
     if (
       !record ||
-      (record.error !== undefined && record.error !== null) ||
-      record.status === "failed" ||
-      record.status === "cancelled"
+      (record.error !== undefined && record.error !== null)
     ) {
       return failed("provider_error");
     }
-    if (
-      record.status === "incomplete" ||
-      record.incomplete_details !== undefined &&
-        record.incomplete_details !== null
-    ) {
-      return failed("incomplete");
+    const completion = completionState(record);
+    if ("failure" in completion) {
+      return failed(completion.failure);
     }
-    if (containsRefusal(record)) {
+    if (containsRefusal(record, completion.messages)) {
       return failed("refusal");
     }
 
-    const outputText = readOutputText(record);
+    const outputText = readOutputText(record, completion.messages);
     if (outputText === undefined || outputText.length === 0) {
       return failed("missing_output");
     }
