@@ -10,6 +10,7 @@ import {
   parseDecisionStructure,
 } from "./schema.js";
 import { validateDecisionSemantics } from "./semantic.js";
+import { isExpectedSmokeDecision } from "./smoke-shape.js";
 
 const now = new Date("2026-07-24T12:00:00.000Z");
 const apiKey = "unit-test-api-key-that-must-not-leak";
@@ -482,5 +483,72 @@ describe("OpenAI decision failure boundary", () => {
       failure: "http",
       ok: false,
     });
+  });
+});
+
+describe("OpenAI smoke decision shape", () => {
+  it("accepts either a missing or extracted definition for the fixed synthetic input", () => {
+    const asksForDefinition: DecisionResult = {
+      ...explicitDecision,
+      definitionOfDone: null,
+      missingFields: ["definition_of_done"],
+      nextAction: "ask_definition",
+    };
+
+    expect(isExpectedSmokeDecision(asksForDefinition)).toBe(true);
+    expect(isExpectedSmokeDecision(explicitDecision)).toBe(true);
+  });
+
+  it.each([
+    {
+      label: "a non-explicit class",
+      decision: {
+        ...explicitDecision,
+        inputClass: "implied_intention",
+      } satisfies DecisionResult,
+    },
+    {
+      label: "a missing target",
+      decision: {
+        ...explicitDecision,
+        missingFields: ["target"],
+        nextAction: "ask_target",
+        targetAt: null,
+        targetTimeZone: null,
+      } satisfies DecisionResult,
+    },
+    {
+      label: "ask_definition with an extracted definition",
+      decision: {
+        ...explicitDecision,
+        missingFields: ["definition_of_done"],
+        nextAction: "ask_definition",
+      } satisfies DecisionResult,
+    },
+    {
+      label: "ask_definition without the exact missing field",
+      decision: {
+        ...explicitDecision,
+        definitionOfDone: null,
+        missingFields: [],
+        nextAction: "ask_definition",
+      } satisfies DecisionResult,
+    },
+    {
+      label: "ready without a definition",
+      decision: {
+        ...explicitDecision,
+        definitionOfDone: null,
+      } satisfies DecisionResult,
+    },
+    {
+      label: "ready with a missing-field claim",
+      decision: {
+        ...explicitDecision,
+        missingFields: ["definition_of_done"],
+      } satisfies DecisionResult,
+    },
+  ])("rejects $label", ({ decision }) => {
+    expect(isExpectedSmokeDecision(decision)).toBe(false);
   });
 });

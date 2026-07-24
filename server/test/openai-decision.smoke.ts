@@ -1,5 +1,6 @@
 import { readServerConfig } from "../src/config.js";
 import { OpenAIDecisionEngine } from "../src/decision/engine.js";
+import { isExpectedSmokeDecision } from "../src/decision/smoke-shape.js";
 
 function tomorrowAtTenSingapore(now: Date): string {
   const singaporeNow = new Date(now.getTime() + 8 * 60 * 60 * 1_000);
@@ -33,9 +34,7 @@ const outcome = await engine.decide(
 
 const expectedShape =
   outcome.ok &&
-  outcome.decision.inputClass === "explicit_commitment" &&
-  outcome.decision.nextAction === "ask_definition" &&
-  outcome.decision.targetAt !== null;
+  isExpectedSmokeDecision(outcome.decision);
 
 if (!outcome.ok || !expectedShape) {
   console.log(
