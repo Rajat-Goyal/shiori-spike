@@ -1,6 +1,6 @@
 {
   "slice": "01-a-promise-that-fits",
-  "generated_at": "2026-07-24T19:50:05Z",
+  "generated_at": "2026-07-24T20:10:34Z",
   "source_docs": [
     "docs/product-slices/01-a-promise-that-fits/scope.md",
     "docs/product-slices/01-a-promise-that-fits/adr.md",
@@ -831,7 +831,10 @@
         "Poll and transactionally claim due simple reminders from Postgres.",
         "Send one Telegram reminder with Done and Cancel actions using a unique logical delivery key.",
         "Record delivered, known retryable, or delivery-unknown results honestly.",
+        "Treat only validated HTTP 429 as retry-safe, allow three total attempts, and leave the exhausted third attempt terminal in retryable_failure with no next attempt.",
+        "Treat every ambiguous send result as terminal delivery_unknown with no automatic resend.",
         "Accept Done once, record the actual completion time, and cancel unsent messages atomically.",
+        "Return `Cancellation requires confirmation. Nothing was changed.` from Cancel without changing product state; S01-06 owns destructive cancellation.",
         "Return resolved state for a replayed Done action.",
         "Create no follow-up after reminder non-response."
       ],
@@ -870,7 +873,7 @@
           "id": "AC5",
           "given": "a known-safe failure or ambiguous send result",
           "when": "delivery is classified",
-          "then": "known-safe retries are bounded and ambiguity becomes delivery_unknown without automatic resend."
+          "then": "validated HTTP 429 receives at most three total attempts and ends in terminal retryable_failure when exhausted, while ambiguity becomes delivery_unknown without automatic resend."
         },
         {
           "id": "AC6",
@@ -941,12 +944,8 @@
           "server/test/conversation-db.integration.ts"
         ]
       },
-      "status": "todo",
-      "open_questions": [
-        "AC2 requires reminder buttons Done and Cancel, but S01-04 excludes the destructive saved-commitment cancellation confirmation assigned to S01-06. PM recommends that S01-04 make Cancel return the non-mutating response `Cancellation requires confirmation. Nothing was changed.` with no product transition; S01-06 will add the full destructive confirmation flow. Owner approval is required before implementation.",
-        "AC5 requires bounded retries for known-safe failures but defines no cap. PM recommends three total delivery attempts (the initial attempt plus two validated HTTP 429 retries); ambiguous outcomes become terminal delivery_unknown and are never resent. Owner approval is required before implementation.",
-        "The durable terminal status after the third validated HTTP 429 is unspecified. QA recommends retaining retryable_failure as a terminal exhausted state with attempt_count 3 and no next attempt or return to pending; S01-05 may later formalize the broader scheduler state machine. Owner approval is required before implementation."
-      ]
+      "status": "in_progress",
+      "open_questions": []
     },
     {
       "id": "S01-05",
