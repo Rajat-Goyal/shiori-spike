@@ -1,6 +1,6 @@
 {
   "slice": "01-a-promise-that-fits",
-  "generated_at": "2026-07-24T20:45:19Z",
+  "generated_at": "2026-07-24T20:46:10Z",
   "source_docs": [
     "docs/product-slices/01-a-promise-that-fits/scope.md",
     "docs/product-slices/01-a-promise-that-fits/adr.md",
@@ -1719,7 +1719,7 @@
           "server/src/work-sessions/"
         ]
       },
-      "status": "todo",
+      "status": "in_progress",
       "open_questions": [
         "When planning help is declined, PM recommends preserving the same possible-work draft, collecting supported duration and an owner-chosen exact session start as needed, and keeping Cancel as a separate explicit action instead of silently converting the intention to simple-action confirmation. Owner approval is required.",
         "When Google authorization has expired, PM recommends that a concrete selected time offer Reconnect, Check again, explicit Save without Calendar check, and Cancel; without a concrete time the flow offers Reconnect, Check again, owner-chosen time, and Cancel but cannot offer an unverified save. Owner approval is required.",
