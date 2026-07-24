@@ -1,6 +1,8 @@
 story_id=S01-03a1
 source_commit=077f95515d888c21abf5a07c63bd7cdf574bf7ac
 generated_at=2026-07-24T15:44:38Z
+updated_at=2026-07-24T15:58:31Z
+final_run_head=0470f746f81de2791c4fd91f008eeba1c781b48a
 execution_context=lead controlled bridge
 runtime_node_major=24
 runtime_npm_requirement=11+
@@ -39,11 +41,18 @@ result=pass
 
 [provider-gate]
 attempt_limit=2
-attempts_used=1
+attempts_used=2
 attempt_1_result=semantic_failure
-attempt_2_status=pending_explicit_owner_authorization
-provider_gate=blocked_pending
-story_complete=false
+attempt_2_command=npm run test:openai:smoke
+attempt_2_provider_called=true
+attempt_2_provider_request_count=1
+attempt_2_retries=0
+attempt_2_exit_code=0
+attempt_2_completed_at=2026-07-24T15:58:31Z
+attempt_2_result=pass
+provider_gate=pass
+ac4=pass
+story_complete=true
 
 [sanitization]
 sensitive_env_values_scanned=8
@@ -52,4 +61,4 @@ raw_or_provider_material_payload_matches=0
 sanitization_result=pass
 
 controlled_gate=pass
-qa_signoff=blocked_pending_provider_gate
+qa_signoff=pass

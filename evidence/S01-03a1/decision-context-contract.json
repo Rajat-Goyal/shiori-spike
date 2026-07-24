@@ -3,6 +3,8 @@
   "story_id": "S01-03a1",
   "source_commit": "077f95515d888c21abf5a07c63bd7cdf574bf7ac",
   "generated_at": "2026-07-24T15:44:38Z",
+  "updated_at": "2026-07-24T15:58:31Z",
+  "final_run_head": "0470f746f81de2791c4fd91f008eeba1c781b48a",
   "input_contract": {
     "top_level_keys": [
       "ownerText",
@@ -194,7 +196,9 @@
     },
     "controlled_gate": "pass",
     "architecture_review": "pass",
-    "provider_gate": "blocked_pending_explicit_owner_authorization",
-    "story_complete": false
+    "provider_gate": "pass",
+    "ac4": "pass",
+    "qa_signoff": "pass",
+    "story_complete": true
   }
 }
