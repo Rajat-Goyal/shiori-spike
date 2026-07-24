@@ -1,0 +1,37 @@
+{
+  "story_id": "S01-02",
+  "captured_at": "2026-07-24T13:02:17Z",
+  "commit": "02643983ee1b1df8fc72bec7a1cf75725ef523e2",
+  "result": "pass",
+  "controlled_concurrent_replay": {
+    "deliveries": 2,
+    "claim_attempts": 2,
+    "accepted_claims": 1,
+    "outbound_sends": 1,
+    "processing_completions": 1,
+    "product_state_transitions": 0
+  },
+  "database_concurrent_claim": {
+    "claim_attempts": 8,
+    "accepted_claims": 1,
+    "subsequent_replay_accepted": 0,
+    "matching_processing_records": 1,
+    "processing_status_bounded": true,
+    "processing_result_bounded": true
+  },
+  "replay_delta": {
+    "processing_records": 0,
+    "owner_chat_records": 0,
+    "outbound_sends": 0,
+    "processing_completions": 0,
+    "product_state_transitions": 0
+  },
+  "database_constraints": {
+    "update_identity_primary_key": true,
+    "owner_delivery_singleton_primary_key": true,
+    "owner_delivery_chat_unique": true,
+    "claim_and_owner_capture_atomic": true
+  },
+  "duplicate_processing_records": 0,
+  "external_telegram_calls": 0
+}

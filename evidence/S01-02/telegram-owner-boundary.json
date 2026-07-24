@@ -1,0 +1,67 @@
+{
+  "story_id": "S01-02",
+  "captured_at": "2026-07-24T13:02:17Z",
+  "commit": "02643983ee1b1df8fc72bec7a1cf75725ef523e2",
+  "result": "pass",
+  "evidence_basis": [
+    "controlled_fastify_contract_tests",
+    "docker_local_database_test",
+    "committed_migration_review",
+    "independent_static_audit"
+  ],
+  "secret_boundary": {
+    "missing": {
+      "refused": true,
+      "body_parsed": false,
+      "processing_calls": 0,
+      "state_reads": 0,
+      "state_writes": 0,
+      "outbound_sends": 0
+    },
+    "invalid": {
+      "refused": true,
+      "body_parsed": false,
+      "processing_calls": 0,
+      "state_reads": 0,
+      "state_writes": 0,
+      "outbound_sends": 0
+    }
+  },
+  "generic_refusal": {
+    "non_owner_private": {
+      "acknowledged": true,
+      "refusal_sends": 1,
+      "owner_chat_captures": 0,
+      "owner_state_reads": 0,
+      "owner_data_exposed": false
+    },
+    "owner_non_private": {
+      "acknowledged": true,
+      "refusal_sends": 1,
+      "owner_chat_captures": 0,
+      "owner_state_reads": 0,
+      "owner_data_exposed": false
+    },
+    "parity": {
+      "acknowledgement_shape_equal": true,
+      "outbound_text_equal": true,
+      "outbound_shape_equal": true
+    }
+  },
+  "owner_private": {
+    "accepted": true,
+    "claim_count": 1,
+    "chat_capture_count": 1,
+    "stored_chat_matches_configured_fixture": true,
+    "complete_payload_retained": false,
+    "message_text_retained": false
+  },
+  "empty_status": {
+    "active_commitments": 0,
+    "status_reads": 1,
+    "outbound_sends": 1,
+    "response_class": "factual_empty",
+    "invented_owner_facts": 0
+  },
+  "external_telegram_calls": 0
+}
