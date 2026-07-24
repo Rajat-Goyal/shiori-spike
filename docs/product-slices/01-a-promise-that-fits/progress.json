@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-24T15:57:09Z",
-  "current_story": "S01-03a1",
-  "summary": "4/16 done",
+  "updated_at": "2026-07-24T16:01:06Z",
+  "current_story": null,
+  "summary": "5/16 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -373,6 +373,53 @@
         "S01-03b remains blocked by S01-03a1; when resumed, enforce separate_request as collision-only and never merge its returned candidate fields."
       ],
       "context_for_next": "S01-03a1 source is complete and controlled-green at 077f955; architecture and QA reviews pass.\nThe exact typed input, five phases, seven relations, option-A equality, and option-B incomplete-mode exception are stable.\nFocused tests pass 103/103; full Node 24 check passes 164 server tests, both builds, and 46 E2E tests.\nAttempt one at 575f35e made one provider request and safely failed semantic; no raw material or side effect was retained.\nThe general prompt correction is reviewed and adds no normalization or bypass.\nExactly four sanitized artifacts record controlled PASS and provider BLOCKED/PENDING.\nDo not call the provider again without explicit owner authorization; attempt two is final and has no automatic retry.\nOn success close S01-03a1, then resume S01-03b with separate_request collision-only."
+    },
+    {
+      "story_id": "S01-03a1",
+      "started_at": "2026-07-24T15:57:09Z",
+      "finished_at": "2026-07-24T16:01:06Z",
+      "squad": "contract-evolution",
+      "outcome": "done",
+      "commits": [
+        "0470f74 chore(S01-03a1): resume final provider gate",
+        "15f6c42 test(S01-03a1): pass final provider gate"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-03a1/decision-context-contract.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-03a1/relation-semantic-matrix.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-03a1/decision-context-contract.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-03a1/provider-context-smoke.json"
+        }
+      ],
+      "decisions": [
+        "The owner explicitly authorized exactly one corrected second-and-final provider request with no automatic retry.",
+        "The provider returned permission_accepted with explicit_commitment, ready, zero missing fields, and exact candidate retention; the bounded smoke predicate passed.",
+        "Attempt-one failure provenance remains immutable beside the successful attempt-two result, and neither attempt retained raw provider material or created product state."
+      ],
+      "deviations_from_plan": [
+        "S01-03a1 resumed from its append-only blocked record after owner authorization; completed implementation and controlled evidence were not re-derived or rewritten.",
+        "The final provider request executed from state-only run head 0470f74 while the corrected decision source remained exactly commit 077f955; evidence records both identities."
+      ],
+      "follow_ups": [
+        "S01-03b: consume the stable turn relation without treating it as mutation authority; separate_request is collision-only and its candidate fields must never merge into the current draft.",
+        "S01-12: preserve the two-attempt provider provenance and no-retention boundary during deployed release verification."
+      ],
+      "context_for_next": "S01-03a1 is complete: DecisionEngine accepts current owner text plus bounded five-phase context and returns one of seven strict non-authorizing relations.\nPermission acceptance deep-equals all eight candidate fields; incomplete no-mode candidates may progress only under the frozen option-B rules.\nSeparate_request is descriptive and collision-only downstream; never merge its returned fields into the active draft.\nThe corrected provider prompt has no output normalization or application bypass.\nControlled gates pass 103 focused tests, 164 full server tests, both builds, 46 E2E tests, and 201 independent baseline assertions.\nAttempt one safely failed semantic; owner-authorized attempt two passed exact permission acceptance with no retained provider material or side effects.\nAll four evidence artifacts and AC1-AC4 are PASS.\nS01-03b is dependency-eligible; preserve the S01-02 Telegram boundary and the S01-03a/S01-03a1 non-authorization boundary."
     }
   ]
 }
