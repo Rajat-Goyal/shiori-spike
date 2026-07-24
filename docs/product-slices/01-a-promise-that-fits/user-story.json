@@ -1,0 +1,1669 @@
+{
+  "slice": "01-a-promise-that-fits",
+  "generated_at": "2026-07-24T09:34:54Z",
+  "source_docs": [
+    "docs/product-slices/01-a-promise-that-fits/scope.md",
+    "docs/product-slices/01-a-promise-that-fits/adr.md",
+    "docs/product-slices/01-a-promise-that-fits/evidence.md",
+    "docs/product.md",
+    "docs/spike.md",
+    "README.md",
+    "AGENTS.md",
+    "package.json",
+    "playwright.config.ts"
+  ],
+  "stories": [
+    {
+      "id": "S01-00",
+      "title": "Provide private external integration configuration",
+      "user_story": "As the product owner, I want the slice's private service configuration available locally, so that squads can build and verify real integrations without committing secrets.",
+      "why_now": "The newly created .env.local must be validated without exposing values before credential-dependent engineering can begin safely.",
+      "scope_refs": [
+        "Scope §User and access boundary",
+        "Scope §Calendar policy — Access",
+        "Scope §Platform requirements",
+        "ADR §Configuration and secrets",
+        "ADR Decisions 6–8 and 13"
+      ],
+      "in_scope": [
+        "Create an ignored .env.local containing owner-supplied Telegram, OpenAI, and Google OAuth values plus locally generated token-encryption and dashboard-auth secrets and the fixed slice configuration.",
+        "Leave the Docker-generated local Supabase URL and server credential for S01-01, which owns starting the local stack.",
+        "Record only key names, configuration categories, and pass/fail results in evidence."
+      ],
+      "out_of_scope": [
+        "Committing, logging, printing, or copying secret values into evidence.",
+        "Changing application source code.",
+        "Mutating Railway, Google, Telegram, Supabase, or OpenAI resources during Phase 1."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "The owner-supplied, locally generated, and fixed keys listed in .env.example, excluding the Docker-generated local Supabase pair",
+          "when": "the product owner supplies .env.local",
+          "then": "every required pre-Supabase key is present, non-placeholder, and non-empty."
+        },
+        {
+          "id": "AC2",
+          "given": ".env.local exists",
+          "when": "repository ignore and status rules are inspected",
+          "then": "the file and its values are not tracked by Git."
+        }
+      ],
+      "verification": {
+        "method": "inspection",
+        "commands": [
+          "node --env-file=.env.local -e 'const required=[\"TELEGRAM_BOT_TOKEN\",\"TELEGRAM_WEBHOOK_SECRET\",\"TELEGRAM_OWNER_USER_ID\",\"OPENAI_API_KEY\",\"OPENAI_MODEL\",\"OPENAI_PROMPT_VERSION\",\"GOOGLE_OAUTH_CLIENT_ID\",\"GOOGLE_OAUTH_CLIENT_SECRET\",\"GOOGLE_OWNER_EMAIL\",\"GOOGLE_TOKEN_ENCRYPTION_KEY\",\"GOOGLE_TOKEN_KEY_VERSION\",\"DASHBOARD_PASSWORD_HASH\",\"DASHBOARD_SESSION_SECRET\",\"OWNER_TIME_ZONE\",\"PUBLIC_APP_BASE_URL\"]; const missing=required.filter((key)=>{const value=process.env[key]?.trim(); return !value || /^<.*>$/.test(value)}); console.log(missing.length ? `Missing keys: ${missing.join(\", \")}` : `Present keys: ${required.join(\", \")}`); process.exitCode=missing.length ? 1 : 0'",
+          "test -s .env.local",
+          "git check-ignore -q .env.local"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-00/config-preflight.txt"
+          }
+        ],
+        "done_when": "A reviewer sees a value-free pass result for every pre-Supabase configuration key and confirms that .env.local is ignored."
+      },
+      "depends_on": [],
+      "blocks": [
+        "S01-01",
+        "S01-07",
+        "S01-12"
+      ],
+      "squad": {
+        "type": "owner-prerequisite",
+        "members": [
+          "product-owner"
+        ],
+        "rationale": "Only the product owner should provide and validate private account credentials; engineering squads must not manufacture or copy them."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/adr.md#configuration-and-secrets",
+          "docs/product-slices/01-a-promise-that-fits/scope.md#user-and-access-boundary",
+          ".env.example",
+          ".gitignore"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-01",
+      "title": "Open the owner-only live dashboard",
+      "user_story": "As the configured owner, I want to authenticate and see Shiori's live empty state, so that I know the protected browser, API, and durable source of truth are connected.",
+      "why_now": "This is the thinnest end-to-end walking skeleton and establishes the owner, configuration, persistence, and browser seams used by every later story.",
+      "scope_refs": [
+        "Scope §User and access boundary",
+        "Scope §Dashboard",
+        "Scope §Platform requirements",
+        "ADR Decisions 1, 4, 6, 12–14",
+        "ADR §Owner authentication API boundary"
+      ],
+      "in_scope": [
+        "Validate server configuration without exposing values and keep the value-free .env.example current.",
+        "Verify the configured owner password with Argon2id, issue a short-lived signed secure cookie, and rate-limit login attempts.",
+        "Protect all initial dashboard reads and refuse unauthenticated access without owner data.",
+        "Exclude .env.local and other local environment files from Git and container build contexts while retaining .env.example.",
+        "Read an empty live dashboard summary from Supabase/Postgres through Fastify.",
+        "Render login, loading, empty, and error states with manual refresh in the existing React application.",
+        "Preserve the public health endpoint and one-service production build.",
+        "Initialize the local Supabase project and migrations, use its Docker-generated URL and server credential in the ignored .env.local, and make it the repeatable owner-read verification environment."
+      ],
+      "out_of_scope": [
+        "Telegram ingress or commitment creation.",
+        "Google OAuth or Calendar access.",
+        "Runtime sample commitments, summaries, outcomes, or history.",
+        "Dashboard commitment mutations or polished populated-state history."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "no valid owner session",
+          "when": "a dashboard page or owner API is requested",
+          "then": "owner state is refused and no protected data is exposed."
+        },
+        {
+          "id": "AC2",
+          "given": "the configured password and invalid-password attempts",
+          "when": "the login boundary is exercised",
+          "then": "only the valid owner is admitted, a short-lived HttpOnly Secure SameSite=Lax cookie is issued, and repeated failures are rate-limited."
+        },
+        {
+          "id": "AC3",
+          "given": "an authenticated owner and an empty live database",
+          "when": "the dashboard summary is requested",
+          "then": "Fastify returns factual zero counts and no commitment records from Postgres."
+        },
+        {
+          "id": "AC4",
+          "given": "login, loading, empty, and API-failure conditions",
+          "when": "the browser is used at phone and desktop widths",
+          "then": "each state is explicit, usable, and contains no runtime mock product data."
+        },
+        {
+          "id": "AC5",
+          "given": "the dashboard is authenticated",
+          "when": "the owner refreshes it",
+          "then": "the visible last-updated time changes from a fresh owner API response."
+        },
+        {
+          "id": "AC6",
+          "given": "the new authentication and persistence boundaries",
+          "when": "the public health endpoint and production build are checked",
+          "then": "the existing health contract remains operational and the browser still ships from Fastify."
+        },
+        {
+          "id": "AC7",
+          "given": "the browser bundle, network calls, Git status, and container build context",
+          "when": "they are inspected",
+          "then": "the browser contains no Supabase credential, accesses product data only through Fastify, and no local environment file is tracked or uploaded."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/app.test.ts",
+          "npm run test:db",
+          "npm run test:e2e -- tests/e2e/owner-dashboard.spec.ts",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-01/npm-check.txt"
+          },
+          {
+            "type": "test-output",
+            "path": "evidence/S01-01/owner-auth-api.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-01/live-empty-summary.json"
+          },
+          {
+            "type": "screenshot",
+            "path": "evidence/S01-01/dashboard-empty-desktop.png"
+          },
+          {
+            "type": "screenshot",
+            "path": "evidence/S01-01/dashboard-empty-mobile.png"
+          }
+        ],
+        "done_when": "From a clean checkout with the configured test database, a reviewer can log in, receive a live empty summary, refresh it, and confirm unauthenticated refusal on phone and desktop."
+      },
+      "depends_on": [
+        "S01-00"
+      ],
+      "blocks": [
+        "S01-02",
+        "S01-07"
+      ],
+      "squad": {
+        "type": "ux-flow",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "The walking skeleton crosses the owner contract, browser states, security boundary, Fastify API, and live persistence, so product, design, implementation, and independent verification must stay aligned."
+      },
+      "context": {
+        "read_first": [
+          "AGENTS.md",
+          "docs/product-slices/01-a-promise-that-fits/scope.md#user-and-access-boundary",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-6-owner-boundaries",
+          ".env.example",
+          "server/src/app.ts",
+          "web/src/App.tsx",
+          "playwright.config.ts"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-02",
+      "title": "Refuse unsafe Telegram ingress and answer status",
+      "user_story": "As the configured Telegram owner, I want only my private authenticated updates accepted and a safe status response, so that Shiori exposes no owner state to other chats.",
+      "why_now": "The owner and persistence seams now exist; this adds the smallest replay-safe Telegram vertical before any language-model or commitment mutation.",
+      "scope_refs": [
+        "Scope §Telegram behavior — Owner boundary",
+        "Scope §Telegram behavior — Idempotency",
+        "Scope §/status",
+        "Scope §Data retention",
+        "ADR Decisions 1, 4–6 and 13"
+      ],
+      "in_scope": [
+        "Add POST /api/telegram/webhook with Telegram secret-header validation.",
+        "Accept only the configured numeric owner in a private chat and durably capture the private chat ID.",
+        "Persist only Telegram update identity and processing state, never the complete webhook payload.",
+        "Make update processing idempotent.",
+        "Return an empty /status response for the authenticated owner.",
+        "Return a generic refusal for unauthorized users or non-private chats without owner data."
+      ],
+      "out_of_scope": [
+        "Free-text classification, OpenAI calls, drafts, commitments, or callbacks.",
+        "Telegram groups, channels, files, images, or voice.",
+        "Scheduled delivery."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a Telegram webhook request with an invalid or missing secret header",
+          "when": "Fastify receives it",
+          "then": "the request is refused before any owner or product state is read or changed."
+        },
+        {
+          "id": "AC2",
+          "given": "an update from a non-owner or non-private chat",
+          "when": "it is processed",
+          "then": "a generic refusal is produced and no owner data is exposed."
+        },
+        {
+          "id": "AC3",
+          "given": "the configured owner's private chat",
+          "when": "the first valid update arrives",
+          "then": "the chat ID needed for scheduled delivery is stored without retaining the full payload."
+        },
+        {
+          "id": "AC4",
+          "given": "the configured owner sends /status with no active commitments",
+          "when": "the command is processed",
+          "then": "Shiori returns a factual empty status response."
+        },
+        {
+          "id": "AC5",
+          "given": "the same Telegram update ID is delivered more than once",
+          "when": "the webhook is replayed",
+          "then": "it produces no repeated state transition or duplicate processing record."
+        },
+        {
+          "id": "AC6",
+          "given": "the stored Telegram update record and application logs",
+          "when": "they are inspected",
+          "then": "they contain no complete webhook payload, message text, credential, or owner-state disclosure."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/telegram/webhook.test.ts",
+          "npm run test:db",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-02/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-02/telegram-owner-boundary.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-02/webhook-replay-counts.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-02/persistence-redaction-audit.md"
+          }
+        ],
+        "done_when": "A reviewer can replay owner, non-owner, group, and invalid-secret fixtures and observe one accepted owner update, generic refusals, an empty status, and no retained payload."
+      },
+      "depends_on": [
+        "S01-01"
+      ],
+      "blocks": [
+        "S01-03"
+      ],
+      "squad": {
+        "type": "integration-security",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "The story introduces a security-sensitive external boundary and user-facing refusal/status copy, with replay and retention behavior requiring independent QA."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#telegram-behavior",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-5-telegram-text-plus-versioned-inline-actions",
+          "server/src/app.ts",
+          "server/src/persistence/",
+          "server/src/dashboard/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-03",
+      "title": "Confirm one simple-action promise",
+      "user_story": "As the owner, I want Shiori to understand, clarify, and confirm one simple action before saving it, so that only the promise I explicitly approve becomes durable.",
+      "why_now": "Telegram ingress is safe and replay-aware; this story adds the first commitment vertical without exposing a Confirm action before its atomic transition works.",
+      "scope_refs": [
+        "Scope §Main user journeys — Simple action",
+        "Scope §Main user journeys — Implied intention",
+        "Scope §Main user journeys — Ordinary question",
+        "Scope §Input and decision contract",
+        "Scope §Draft rules",
+        "Scope §Confirmation contract",
+        "ADR Decisions 2–5 and 13–14"
+      ],
+      "in_scope": [
+        "Introduce a provider-neutral DecisionEngine with strict structured output and an OpenAI implementation.",
+        "Classify explicit commitments, implied intentions, and ordinary questions without giving the model authorization.",
+        "Clarify one missing field at a time and validate definition of done, target, owner time zone, and simple-action mode.",
+        "Persist one restart-safe, versioned active draft with 24-hour inactivity expiry.",
+        "Ask permission before advancing an implied intention; before agreement, persist at most its validated non-actionable model-decision audit row and no draft, commitment, session, schedule, reminder, or raw transcript.",
+        "Answer ordinary questions without actionable product-state mutation.",
+        "Accept corrections, re-render the complete summary, and stale previous actions.",
+        "Atomically confirm exactly one simple commitment, one pending reminder, and append-only creation events; allow draft cancellation without saving."
+      ],
+      "out_of_scope": [
+        "Reminder delivery or Done/cancel transitions on a saved commitment.",
+        "Calendar access, work sessions, recurrence, or saved-commitment editing.",
+        "Open-ended tool selection, chain-of-thought storage, or runtime decision mock data."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "representative explicit, implied, and ordinary Telegram turns",
+          "when": "the strict DecisionEngine result is validated",
+          "then": "each turn receives the correct class, extracted fields, missing fields, and bounded next action."
+        },
+        {
+          "id": "AC2",
+          "given": "an explicit simple-action request missing required information",
+          "when": "the conversation continues",
+          "then": "Shiori asks one concise question at a time and persists restart-safe draft state without creating a commitment or reminder."
+        },
+        {
+          "id": "AC3",
+          "given": "an implied intention or ordinary question",
+          "when": "it is processed",
+          "then": "the implied intention asks permission before commitment flow, at most a validated non-actionable model-decision audit row is stored, and neither input creates or changes a draft, commitment, session, or scheduled message."
+        },
+        {
+          "id": "AC4",
+          "given": "one active draft, a correction, or a second commitment request",
+          "when": "the turn is processed",
+          "then": "the draft is never silently overwritten, accepted corrections increment its version, and the full summary is shown again."
+        },
+        {
+          "id": "AC5",
+          "given": "a current complete simple-action draft",
+          "when": "the confirmation summary is rendered",
+          "then": "it shows definition of done, target/reminder time, check status, no-Calendar-write statement, Confirm, and Cancel."
+        },
+        {
+          "id": "AC6",
+          "given": "the current Confirm action",
+          "when": "it is accepted",
+          "then": "one commitment, one pending simple reminder, and their creation events are stored atomically, while replay creates no duplicate."
+        },
+        {
+          "id": "AC7",
+          "given": "an expired, cancelled, stale, refused, timed-out, incomplete, schema-invalid, or semantically invalid decision",
+          "when": "processing finishes",
+          "then": "no consequential transition occurs and the user receives a safe retry or stale-state response."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/decision/engine.test.ts src/telegram/conversation.test.ts",
+          "npm run test:db",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-03/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03/three-way-decisions.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03/draft-lifecycle.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03/pre-confirmation-state.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-03/simple-confirmation-transaction.json"
+          }
+        ],
+        "done_when": "A reviewer can prove all three input classes, restart-safe draft rules, no pre-agreement actionable state beyond the allowed audit row, and one atomic simple-action confirmation."
+      },
+      "depends_on": [
+        "S01-02"
+      ],
+      "blocks": [
+        "S01-04",
+        "S01-08",
+        "S01-09"
+      ],
+      "squad": {
+        "type": "decision-flow",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "The story joins language judgment, conversational copy, versioned persistence, and an atomic product transition, so PM and QA must independently bound the staff implementation and designer-owned flow."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#input-and-decision-contract",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-2-bounded-openai-decision-engine",
+          "server/src/telegram/",
+          "server/src/persistence/",
+          "server/src/dashboard/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-04",
+      "title": "Deliver and resolve the simple reminder",
+      "user_story": "As the owner, I want my confirmed simple action reminded once and closable with Done, so that the promise is followed through without duplicate or nagging messages.",
+      "why_now": "A confirmed simple action and durable pending reminder now exist; this completes the first reminder/outcome loop before Calendar-aware sessions deepen it.",
+      "scope_refs": [
+        "Scope §Main user journeys — Simple action",
+        "Scope §Telegram behavior — Inline actions and Idempotency",
+        "Scope §Reminder and check-in rules",
+        "ADR Decisions 3–5 and 10–11"
+      ],
+      "in_scope": [
+        "Poll and transactionally claim due simple reminders from Postgres.",
+        "Send one Telegram reminder with Done and Cancel actions using a unique logical delivery key.",
+        "Record delivered, known retryable, or delivery-unknown results honestly.",
+        "Accept Done once, record the actual completion time, and cancel unsent messages atomically.",
+        "Return resolved state for a replayed Done action.",
+        "Create no follow-up after reminder non-response."
+      ],
+      "out_of_scope": [
+        "Restart and concurrent-claim stress beyond the base transaction contract.",
+        "Saved-commitment cancellation semantics, which belong to S01-06.",
+        "Work-session start or end messages.",
+        "External queues, Redis, cron jobs, or additional replicas."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "one due simple reminder",
+          "when": "the in-process scheduler polls",
+          "then": "the message is transactionally claimed under its unique logical key and one attempt event is recorded."
+        },
+        {
+          "id": "AC2",
+          "given": "Telegram confirms the send",
+          "when": "delivery completes",
+          "then": "one reminder with Done and Cancel is recorded as delivered."
+        },
+        {
+          "id": "AC3",
+          "given": "an active commitment and the reminder's current Done action",
+          "when": "Done is accepted",
+          "then": "the commitment closes once at the actual completion time and pending messages are cancelled atomically."
+        },
+        {
+          "id": "AC4",
+          "given": "a replayed Done action or repeated due-item observation",
+          "when": "it is processed",
+          "then": "no second completion, delivery, or ledger event is created."
+        },
+        {
+          "id": "AC5",
+          "given": "a known-safe failure or ambiguous send result",
+          "when": "delivery is classified",
+          "then": "known-safe retries are bounded and ambiguity becomes delivery_unknown without automatic resend."
+        },
+        {
+          "id": "AC6",
+          "given": "the owner does not respond",
+          "when": "the remaining schedule and ledger are inspected",
+          "then": "no additional notification exists and the commitment remains outstanding."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/scheduler/scheduler.test.ts src/commitments/simple-action.test.ts",
+          "npm run test:db",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-04/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-04/simple-reminder-delivery.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-04/done-transition.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-04/non-response-schedule.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-04/delivery-ambiguity.json"
+          }
+        ],
+        "done_when": "A reviewer can advance a due reminder, observe one logical delivery, press Done once, replay it safely, and inspect that non-response schedules no follow-up."
+      },
+      "depends_on": [
+        "S01-03"
+      ],
+      "blocks": [
+        "S01-05",
+        "S01-06"
+      ],
+      "squad": {
+        "type": "backend-core",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "The first scheduled user-facing message joins delivery semantics, callback copy, transactional state, and outcome intent; QA must verify it independently of the implementer."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#reminder-and-check-in-rules",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-10-database-backed-in-process-scheduler",
+          "server/src/commitments/",
+          "server/src/persistence/",
+          "server/src/telegram/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-05",
+      "title": "Make scheduled delivery restart-safe",
+      "user_story": "As the owner, I want reminders to survive restarts without deliberate duplicates, so that scheduled follow-through remains durable and honest.",
+      "why_now": "The base scheduler works; reliability must be hardened before work-session start and end messages depend on it.",
+      "scope_refs": [
+        "Scope §Telegram behavior — Idempotency",
+        "Scope §Reminder and check-in rules",
+        "Scope §Rabbit holes and patches — Exactly-once Telegram delivery is impossible",
+        "Scope §Rabbit holes and patches — Deployment restarts lose timers",
+        "ADR Decisions 3–4, 10 and 14"
+      ],
+      "in_scope": [
+        "Enforce unique logical delivery keys and concurrent transactional claims.",
+        "Recover expired claim leases after a bounded period.",
+        "Preserve pending schedules across process and Railway restarts.",
+        "Bound known-safe retries while keeping the same logical identity.",
+        "Record a definitive non-retryable provider rejection as terminal permanent_failure and never retry it.",
+        "Mark ambiguous sends delivery_unknown and never automatically resend them.",
+        "Verify claim and uniqueness constraints against a real disposable Postgres target."
+      ],
+      "out_of_scope": [
+        "New user-facing reminder types.",
+        "More than one Railway replica.",
+        "External queues, Redis, cron jobs, or Supabase Edge Functions.",
+        "Changing the at-most-once bias accepted by the ADR."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "multiple workers poll the same due logical message",
+          "when": "the database claim function runs concurrently",
+          "then": "only one current lease is granted and one logical attempt identity exists."
+        },
+        {
+          "id": "AC2",
+          "given": "a process stops after claiming but before a definitive result",
+          "when": "the bounded lease expires and the service resumes",
+          "then": "the claim is recovered only under the ADR's safe retry rules."
+        },
+        {
+          "id": "AC3",
+          "given": "a pending schedule before a Railway restart",
+          "when": "the service returns",
+          "then": "the durable item remains claimable without creating a duplicate schedule."
+        },
+        {
+          "id": "AC4",
+          "given": "a known-safe retryable failure",
+          "when": "retry policy is exhausted",
+          "then": "attempts remain bounded and reuse the logical key."
+        },
+        {
+          "id": "AC5",
+          "given": "an ambiguous external send result",
+          "when": "the result is recorded",
+          "then": "the state is delivery_unknown and no automatic resend occurs."
+        },
+        {
+          "id": "AC6",
+          "given": "a definitive non-retryable provider rejection",
+          "when": "the result is recorded",
+          "then": "the state is terminal permanent_failure and no retry is scheduled."
+        }
+      ],
+      "verification": {
+        "method": "script",
+        "commands": [
+          "npm run test:db -- --scenario scheduler-claims",
+          "npm run test --workspace @shiori/server -- src/scheduler/scheduler.test.ts",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-05/npm-check.txt"
+          },
+          {
+            "type": "test-output",
+            "path": "evidence/S01-05/concurrent-claim-test.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-05/restart-recovery-timeline.md"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-05/ambiguity-no-retry.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-05/permanent-failure.json"
+          }
+        ],
+        "done_when": "A reviewer can run concurrent claim, expired lease, restart, safe retry, permanent-rejection, and ambiguous-send scenarios and observe one durable logical schedule with no deliberate duplicate."
+      },
+      "depends_on": [
+        "S01-04"
+      ],
+      "blocks": [
+        "S01-09",
+        "S01-10",
+        "S01-12"
+      ],
+      "squad": {
+        "type": "reliability",
+        "members": [
+          "pm",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "This is a database-coordination and delivery-semantics hardening story with no new visual surface; PM guards the guarantee while staff and QA prove it under failure."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#exactly-once-telegram-delivery-is-impossible",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-10-database-backed-in-process-scheduler",
+          "server/src/scheduler/",
+          "server/src/persistence/",
+          "server/src/telegram/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-06",
+      "title": "Manage active promises through status",
+      "user_story": "As the owner, I want to review, complete, or cancel active promises from Telegram, so that I can manage the saved state explicitly without editing it.",
+      "why_now": "The simple reminder loop is durable; this completes the bounded Telegram management surface before work sessions and the rich dashboard rely on its terminal states.",
+      "scope_refs": [
+        "Scope §Main user journeys — Cancellation",
+        "Scope §Telegram behavior — Inline actions and Idempotency",
+        "Scope §/status",
+        "Scope §Reminder and check-in rules",
+        "ADR Decisions 3–5, 11 and 13"
+      ],
+      "in_scope": [
+        "List active commitments by target with definition of done, target, overdue state, next simple reminder or work session, and Calendar-check status.",
+        "Expose only Done and Cancel actions from /status.",
+        "Allow Done once from /status or the reminder and record late completion time.",
+        "Cancel a draft directly.",
+        "Require a second explicit confirmation before cancelling a saved commitment.",
+        "Cancel unsent messages while preserving append-only events.",
+        "Reject stale or replayed management actions safely."
+      ],
+      "out_of_scope": [
+        "Editing a saved commitment or moving its target.",
+        "Dashboard write controls.",
+        "Undo, reopen, recurring commitments, Snooze, or Skip.",
+        "Calendar writes."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "multiple active commitments",
+          "when": "the owner sends /status",
+          "then": "they are ordered by target and show every scope-required status field with Done and Cancel only."
+        },
+        {
+          "id": "AC2",
+          "given": "an active or overdue commitment",
+          "when": "Done is accepted from /status or a reminder",
+          "then": "it closes once at the actual completion time and unsent messages are cancelled."
+        },
+        {
+          "id": "AC3",
+          "given": "a draft Cancel action",
+          "when": "it is accepted",
+          "then": "the draft becomes cancelled and no commitment or reminder is created."
+        },
+        {
+          "id": "AC4",
+          "given": "an active saved commitment",
+          "when": "Cancel is pressed once",
+          "then": "Shiori asks for a second explicit confirmation without changing the commitment."
+        },
+        {
+          "id": "AC5",
+          "given": "the second current cancellation confirmation",
+          "when": "it is accepted",
+          "then": "the commitment closes once, unsent messages are cancelled, prior events remain append-only, and no Calendar write occurs."
+        },
+        {
+          "id": "AC6",
+          "given": "a stale, repeated, or already-resolved Done or Cancel action",
+          "when": "it is processed",
+          "then": "the current resolved state is returned without another transition or event."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/telegram/status-cancel.test.ts",
+          "npm run test:db",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-06/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-06/status-ordering.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-06/done-idempotency.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-06/cancellation-confirmation.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-06/ledger-preservation.json"
+          }
+        ],
+        "done_when": "A reviewer can inspect an ordered /status response, complete once, cancel only after the second confirmation, and replay every action without changing counts."
+      },
+      "depends_on": [
+        "S01-04"
+      ],
+      "blocks": [
+        "S01-10",
+        "S01-11"
+      ],
+      "squad": {
+        "type": "telegram-management",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "The story is a user-facing consequential-action flow whose copy, double confirmation, state transitions, and idempotency need all four roles."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#status",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-5-telegram-text-plus-versioned-inline-actions",
+          "server/src/telegram/",
+          "server/src/commitments/",
+          "server/src/scheduler/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-07",
+      "title": "Connect the owner's read-only Calendar",
+      "user_story": "As the owner, I want to connect and reconnect my personal Google Calendar securely, so that Shiori can check availability without gaining write access.",
+      "why_now": "The protected dashboard and owner session exist, allowing the Calendar connection to be added independently before any availability behavior depends on it.",
+      "scope_refs": [
+        "Scope §Calendar policy — Access",
+        "Scope §Calendar policy — Allowed Calendar fields",
+        "Scope §Dashboard",
+        "Scope §Data retention",
+        "ADR Decisions 1, 6–8 and 13–14"
+      ],
+      "in_scope": [
+        "Start Connect/Reconnect only from a valid owner session with OAuth state bound to that session.",
+        "Request offline access and the minimum identity plus read-only Calendar scopes.",
+        "Verify the returned Google identity exactly matches the configured owner email.",
+        "Exchange credentials server-side and expose no token or authorization code to browser JavaScript.",
+        "Authenticated-encrypt the refresh token before persistence and atomically replace it on Reconnect.",
+        "Represent disconnected, connected, authorization-expired, and temporarily unavailable states.",
+        "Use only the personal account's primary Calendar."
+      ],
+      "out_of_scope": [
+        "Disconnect or revocation.",
+        "Google OAuth production verification or publishing.",
+        "Calendar writes, multiple accounts, multiple Calendars, or a full agenda.",
+        "Availability calculation or work-session confirmation."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a valid owner session",
+          "when": "Connect or Reconnect begins",
+          "then": "OAuth state is owner-session-bound and only required identity plus read-only Calendar scopes are requested."
+        },
+        {
+          "id": "AC2",
+          "given": "a callback with invalid state or a different Google email",
+          "when": "the callback is validated",
+          "then": "no connection or token is stored."
+        },
+        {
+          "id": "AC3",
+          "given": "a matching configured owner account",
+          "when": "the callback succeeds",
+          "then": "the refresh token is authenticated-encrypted before durable storage and never exposed to the browser."
+        },
+        {
+          "id": "AC4",
+          "given": "an existing connection",
+          "when": "Reconnect succeeds",
+          "then": "the encrypted credential and metadata are replaced atomically."
+        },
+        {
+          "id": "AC5",
+          "given": "disconnected, connected, expired, and temporarily unavailable states",
+          "when": "the dashboard refreshes",
+          "then": "it shows the exact state and the applicable Connect or Reconnect action."
+        },
+        {
+          "id": "AC6",
+          "given": "Calendar authorization expires or Google is unavailable",
+          "when": "non-Calendar commitment functions are used",
+          "then": "they remain available and the health endpoint stays a liveness signal."
+        },
+        {
+          "id": "AC7",
+          "given": "the granted scopes, Calendar identifier, browser bundle, logs, and database",
+          "when": "they are inspected",
+          "then": "only primary-Calendar read access exists and no plaintext token, code, credential, or browser-visible secret is present."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/google/oauth.test.ts",
+          "npm run test:e2e -- tests/e2e/google-connection.spec.ts --project=chromium",
+          "npm run test:db",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-07/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-07/oauth-state-and-identity.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-07/oauth-scopes.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-07/token-exposure-audit.md"
+          },
+          {
+            "type": "screenshot",
+            "path": "evidence/S01-07/google-connection-states.png"
+          }
+        ],
+        "done_when": "A reviewer can connect and reconnect the matching test account through the protected dashboard and prove read-only primary-Calendar scope, encrypted storage, and no token exposure."
+      },
+      "depends_on": [
+        "S01-00",
+        "S01-01"
+      ],
+      "blocks": [
+        "S01-08",
+        "S01-11"
+      ],
+      "squad": {
+        "type": "oauth-integration",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "The story adds a security-sensitive dashboard flow, cryptographic persistence, provider integration, and visible recovery states requiring full cross-functional ownership."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#access",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-7-google-oauth-and-token-protection",
+          "server/src/auth/",
+          "server/src/dashboard/",
+          "web/src/App.tsx"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-08",
+      "title": "Calculate deterministic work windows",
+      "user_story": "As the owner, I want Shiori's proposed work windows to obey my real Calendar constraints, so that every offered option is valid and explainable.",
+      "why_now": "The connected Calendar and durable draft contracts now exist; the deterministic scheduling boundary can be proven before any Confirm button exposes it.",
+      "scope_refs": [
+        "Scope §Core concepts — Work session and Recovery session",
+        "Scope §Calendar policy — Allowed Calendar fields",
+        "Scope §Calendar policy — Availability rules",
+        "Scope §Calendar policy — Alternative ranking",
+        "ADR Decisions 2, 8–9 and 13–14"
+      ],
+      "in_scope": [
+        "Create a bounded Calendar adapter for the primary Calendar and allowed event fields.",
+        "Use Google FreeBusy as the authority for blocked intervals.",
+        "Calculate candidates in Asia/Singapore for 30, 60, 90, or 120 minutes.",
+        "Enforce default hours, explicit constraints, 30-minute boundaries, no midnight crossing, all-day busy, transparency, cancellation, a 14-day cap on generated pre-target searches, and a seven-day recovery cap.",
+        "Allow an exact owner-proposed interval beyond 14 days to be checked when it still begins no later than the immutable target.",
+        "Rank same-day later then earlier slots, then future slots, and return at most two alternatives.",
+        "Return no fit rather than relaxing constraints.",
+        "Keep event details out of model requests, durable product history, and unrestricted logs."
+      ],
+      "out_of_scope": [
+        "Saving a work session or scheduling its messages.",
+        "User-facing confirmation, keep-conflict, or unverified-save flows.",
+        "Calendar writes, buffers, optimality claims, continuous monitoring, or multiple Calendars."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a requested duration and Calendar busy intervals",
+          "when": "candidates are calculated",
+          "then": "only 30, 60, 90, or 120 minute sessions in Asia/Singapore on 30-minute boundaries are considered."
+        },
+        {
+          "id": "AC2",
+          "given": "default hours, explicit constraints, midnight, all-day events, transparent events, and cancelled events",
+          "when": "the availability policy runs",
+          "then": "every rule in the scope is applied deterministically without adding buffers."
+        },
+        {
+          "id": "AC3",
+          "given": "a generated target search, an explicit owner-proposed interval, or a recovery search",
+          "when": "the evaluation range is built",
+          "then": "generated pre-target search is capped at 14 days, an exact owner proposal beyond that cap may still be checked if it begins no later than the target, and recovery search is capped at seven days."
+        },
+        {
+          "id": "AC4",
+          "given": "a conflicting proposed time",
+          "when": "alternatives are ranked",
+          "then": "same-day nearest later then nearest earlier slots are preferred, followed by future chronological slots, with at most two results."
+        },
+        {
+          "id": "AC5",
+          "given": "no proposed time",
+          "when": "valid windows exist",
+          "then": "the earliest two fitting windows are returned without calling them objectively optimal."
+        },
+        {
+          "id": "AC6",
+          "given": "no window satisfies the policy",
+          "when": "search completes",
+          "then": "the result is no-fit and no constraint is silently relaxed."
+        },
+        {
+          "id": "AC7",
+          "given": "Calendar adapter responses, model requests, persistence, and logs",
+          "when": "their boundaries are inspected",
+          "then": "only allowed read-only fields enter the adapter and no Calendar event title or full object enters the model or product history."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/google/calendar.test.ts src/scheduling/availability.test.ts",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-08/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-08/availability-policy-matrix.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-08/alternative-ranking.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-08/calendar-request-redacted.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-08/model-and-persistence-privacy-audit.md"
+          }
+        ],
+        "done_when": "A reviewer can run fixed Calendar timelines through every availability and ranking rule and inspect that no event data crosses into the model or durable history."
+      },
+      "depends_on": [
+        "S01-03",
+        "S01-07"
+      ],
+      "blocks": [
+        "S01-09"
+      ],
+      "squad": {
+        "type": "scheduling-core",
+        "members": [
+          "pm",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "This is a deterministic policy engine with privacy boundaries and no new visual surface; PM owns the rule matrix while staff and QA implement and independently exhaust it."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#availability-rules",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-8-deterministic-calendar-boundary",
+          "server/src/google/",
+          "server/src/conversation/",
+          "server/src/decision/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-09",
+      "title": "Confirm one Calendar-aware work session",
+      "user_story": "As the owner, I want to choose and explicitly confirm one realistic work session around Calendar constraints, so that my promise has one durable next action without changing Google Calendar.",
+      "why_now": "Decision, draft, availability, Google connection, and durable scheduler contracts are stable; this story joins them into the central Calendar-aware confirmation vertical.",
+      "scope_refs": [
+        "Scope §Main user journeys — Explicit one-off commitment with work time",
+        "Scope §Confirmation contract",
+        "Scope §Calendar policy — Availability rules and Alternative ranking",
+        "Scope §Rabbit holes and patches — A Calendar suggestion becomes stale",
+        "ADR Decisions 3–5 and 8–11"
+      ],
+      "in_scope": [
+        "Offer work-time help only when work appears needed before the target and no window was supplied.",
+        "Collect one supported duration and owner timing constraints.",
+        "Present free windows or a sanitized conflict with at most two valid alternatives.",
+        "Require a new explicit confirmation to keep a conflicting time.",
+        "Bind suggestions and buttons to the current draft version.",
+        "Recheck Calendar availability at final confirmation and block a newly introduced conflict.",
+        "Offer and explicitly confirm an unverified save when Calendar is unavailable.",
+        "Atomically create one commitment, one future work session, one start reminder, one end check-in, and append-only events."
+      ],
+      "out_of_scope": [
+        "Sending the start or end messages.",
+        "Continuation, recovery, or more than one future session.",
+        "Calendar writes or post-save conflict monitoring.",
+        "Automatic target movement or constraint relaxation."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a possible duration-based commitment with no supplied work window",
+          "when": "the validated decision is processed",
+          "then": "Shiori offers help and collects one supported duration, while simple actions do not receive that offer."
+        },
+        {
+          "id": "AC2",
+          "given": "a free selected window",
+          "when": "the summary is shown",
+          "then": "definition of done, target, start/end, duration, check result/time, and the no-Calendar-write statement are explicit."
+        },
+        {
+          "id": "AC3",
+          "given": "a busy proposed window",
+          "when": "availability is checked",
+          "then": "Shiori explains the conflict without unrelated event exposure and offers no more than two correctly ranked valid alternatives."
+        },
+        {
+          "id": "AC4",
+          "given": "the owner chooses to keep a conflict",
+          "when": "the flow continues",
+          "then": "a new explicit confirmation is required and the saved session records conflict-kept."
+        },
+        {
+          "id": "AC5",
+          "given": "a previously free slot becomes busy before Confirm",
+          "when": "the version-bound final recheck runs",
+          "then": "saving is blocked and new choices are produced."
+        },
+        {
+          "id": "AC6",
+          "given": "Calendar is unavailable at confirmation",
+          "when": "the owner explicitly confirms Save without Calendar check",
+          "then": "the session is saved as unverified and is never described as free."
+        },
+        {
+          "id": "AC7",
+          "given": "a current acceptable final check",
+          "when": "Confirm is accepted or replayed",
+          "then": "exactly one commitment, one future session, one start item, one end item, and their events are created atomically, and replay creates no duplicate."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/work-sessions/confirm.test.ts",
+          "npm run test:db",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-09/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09/free-proposal.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09/busy-alternatives.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09/final-recheck.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09/unverified-save.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-09/atomic-session-confirmation.json"
+          }
+        ],
+        "done_when": "A reviewer can exercise free, busy, kept-conflict, newly changed, and unavailable Calendar timelines and observe only the explicitly confirmed single work session and two durable messages."
+      },
+      "depends_on": [
+        "S01-03",
+        "S01-05",
+        "S01-08"
+      ],
+      "blocks": [
+        "S01-10",
+        "S01-11"
+      ],
+      "squad": {
+        "type": "calendar-integration",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "This is the slice's central user flow, joining deterministic Calendar policy, consequential copy and confirmation, atomic persistence, and scheduling under independent QA."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#explicit-one-off-commitment-with-work-time",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-9-final-availability-recheck",
+          "server/src/conversation/",
+          "server/src/scheduling/",
+          "server/src/scheduler/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-10",
+      "title": "Continue or recover after a work session",
+      "user_story": "As the owner, I want one start reminder, one end check-in, and an explicit option for one more attempt, so that Shiori records what happened without creating an open-ended plan.",
+      "why_now": "A single work session and durable message pair can now be confirmed; this completes its outcome, continuation, and recovery loop.",
+      "scope_refs": [
+        "Scope §Core concepts — Recovery session",
+        "Scope §Main user journeys — Missed or incomplete work session",
+        "Scope §Telegram behavior — Inline actions",
+        "Scope §Reminder and check-in rules",
+        "Scope §Rabbit holes and patches — Work-session continuation becomes an unbounded plan",
+        "ADR Decisions 3–5 and 10–11"
+      ],
+      "in_scope": [
+        "Deliver exactly one start reminder with Done and one end check-in with Done, Need more time, and Missed this session.",
+        "Suppress the end check-in when the commitment is already done or cancelled.",
+        "Record Done, partial work without a percentage, or missed work exactly once.",
+        "Ask for remaining duration after Need more time and whether another window is wanted after Missed.",
+        "Create no next session until the owner explicitly opts in, selects a Calendar-checked window, and confirms it.",
+        "Enforce at most one future planned session and preserve ordered past-session history.",
+        "After no pre-target slot fits, allow a recovery slot to be offered before the target passes, require it to start after the target within the seven-day recovery range, keep the target immutable, and derive overdue only after the target passes.",
+        "Create no additional notification after non-response."
+      ],
+      "out_of_scope": [
+        "Automatic continuation, automatic recovery, multiple planned sessions, or target movement.",
+        "Progress percentages, coaching, behavioral inference, Snooze, or Skip.",
+        "Calendar writes or ongoing conflict monitoring."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a due planned session",
+          "when": "start and end times arrive",
+          "then": "one start reminder is delivered and, if the commitment remains active, one end check-in is delivered with the exact allowed actions."
+        },
+        {
+          "id": "AC2",
+          "given": "Done at the start, end, or /status",
+          "when": "it is accepted",
+          "then": "the session and commitment close once and any unsent end or future messages are cancelled."
+        },
+        {
+          "id": "AC3",
+          "given": "Need more time",
+          "when": "it is accepted",
+          "then": "partial work is recorded without a percentage, the commitment remains active, and Shiori asks for remaining duration without creating a future session."
+        },
+        {
+          "id": "AC4",
+          "given": "Missed this session",
+          "when": "it is accepted",
+          "then": "no work is recorded, the commitment remains active, and Shiori asks whether another window is wanted without creating one automatically."
+        },
+        {
+          "id": "AC5",
+          "given": "the owner explicitly requests another attempt",
+          "when": "a version-current Calendar-checked window is confirmed",
+          "then": "exactly one next session and its two messages are added while all past results remain append-only."
+        },
+        {
+          "id": "AC6",
+          "given": "no fitting pre-target window remains",
+          "when": "recovery is evaluated before or after the target and a recovery session is confirmed",
+          "then": "it may be offered immediately, begins after the target within the seven-day recovery range, leaves the target unchanged, and the commitment becomes or remains overdue only after the target passes."
+        },
+        {
+          "id": "AC7",
+          "given": "no response, restart, or replay of a start, end, or outcome action",
+          "when": "the schedule and ledger are inspected",
+          "then": "no additional notification, duplicate logical delivery, duplicate session, or duplicate outcome exists."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/work-sessions/outcomes.test.ts",
+          "npm run test:db",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-10/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10/start-and-end-delivery.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10/done-transition.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10/more-time-flow.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10/missed-flow.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-10/recovery-session.json"
+          }
+        ],
+        "done_when": "A reviewer can drive start, end, Done, Need more time, Missed, decline, continuation, proactive recovery, non-response, and replay paths while observing at most one future session, an immutable target, and time-derived overdue state."
+      },
+      "depends_on": [
+        "S01-05",
+        "S01-06",
+        "S01-09"
+      ],
+      "blocks": [
+        "S01-11"
+      ],
+      "squad": {
+        "type": "outcome-flow",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "The story completes a user-visible state machine across timed delivery, nuanced outcome copy, Calendar reuse, uniqueness constraints, and recovery semantics."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#missed-or-incomplete-work-session",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-11-work-session-notification-model",
+          "server/src/work-sessions/",
+          "server/src/scheduler/",
+          "server/src/scheduling/"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-11",
+      "title": "Show the same live state on the dashboard",
+      "user_story": "As the owner, I want a clear read-only view of every live commitment, session, delivery, and outcome, so that I can trust Telegram and the dashboard show the same truth.",
+      "why_now": "All product states now exist in the single source of truth, so the initial dashboard skeleton can be deepened without inventing data or becoming a second management surface.",
+      "scope_refs": [
+        "Scope §/status",
+        "Scope §Dashboard",
+        "Scope §Data retention",
+        "Scope §Rabbit holes and patches — Dashboard becomes a second management surface",
+        "ADR Decisions 1, 6 and 12–14"
+      ],
+      "in_scope": [
+        "Derive active, due-today, and overdue counts in Asia/Singapore.",
+        "Show active cards with definition of done, target, next session or reminder, duration, historical Calendar status, and delivery state.",
+        "Show past work-session results, recent completed and cancelled commitments, and short append-only event history.",
+        "Show Google connection state, connected owner email, and last successful Calendar check.",
+        "Support factual populated, empty, loading, and error states.",
+        "Show last-updated time and manual refresh.",
+        "Provide usable phone and desktop layouts.",
+        "Expose no commitment creation, edit, completion, cancellation, or rescheduling API or control."
+      ],
+      "out_of_scope": [
+        "WebSockets or live subscriptions.",
+        "Full Calendar agenda or Calendar mutation.",
+        "Commitment management from the dashboard.",
+        "Runtime sample data, weekly analytics, coaching, patterns, or experiments."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "live owner data",
+          "when": "dashboard summary APIs respond",
+          "then": "active, due-today, and overdue counts are derived correctly in Asia/Singapore."
+        },
+        {
+          "id": "AC2",
+          "given": "active simple and duration-based commitments",
+          "when": "cards render",
+          "then": "every required target, next action, duration, Calendar-check, and delivery field matches the source of truth."
+        },
+        {
+          "id": "AC3",
+          "given": "past sessions and terminal commitments",
+          "when": "history renders",
+          "then": "session results, recent done/cancelled records, and append-only events are factual and ordered."
+        },
+        {
+          "id": "AC4",
+          "given": "each Google connection health state",
+          "when": "the dashboard refreshes",
+          "then": "connection status, configured email, last successful check, and Connect/Reconnect affordance are accurate."
+        },
+        {
+          "id": "AC5",
+          "given": "populated, empty, loading, error, and manual-refresh conditions",
+          "when": "the browser changes state",
+          "then": "the corresponding explicit state and last-updated time are visible."
+        },
+        {
+          "id": "AC6",
+          "given": "phone and desktop widths",
+          "when": "the protected dashboard is inspected",
+          "then": "authentication and every required factual field remain usable."
+        },
+        {
+          "id": "AC7",
+          "given": "the dashboard UI, API routes, browser bundle, and network calls",
+          "when": "they are inspected",
+          "then": "all product data is live through Fastify and no commitment mutation or direct Supabase access exists."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/dashboard/read-model.test.ts",
+          "npm run test:e2e -- tests/e2e/dashboard.spec.ts",
+          "npm run check"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-11/npm-check.txt"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-11/dashboard-api-parity.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-11/telegram-ledger-dashboard-parity.json"
+          },
+          {
+            "type": "screenshot",
+            "path": "evidence/S01-11/dashboard-populated-desktop.png"
+          },
+          {
+            "type": "screenshot",
+            "path": "evidence/S01-11/dashboard-populated-mobile.png"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-11/read-only-boundary-audit.md"
+          }
+        ],
+        "done_when": "A reviewer can match representative entity IDs and timestamps across Telegram, ledger, owner API, and responsive dashboard, including empty/error states, with no dashboard mutation."
+      },
+      "depends_on": [
+        "S01-06",
+        "S01-07",
+        "S01-09",
+        "S01-10"
+      ],
+      "blocks": [
+        "S01-12"
+      ],
+      "squad": {
+        "type": "dashboard-ux",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "This is the complete read-only visual product surface, requiring PM field coverage, designer state/layout ownership, staff read-model work, and independent API/browser parity verification."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md#dashboard",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-12-dashboard-read-model",
+          "server/src/dashboard/",
+          "server/src/work-sessions/",
+          "web/src/App.tsx"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S01-12",
+      "title": "Verify and ship the deployed slice",
+      "user_story": "As the product owner, I want redacted deployed evidence for every accepted behavior and boundary, so that the slice can be declared shipped honestly.",
+      "why_now": "All implementation stories and automated gates are complete; the slice still requires real-service Railway verification and an indexed evidence record.",
+      "scope_refs": [
+        "Scope §Acceptance criteria",
+        "Scope §Definition of shipped",
+        "ADR Decision 14",
+        "ADR §Operational behavior",
+        "Evidence §Scenario matrix",
+        "Evidence §Detailed evidence"
+      ],
+      "in_scope": [
+        "Run the clean-checkout typecheck, API tests, production build, browser tests, and real database checks with Node 24.",
+        "Deploy the current source to the dedicated shiori-slice-01 Railway service, use one replica, and observe terminal deployment success without targeting or changing shiori-spike.",
+        "Use connected Railway tooling to resolve and record the explicit project, environment, service, and public domain, then run a value-redacting release command that refuses a dirty tree, records the exact HEAD SHA, deploys only that source state, and waits for terminal status.",
+        "Configure and verify the Telegram webhook and Google OAuth local/deployed callback without recording secrets.",
+        "Exercise evidence scenarios S1–S28 against the deployed service where safe and use controlled deterministic fault injection where production injection is not approved.",
+        "Verify restart, replay, authorization, Calendar scope, model privacy, persistence privacy, delivery ambiguity, and dashboard parity boundaries.",
+        "Store redacted artifacts under evidence/<story-id>/ and make the slice evidence.md the index.",
+        "Record environment, commit, deployment, model, prompt, migration, limitations, results, and final sign-off."
+      ],
+      "out_of_scope": [
+        "New product behavior or weakened acceptance criteria.",
+        "Unapproved destructive production fault injection.",
+        "Formal evaluation platforms, repeated scoring, performance studies, cost studies, or trace-analysis systems.",
+        "Secrets, OAuth codes, tokens, cookies, authorization headers, unrelated Calendar events, or unrelated personal conversations in evidence."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a clean checkout on Node 24 with approved configuration",
+          "when": "the full repository and database verification commands run",
+          "then": "typecheck, API tests, build, browser tests, and database constraints all pass."
+        },
+        {
+          "id": "AC2",
+          "given": "the source state selected for release",
+          "when": "it is deployed to Railway",
+          "then": "the current deployment reaches terminal SUCCESS on one replica and the public health endpoint returns the agreed liveness response."
+        },
+        {
+          "id": "AC3",
+          "given": "the configured real Telegram, OpenAI, Supabase, and Google services",
+          "when": "evidence scenarios S1–S18 run",
+          "then": "the complete intention, simple-action, Calendar-aware, reminder, outcome, recovery, non-response, and cancellation journeys pass."
+        },
+        {
+          "id": "AC4",
+          "given": "restart, webhook replay, callback replay, unauthorized access, and ambiguous-delivery exercises",
+          "when": "evidence scenarios S19–S23 and S27 run",
+          "then": "durability, uniqueness, owner boundaries, and honest delivery state pass without duplicate product transitions."
+        },
+        {
+          "id": "AC5",
+          "given": "Calendar, model, persistence, logs, browser bundle, Telegram, ledger, API, and dashboard inspection",
+          "when": "evidence scenarios S24–S26 and S28 run",
+          "then": "read-only/allowed-field, privacy, retention, server-only data access, and live parity boundaries pass."
+        },
+        {
+          "id": "AC6",
+          "given": "all scenario artifacts",
+          "when": "the slice evidence.md is completed",
+          "then": "it links redacted evidence for S1–S28, records known limitations and any owner-approved deviations, and contains no secret or unrelated personal data."
+        },
+        {
+          "id": "AC7",
+          "given": "any failed scenario or unapproved deviation",
+          "when": "final sign-off is considered",
+          "then": "the slice remains unshipped and the defect returns to its owning story without weakening an acceptance criterion."
+        }
+      ],
+      "verification": {
+        "method": "manual-check",
+        "commands": [
+          "npm ci",
+          "npm run test:db",
+          "npm run check",
+          "npm run verify:release -- --env-file=.env.local"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S01-12/npm-check.txt"
+          },
+          {
+            "type": "log",
+            "path": "evidence/S01-12/railway-deployment-status.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-12/release-manifest.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-12/deployed-health.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-12/scenario-index.md"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-12/privacy-and-boundary-audit.md"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-12/final-assessment.md"
+          }
+        ],
+        "done_when": "A reviewer can start from the recorded commit, observe a terminal-success Railway deployment, follow the evidence index through passing S1–S28 artifacts, and match the deployed health and dashboard parity without finding secrets."
+      },
+      "depends_on": [
+        "S01-00",
+        "S01-05",
+        "S01-11"
+      ],
+      "blocks": [],
+      "squad": {
+        "type": "release-verification",
+        "members": [
+          "pm",
+          "designer",
+          "staff-engineer",
+          "qa"
+        ],
+        "rationale": "Shipping requires PM scope sign-off, designer review of deployed states, staff support for deployment and diagnostics, and QA ownership of independent S1–S28 evidence."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/01-a-promise-that-fits/evidence.md",
+          "docs/product-slices/01-a-promise-that-fits/scope.md#acceptance-criteria",
+          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-14-verification-strategy",
+          ".env.example",
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "README.md"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    }
+  ]
+}
