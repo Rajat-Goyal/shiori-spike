@@ -2297,7 +2297,7 @@
           "supabase/migrations/"
         ]
       },
-      "status": "todo",
+      "status": "in_progress",
       "open_questions": [
         "Before deployed owner journeys, explicitly approve any Telegram webhook cutover or Google OAuth callback change that could divert an existing integration.",
         "Before S19, explicitly approve one dedicated-service process restart; destructive and provider-corruption faults remain limited to disposable or controlled environments."
