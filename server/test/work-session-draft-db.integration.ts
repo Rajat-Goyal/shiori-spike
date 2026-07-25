@@ -194,6 +194,27 @@ describe("local Supabase versioned work-session draft", () => {
     ).rejects.toThrow("Work-session draft persistence failed");
 
     const optionStart = nextBoundary(now + 4 * 60 * 60_000);
+    await expect(
+      flow.transition({
+        calendarAttemptedAt: new Date(now).toISOString(),
+        calendarCheckedAt: null,
+        chatId: config.telegramOwnerUserId,
+        conflictConsent: false,
+        durationMinutes: 60,
+        expectedStage: "awaiting_constraints",
+        finalObservation: "unavailable",
+        nextStage: "unverified_confirming",
+        options: [],
+        reference: constraints.snapshot,
+        selectedWindow: {
+          endAt: singaporeInstant(optionStart + 75 * 60_000),
+          startAt: singaporeInstant(optionStart + 15 * 60_000),
+        },
+        timingConstraints: "default",
+        updateId: updateBase + 19,
+      }),
+    ).rejects.toThrow("Work-session draft persistence failed");
+
     const options = [
       {
         endAt: singaporeInstant(optionStart + 60 * 60_000),
