@@ -1,15 +1,15 @@
 {
-  "createdAt": "2026-07-25T08:32:50.456Z",
+  "createdAt": "2026-07-25T08:00:49.744Z",
   "health": {
     "schemaValid": true,
     "status": 200
   },
   "immutable": true,
   "railway": {
-    "deploymentId": "fead3c4c-83ec-4ed6-8b28-dd0ac99ecccb",
+    "deploymentId": "b6494655-0bcf-40c8-8391-6b324f2c941d",
     "domain": "shiori-slice-01-production.up.railway.app",
     "environmentId": "0a533591-3fce-4904-8fb3-84d0f52346e7",
-    "imageDigest": "sha256:b8fa7480efa2b724618f9cf9afac454edd63eb2da0f27c4db9319e99b4571568",
+    "imageDigest": "sha256:0c9a4bf886fee9a65e8420800f3d53ebac9b465d925440097795e737832aeb63",
     "projectId": "d8806797-6bb9-495b-8e10-b13122a6eff6",
     "replicas": 1,
     "serviceId": "85bc7677-b070-43ce-8ae1-e2c65241a721",
@@ -31,11 +31,11 @@
   },
   "schemaVersion": 1,
   "source": {
-    "archiveSha256": "6837df116894a4247e89ed5431af02bb621ce8899618fe77afb75e8d458294de",
-    "commit": "b1823b58c892af3483a5848d6211b51065d7f38b",
+    "archiveSha256": "eddeac25c046a1179b5aa158e01bc722adcd079b7df6ba5e12f77e79694d7e97",
+    "commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
     "dockerfileSha256": "5c210e4aff74fd83650322fc619e2b912731c1dee48906d6a58e8681bfb326fc",
     "lockfileSha256": "507131d7dc0b224e5b718b0df9c05b80d4403bfeb9f6df84163777796c51dd1c",
-    "tree": "ebbadcb1495356729a2ce3264ed22eea2b9d9403"
+    "tree": "05a0fa4219ad1c0cb0052893c3a4154601d26eaf"
   },
   "supabase": {
     "ledger": [
@@ -148,6 +148,6 @@
   },
   "integrity": {
     "algorithm": "sha256",
-    "digest": "430f746f62d6622102c5622b1e6c6ac033aac054b815e8b95ff981ac96df867e"
+    "digest": "2638f2a3442e7b61ab36ff06c04cd8bcde7914c32f966a4643db71daede248e2"
   }
 }
