@@ -1,0 +1,23 @@
+S01-09c independent story-level QA
+Generated: 2026-07-25T03:21:39Z
+Product source: f2fe1934cd1f4af85c494543942cca38383f61a6
+Result: PASS
+
+Runtime: Node.js v24.18.0; npm 11.17.0
+
+Declared unit command:
+  npm run test --workspace @shiori/server -- src/work-sessions/confirm.test.ts
+Result: 1 file passed; 6 tests passed; 0 failed.
+
+Declared focused database command:
+  npm run test:db -- server/test/work-session-confirmation-db.integration.ts
+Result: 1 file passed; 11 tests passed; 0 failed.
+
+Declared clean aggregate DB: 9 files passed; 27 tests passed; 0 failed.
+Exact Node 24 repository gate: PASS — 379 server tests, 22 verifier tests,
+both builds, and 50 isolated Playwright tests.
+
+No Calendar write, external provider call, credential, private event detail,
+owner identity, or raw conversation was retained.
+
+AC1 PASS; AC2 PASS; AC3 PASS; AC4 PASS; AC5 PASS; AC6 PASS; AC7 PASS.

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-09c",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC2", "AC7"],
+  "observations": {
+    "commitments": 1,
+    "sessions": 1,
+    "pending_messages": 2,
+    "events": 4,
+    "calendar_status": "conflict_kept",
+    "final_observation": "conflict",
+    "conflict_consent": true,
+    "calendar_write_calls": 0
+  },
+  "database_test_case": "creates the exact scheduler graph once for conflict_kept"
+}

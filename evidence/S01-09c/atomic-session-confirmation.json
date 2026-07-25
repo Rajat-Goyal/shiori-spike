@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-09c",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC1", "AC7"],
+  "observed_cardinality": {
+    "commitments": 1,
+    "sequence_one_sessions": 1,
+    "pending_messages": 2,
+    "required_events": 4,
+    "resolved_actions": 1,
+    "calendar_connection_row_changes": 0
+  },
+  "observed_state": {
+    "commitment": "active",
+    "session": "planned",
+    "calendar_status": "free",
+    "final_observation": "free"
+  },
+  "database_test": "server/test/work-session-confirmation-db.integration.ts (11 passed)"
+}

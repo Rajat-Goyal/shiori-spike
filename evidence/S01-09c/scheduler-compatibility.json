@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-09c",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC4"],
+  "schedules": [
+    {
+      "kind": "work_session_start",
+      "due_at_matches": "session.start_at",
+      "state": "pending",
+      "attempt_count": 0,
+      "logical_key_shape": "ws:<session-id>:start",
+      "aggregate_references_match": true
+    },
+    {
+      "kind": "work_session_end",
+      "due_at_matches": "session.end_at",
+      "state": "pending",
+      "attempt_count": 0,
+      "logical_key_shape": "ws:<session-id>:end",
+      "aggregate_references_match": true
+    }
+  ],
+  "unique_schedule_kinds_per_session": true,
+  "database_test": "server/test/work-session-confirmation-db.integration.ts"
+}

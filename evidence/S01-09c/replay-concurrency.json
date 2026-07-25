@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-09c",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC5"],
+  "observations": {
+    "same_update_second_result": "replay",
+    "concurrent_results": ["applied", "resolved"],
+    "commitments_after_concurrency": 1,
+    "resolved_action_keys_after_concurrency": 1,
+    "duplicate_sessions": 0,
+    "duplicate_schedules": 0,
+    "duplicate_events": 0
+  },
+  "database_test": "server/test/work-session-confirmation-db.integration.ts"
+}

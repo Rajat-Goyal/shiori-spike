@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-09c",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC6"],
+  "forced_failure_observations": {
+    "commitments": 0,
+    "work_sessions": 0,
+    "scheduled_messages": 0,
+    "commitment_events": 0,
+    "claimed_update_rows": 0,
+    "resolved_action": false,
+    "draft_state": "active",
+    "draft_stage": "confirming"
+  },
+  "unit_transport_or_malformed_result": "fails_closed",
+  "database_test_case": "rolls back the claimed update and every consequence on failure"
+}
