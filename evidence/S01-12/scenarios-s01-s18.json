@@ -1,0 +1,251 @@
+{
+  "releaseManifestHash": "9e12ad53a6578b554770c03279f010c193eea71d5905ad39f5d64e8f94e6edbb",
+  "scenarios": [
+    {
+      "checks": [
+        {
+          "evidenceHash": "26cbb059f9b60cafbba18ca526d8956b3d17759481ce0caf6048dae8cef0be8d",
+          "name": "Public health endpoint remained bounded and healthy",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "afb4b023c39f33ca4c9eb6220c8cbe69c3eabff30a97f6f14a1d86a0211e21a9",
+          "name": "Unauthenticated and invalid sessions were refused",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "19e11e71ae33de795132bcf0eb81ec80df4c5d93f3b3c0710d2595b9b69b1aee",
+          "name": "Signed session was admitted",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "7cca5901267df534f0643cb9b05dc96eee343a4454b8adca18d0e827781ebe0c",
+          "name": "Authenticated live dashboard read failed",
+          "status": "fail"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S1",
+      "status": "fail"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "acc07aebdd18492acb3f7437b9bd2093c7c2f04ced7437258b5e1f634879bf66",
+          "name": "Connection response exposed no credential material",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "50b42717670905409c6481074a21c1e3b3ad08bd5bd5afcc4b7df07b9a4fe928",
+          "name": "Live Calendar connection state was unavailable",
+          "status": "fail"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S2",
+      "status": "fail"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "bc5080d75c96e605d3245c9626e2fbddc1240066d41b477b425ac61f5d6b149f",
+          "name": "Signed owner-private synthetic webhook returned bounded failure",
+          "status": "fail"
+        },
+        {
+          "evidenceHash": "ae2bcb508039a809d80deff31b330549cd460c818146423f9f1d23cb49a14241",
+          "name": "Hosted ledger authentication refused the configured server credential",
+          "status": "fail"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S3",
+      "status": "fail"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "a6470eb271128dd73d24bf17876842bb9cf94aae0dd8ba03e28a392eb19c05c8",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S4",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "50ca2435b51579e4853080c3f50b94d17d8c4b9ed1a2ef9004987ea6a87ceceb",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S5",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "b9d4abfc45fcb978161cb4fba6f029f42ebabcadf77ff18f1e9ea9243f247cd4",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S6",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "358b8ee9b643968411bf79c5e5a7a97df7b571df328ec42f9b1f8df73b127d75",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S7",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "4e889ebb5fe583a3c888890a505b239dff93a336c963fb26f8e24d9947f4b9eb",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S8",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "c543cb2b3366ebb0b67468577a5056cac92e826d85895b2ca6a7cd36e9efba20",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S9",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "92e6964b467d5b1d41cad6d4fec58ab106a9d48c66e3eb889baddada3f077239",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S10",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "5c5d3d48ef49894da9f00a4d3b67995b6c7bd4d64fd959a7c85274fa19af4ce1",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S11",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "8bc95e88c3829c92649310458cf0799ded88cd22544f139ab5f0f98d73871c1d",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S12",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "fffd0af776b214726374bb29dc0c43fe0c4c0187870bddc4b75b7dcbd67936c9",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S13",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "1a4c8dd9855d352f1f76bd90065e60c2d5684e662f52832b93433931c9aa1758",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S14",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "6f28e23b44a7bf3087b8717dceb390ad299a68763db82a132de2358534fe5db2",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S15",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "ce9b3e3645266d25759861c35c5ee054f771c5ab63d059f4f153cdf918a8747c",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S16",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "3185df071aa66d0b3dd407a99fbfc6097c40cdc9bc0867ad056d72db8a0b4a02",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S17",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "15d5034121eebb5a37958eb23f3596e2af2ac640ddc01e649aa02e43df38c6f7",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S18",
+      "status": "blocked"
+    }
+  ],
+  "schemaVersion": 1,
+  "integrity": {
+    "algorithm": "sha256",
+    "digest": "c064463d9ffcabc0e52d4796b3b11e587753decd6cd8ed8d0b41e2d51cb0160f"
+  }
+}

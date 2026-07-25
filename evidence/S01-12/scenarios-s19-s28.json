@@ -1,0 +1,175 @@
+{
+  "releaseManifestHash": "9e12ad53a6578b554770c03279f010c193eea71d5905ad39f5d64e8f94e6edbb",
+  "scenarios": [
+    {
+      "checks": [
+        {
+          "evidenceHash": "f245b3de8609a7715118dec553d14c9b1c939897b014e9292617e3287cd72684",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "controlled",
+      "id": "S19",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "cff29b3aab14b8af3ba68d4740e94047f012d7b39a1767132f9fb5a117b7b2a6",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S20",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "e98c939f07839fdde931456b4b3a4f93305790aadf4d24db0bfb61e33d95318d",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S21",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "5a5728df7398c712f4dc056c15826b42e1abbb33e21f430f4e64826bab13db83",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S22",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "8fa5cd5061ace3425c0156d0cc1d8b58f15763e05bc24822de62d9534afb381b",
+          "name": "Unauthenticated and invalid sessions exposed no owner state",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "6f592a79b8808d177ea8c728e6cfd5fea4ea8dbd1f69e8c6b76de70e4128fcaf",
+          "name": "Signed session was admitted",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "4a6519a3607cb5b946ff0377aabc7d8d80e37bb13f347cf42de91faa9aed80d9",
+          "name": "Authenticated owner summary remained unavailable",
+          "status": "fail"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S23",
+      "status": "fail"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "c0f31c5a734aaff9ba60aaee04069b6660be10308779920f43b39ec0d2a72e47",
+          "name": "Granted scope contract is read-only and bounded",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "0e44ae842c752abb779da599e519087b62983cb77b6480a9e0bbf91221696786",
+          "name": "Calendar reads are primary-only and field-bounded",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "975b0fd05370fd689eb7db97f7f5dc5e73767207ed6a1762d0eb71c74d621820",
+          "name": "No Calendar write scope endpoint or multi-Calendar path exists",
+          "status": "pass"
+        }
+      ],
+      "executionMode": "controlled",
+      "id": "S24",
+      "status": "pass"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "831278aeecb9a5ed0937b9d5fdb1ce04f266c08191f942f9e20cc1b36c16b843",
+          "name": "Model request is bounded and disables storage and tools",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "1d08062cfb59c65ac1775afc272006ec4b9c99ce677f0f60b57cd69d89fc6549",
+          "name": "Deterministic availability supplies only bounded facts",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "62c23e01c53840edfd2c672f3bca8d42c2e226ad76e80c11e78581bb8d50ec58",
+          "name": "Calendar details never enter model input",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "24a623bd0849240346f6058a040edd8c91b225760d2f1d8aca47ce784503d30c",
+          "name": "Focused privacy and provider contracts passed",
+          "status": "pass"
+        }
+      ],
+      "executionMode": "controlled",
+      "id": "S25",
+      "status": "pass"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "abff7d332106bb59b14d5e12730451a57224f06027fa603a2d43dd14086694e2",
+          "name": "Static persistence privacy contracts passed",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "9c0ae7bd4adcd238ae5d030685242f9039d6eed31df50393ea4eb43f4ea58257",
+          "name": "Canonical schema retains no prohibited rich data shape",
+          "status": "pass"
+        },
+        {
+          "evidenceHash": "4ff1ad7645317f7f07402f26eb4056d15d30f9ec638bf62b40796856ca2e6953",
+          "name": "Required hosted persistence scan was refused by mismatched credential target",
+          "status": "fail"
+        }
+      ],
+      "executionMode": "controlled",
+      "id": "S26",
+      "status": "fail"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "d387ecaa0aed4547ab39bd966d2237487da199af48d9c64ca6e4df98aa8af0a6",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "controlled",
+      "id": "S27",
+      "status": "blocked"
+    },
+    {
+      "checks": [
+        {
+          "evidenceHash": "be32722eda798068773050e2ff4c95f8a5455becd9ef448ef7499a5ea2f1cab9",
+          "name": "Not executed after the pinned release data-plane failure",
+          "status": "blocked"
+        }
+      ],
+      "executionMode": "deployed",
+      "id": "S28",
+      "status": "blocked"
+    }
+  ],
+  "schemaVersion": 1,
+  "integrity": {
+    "algorithm": "sha256",
+    "digest": "cf487e3dc93793961347173594fc8a2c6fb5779361c0827718af57f55a564edc"
+  }
+}
