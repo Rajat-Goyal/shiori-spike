@@ -192,6 +192,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
           promptVersion: options.config.openaiPromptVersion,
         }),
         modelId: options.config.openaiModel,
+        onDecisionFailure: (event) => {
+          app.log.warn(event);
+        },
         promptVersion: options.config.openaiPromptVersion,
         repository: new SupabaseConversationRepository({
           supabaseSecretKey: options.config.supabaseSecretKey,

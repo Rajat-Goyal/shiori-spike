@@ -223,7 +223,7 @@ describe("DecisionEngine contract", () => {
     ).toBeNull();
   });
 
-  it("sends a stateless strict tool-free Responses request with a five-second timeout", async () => {
+  it("sends a stateless strict tool-free Responses request with a thirty-second timeout", async () => {
     const signal = new AbortController().signal;
     const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(signal);
     const fetchFromOpenAI = vi.fn(async () => providerResponse(explicitDecision));
@@ -233,7 +233,7 @@ describe("DecisionEngine contract", () => {
       ok: true,
     });
 
-    expect(timeout).toHaveBeenCalledWith(5_000);
+    expect(timeout).toHaveBeenCalledWith(30_000);
     expect(fetchFromOpenAI).toHaveBeenCalledOnce();
     const [url, request] = fetchFromOpenAI.mock.calls[0];
     expect(url).toBe("https://api.openai.com/v1/responses");

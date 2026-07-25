@@ -1,4 +1,8 @@
-import type { DecisionEngine, DecisionOutcome } from "../decision/engine.js";
+import type {
+  DecisionEngine,
+  DecisionFailureClass,
+  DecisionOutcome,
+} from "../decision/engine.js";
 import type {
   DecisionContextFields,
   DecisionInput,
@@ -34,8 +38,14 @@ import {
 type ConversationServiceOptions = {
   decisionEngine: DecisionEngine;
   modelId: string;
+  onDecisionFailure?: (event: DecisionFailureEvent) => void;
   promptVersion: string;
   repository: ConversationRepository;
+};
+
+export type DecisionFailureEvent = {
+  event: "decision_failure";
+  failureClass: DecisionFailureClass;
 };
 
 type CompleteReply = {
@@ -175,12 +185,16 @@ function isCompleteReply(
 export class ConversationService {
   readonly #decisionEngine: DecisionEngine;
   readonly #modelId: string;
+  readonly #onDecisionFailure:
+    | ((event: DecisionFailureEvent) => void)
+    | undefined;
   readonly #promptVersion: string;
   readonly #repository: ConversationRepository;
 
   constructor(options: ConversationServiceOptions) {
     this.#decisionEngine = options.decisionEngine;
     this.#modelId = options.modelId;
+    this.#onDecisionFailure = options.onDecisionFailure;
     this.#promptVersion = options.promptVersion;
     this.#repository = options.repository;
   }
@@ -211,6 +225,14 @@ export class ConversationService {
     }
 
     if (!outcome.ok) {
+      try {
+        this.#onDecisionFailure?.({
+          event: "decision_failure",
+          failureClass: outcome.failure,
+        });
+      } catch {
+        // Operational logging must never change the fail-closed response.
+      }
       return this.#finish(
         {
           action: "preserve",

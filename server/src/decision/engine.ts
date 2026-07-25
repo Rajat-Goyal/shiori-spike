@@ -44,6 +44,7 @@ type OpenAIDecisionEngineOptions = {
 };
 
 const RESPONSES_URL = "https://api.openai.com/v1/responses";
+const DECISION_TIMEOUT_MS = 30_000;
 
 function failed(failure: DecisionFailureClass): DecisionOutcome {
   return { failure, ok: false };
@@ -226,7 +227,7 @@ export class OpenAIDecisionEngine implements DecisionEngine {
           "Content-Type": "application/json",
         },
         method: "POST",
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(DECISION_TIMEOUT_MS),
       });
     } catch (error) {
       return failed(isTimeout(error) ? "timeout" : "http");

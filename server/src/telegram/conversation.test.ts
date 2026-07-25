@@ -193,17 +193,20 @@ function controlled(
   outcome: DecisionOutcome,
 ) {
   const repository = new ControlledRepository(snapshot);
+  const decisionFailureEvents = vi.fn();
   const decisionEngine: DecisionEngine = {
     decide: vi.fn(async () => outcome),
   };
   const service = new ConversationService({
     decisionEngine,
     modelId: "gpt-test-model",
+    onDecisionFailure: decisionFailureEvents,
     promptVersion: "shiori-test-v1",
     repository,
   });
   return {
     decide: vi.mocked(decisionEngine.decide),
+    decisionFailureEvents,
     repository,
     service,
   };
@@ -801,8 +804,75 @@ describe("ConversationService", () => {
         updateId: 7015,
       });
       expect(test.repository.audits).toHaveLength(0);
+      expect(test.decisionFailureEvents).toHaveBeenCalledOnce();
+      expect(test.decisionFailureEvents).toHaveBeenCalledWith({
+        event: "decision_failure",
+        failureClass: failure,
+      });
+      const serializedEvent = JSON.stringify(
+        test.decisionFailureEvents.mock.calls,
+      );
+      expect(serializedEvent).not.toContain("private sentinel");
+      expect(serializedEvent).not.toContain("unit-test");
+      expect(Object.keys(test.decisionFailureEvents.mock.calls[0][0])).toEqual([
+        "event",
+        "failureClass",
+      ]);
     },
   );
+
+  it("keeps the bounded failure response when operational logging fails", async () => {
+    const snapshot = activeDraft("complete", completeFields, 10);
+    const repository = new ControlledRepository(snapshot);
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => ({ failure: "timeout", ok: false })),
+      },
+      modelId: "gpt-test-model",
+      onDecisionFailure: () => {
+        throw new Error("private logging failure");
+      },
+      promptVersion: "shiori-test-v1",
+      repository,
+    });
+
+    await expect(service.handle(7015, "private sentinel")).resolves.toBe(
+      conversationCopy.failureWithDraft,
+    );
+    expect(repository.commands[0]).toMatchObject({
+      action: "preserve",
+      processingResult: "conversation_failed",
+      updateId: 7015,
+    });
+  });
+
+  it("classifies an unexpected engine rejection as opaque HTTP failure", async () => {
+    const snapshot = activeDraft("complete", completeFields, 10);
+    const repository = new ControlledRepository(snapshot);
+    const decisionFailureEvents = vi.fn();
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => {
+          throw new Error("private provider trace and credential");
+        }),
+      },
+      modelId: "gpt-test-model",
+      onDecisionFailure: decisionFailureEvents,
+      promptVersion: "shiori-test-v1",
+      repository,
+    });
+
+    await expect(service.handle(7015, "private sentinel")).resolves.toBe(
+      conversationCopy.failureWithDraft,
+    );
+    expect(decisionFailureEvents).toHaveBeenCalledWith({
+      event: "decision_failure",
+      failureClass: "http",
+    });
+    expect(JSON.stringify(decisionFailureEvents.mock.calls)).not.toMatch(
+      /private|credential|trace/,
+    );
+  });
 
   it.each([
     {
