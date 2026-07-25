@@ -1,6 +1,6 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-25T00:16:25Z",
+  "updated_at": "2026-07-25T01:52:32Z",
   "current_story": "S01-12",
   "summary": "9/18 done",
   "log": [
@@ -697,6 +697,41 @@
         "Production Google token refresh/decryption remains outside this story; later integration must preserve the injected server-only capability and exact read-only primary-Calendar policy."
       ],
       "context_for_next": "S01-08 is complete at source head 27cb821 with evidence commit fbb8447; AC1-AC7 pass.\nGoogleCalendarAdapter accepts only primary, a bounded range, and an injected server-only token provider; no production consumer is wired yet.\nFreeBusy is the sole blocking authority; busy intervals are normalized, clipped, deduplicated, and overlap-merged.\nEvent summaries expose only bounded ADR-approved fields; raw provider fields never enter the availability engine, model, persistence, or logs.\nfindWorkWindows accepts normalized effective-day windows and a busy-only reader; raw timingConstraints parsing is intentionally outside this story.\nDurations, SGT boundaries, effective hours, midnight, 14-day generated, exact-proposal, seven-day recovery, ranking, and no-fit rules are deterministic.\nNo Calendar writes, provider-token exchange, runtime dependency, app wiring, database, dashboard, Telegram, or conversation changes were introduced.\nExact gates pass focused 34/34, server 274/274, and browser 46/46 with clean privacy and leakage audits.\nS01-09 may consume this boundary only after S01-05 and S01-03c dependencies are complete."
+    },
+    {
+      "story_id": "S01-11",
+      "started_at": "2026-07-24T23:53:42Z",
+      "finished_at": "2026-07-25T01:52:32Z",
+      "squad": "dashboard-ux",
+      "outcome": "blocked",
+      "commits": [
+        "97f551d chore(S01-11): start story",
+        "0d71ca9 feat(S01-11): expose live dashboard read model",
+        "37b548c feat(S01-11): render responsive live dashboard state"
+      ],
+      "ac_results": [
+        {
+          "id": "AC3",
+          "result": "fail",
+          "evidence": "evidence/S01-11/qa-blocker.json"
+        },
+        {
+          "id": "AC6",
+          "result": "fail",
+          "evidence": "evidence/S01-11/qa-blocker.json"
+        }
+      ],
+      "decisions": [
+        "No populated screenshot or parity artifact may be retained unless one clean production-repository fixture establishes active, terminal, session-history, delivery, and event state honestly."
+      ],
+      "deviations_from_plan": [
+        "The first enrichment attempt reused a non-clean disposable database and failed one confirmation transition; it was rejected as contaminated evidence.",
+        "After a full 14-migration reset, the deterministic production-repository seed failed at SupabaseWorkSessionFlowRepository.transition before session-history state existed."
+      ],
+      "follow_ups": [
+        "A fresh S01-11 engineer task must diagnose the clean-state work-session draft transition failure, add regression coverage, and return the story to QA without weakening the populated dashboard fields."
+      ],
+      "context_for_next": "S01-11 implementation commits remain green at focused server 13/13, clean dashboard DB 2/2, focused browser 48/48, full API 376/376, full DB 24/24, and E2E 50/50.\nFinal QA could not establish the required populated production-repository fixture after two honest attempts.\nThe clean attempt failed in SupabaseWorkSessionFlowRepository.transition with Work-session draft persistence failed.\nNo S01-11 declared evidence or screenshots were committed.\nThe worktree was clean after temporary fixture cleanup.\nA fresh engineer must diagnose the repository transition boundary before QA retries."
     }
   ]
 }

@@ -2142,7 +2142,7 @@
           "tests/e2e/google-connection.spec.ts"
         ]
       },
-      "status": "in_progress",
+      "status": "blocked",
       "open_questions": []
     },
     {
