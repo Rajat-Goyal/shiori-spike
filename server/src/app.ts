@@ -88,6 +88,9 @@ export type AppOptions = {
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultWebRoot = path.resolve(currentDirectory, "../../web/dist");
+// This slice has one configured owner. A process-wide owner bucket stays stable
+// behind Railway without trusting client-spoofable forwarding headers.
+const ownerLoginRateLimitKey = "configured-owner";
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({
@@ -304,7 +307,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   app.post<{ Body: { password?: unknown } }>("/api/owner/login", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
 
-    if (rateLimiter.isBlocked(request.ip, now())) {
+    if (rateLimiter.isBlocked(ownerLoginRateLimitKey, now())) {
       return reply
         .code(429)
         .header("Retry-After", "60")
@@ -318,11 +321,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       password.length > 1_024 ||
       !verifyPassword(password)
     ) {
-      rateLimiter.recordFailure(request.ip, now());
+      rateLimiter.recordFailure(ownerLoginRateLimitKey, now());
       return reply.code(401).send({ error: "invalid_password" });
     }
 
-    rateLimiter.clear(request.ip);
+    rateLimiter.clear(ownerLoginRateLimitKey);
     const token = ownerSession.issue(options.config.dashboardSessionSecret, now());
 
     return reply

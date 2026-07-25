@@ -162,22 +162,36 @@ describe("API contracts", () => {
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await app.inject({
+        headers: { "x-forwarded-for": `198.51.100.${attempt + 1}` },
         method: "POST",
         payload: { password: "wrong-password" },
+        remoteAddress: `10.0.0.${attempt + 1}`,
         url: "/api/owner/login",
       });
       expect(response.statusCode).toBe(401);
     }
 
     const blockedResponse = await app.inject({
+      headers: { "x-forwarded-for": "203.0.113.200" },
       method: "POST",
-      payload: { password: "owner-password" },
+      payload: { password: "wrong-password" },
+      remoteAddress: "10.0.1.200",
       url: "/api/owner/login",
     });
 
     expect(blockedResponse.statusCode).toBe(429);
     expect(blockedResponse.headers["retry-after"]).toBe("60");
     expect(blockedResponse.json()).toEqual({ error: "too_many_attempts" });
+
+    const validWhileBlockedResponse = await app.inject({
+      method: "POST",
+      payload: { password: "owner-password" },
+      remoteAddress: "10.0.2.201",
+      url: "/api/owner/login",
+    });
+
+    expect(validWhileBlockedResponse.statusCode).toBe(429);
+    expect(validWhileBlockedResponse.headers["set-cookie"]).toBeUndefined();
   });
 
   it("returns the live dashboard repository result only to an authenticated owner", async () => {
