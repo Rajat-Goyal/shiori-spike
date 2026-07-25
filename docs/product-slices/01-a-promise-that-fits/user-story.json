@@ -68,7 +68,7 @@
       "blocks": [
         "S01-01",
         "S01-07",
-        "S01-12a"
+        "S01-12"
       ],
       "squad": {
         "type": "owner-prerequisite",
@@ -1049,7 +1049,7 @@
       "blocks": [
         "S01-09c",
         "S01-10",
-        "S01-12a"
+        "S01-12"
       ],
       "squad": {
         "type": "reliability",
@@ -2120,7 +2120,7 @@
         "S01-10"
       ],
       "blocks": [
-        "S01-12a"
+        "S01-12"
       ],
       "squad": {
         "type": "dashboard-ux",
@@ -2146,140 +2146,151 @@
       "open_questions": []
     },
     {
-      "id": "S01-12a",
-      "title": "Deploy the exact release candidate",
-      "user_story": "As the product owner, I want one clean identity-locked deployment, so that every later release scenario tests a known source state on the dedicated slice service.",
-      "why_now": "All product dependencies are complete; release verification must first pin one SHA, migration set, deployment, and origin.",
+      "id": "S01-12",
+      "title": "Release, verify, and sign off the slice",
+      "user_story": "As the product owner, I want one identity-locked release verified across every owner journey, resilience boundary, and retained artifact, so that Slice 01 ships only when its deployed behavior and evidence are trustworthy.",
+      "why_now": "All product behavior is implemented; one integrated release story now pins the final source, verifies S1–S28 without identity drift, and completes independent sign-off.",
       "scope_refs": [
         "Scope §Definition of shipped",
-        "ADR Decision 14",
+        "Scope §Acceptance criteria 1–23",
+        "Evidence §Scenarios S1–S28",
+        "Evidence §Evidence record format",
+        "Evidence §Final assessment",
+        "ADR Decisions 10 and 13–14",
         "ADR §Configuration and secrets",
         "ADR §Operational behavior"
       ],
       "in_scope": [
-        "Add a value-redacting fail-closed release verifier.",
-        "Run clean Node 24 install, disposable database, and full repository gates.",
-        "Verify Railway project shiori-spike (d8806797-6bb9-495b-8e10-b13122a6eff6), production environment (0a533591-3fce-4904-8fb3-84d0f52346e7), dedicated service shiori-slice-01 (85bc7677-b070-43ce-8ae1-e2c65241a721), domain shiori-slice-01-production.up.railway.app, and one replica.",
-        "Verify and apply only approved backward-compatible pending migrations to the dedicated database.",
-        "Deploy only the recorded HEAD and wait for terminal SUCCESS.",
-        "Record health, deployment, migration, previous-release, and rollback-baseline evidence."
+        "Build a value-redacting, fail-closed release verifier for one clean source state.",
+        "Run Node 24 installation, disposable database migrations, the full repository gate, and artifact hashing.",
+        "Verify the explicit dedicated Railway project, production environment, service, domain, one replica, and legacy-service refusal.",
+        "Verify and apply only approved backward-compatible pending migrations, deploy only the recorded HEAD, wait for terminal success, and record public health.",
+        "Verify deployed scenarios S1–S18 across dashboard, Telegram, commitment, reminder, Calendar, work-session, continuation, recovery, non-response, and cancellation journeys.",
+        "Verify deployed scenarios S19–S28 across restart durability, replay, authorization, privacy, delivery ambiguity, and Telegram-ledger-API-dashboard parity.",
+        "Keep one immutable release identity across every scenario and retained artifact.",
+        "Produce a redacted evidence manifest, scenario index, limitations, deviations, rollback baseline, final assessment, and independent PM/QA sign-off."
       ],
       "out_of_scope": [
-        "S1–S28 journeys beyond health.",
-        "Targeting legacy service shiori-spike (15ab9853-c3ea-4387-8486-254e60204693) or its domain shiori-spike-production.up.railway.app.",
-        "Production down migrations or unapproved restore.",
-        "Webhook or OAuth callback cutover.",
-        "New product behavior."
+        "Changing product behavior inside sign-off instead of returning a defect to its owning story.",
+        "Targeting the legacy Railway service or its domain.",
+        "Production down migrations, destructive restore, provider corruption, or unapproved fault injection.",
+        "Weakening acceptance criteria, relabeling failures, or changing the pinned release during verification.",
+        "Performance, cost, recurring evaluation, or unrelated personal data."
       ],
       "acceptance_criteria": [
         {
           "id": "AC1",
           "given": "a selected release candidate",
-          "when": "source preflight runs",
-          "then": "the tree is clean, HEAD and artifact hashes are recorded, and drift stops before mutation."
+          "when": "source, configuration, install, disposable database, and repository preflight run",
+          "then": "the tree is clean, identities and hashes are recorded without secrets, all gates pass, and any drift stops before mutation."
         },
         {
           "id": "AC2",
-          "given": "Node 24 and approved configuration",
-          "when": "install, disposable database, and full gates run",
-          "then": "all installation, migration, test, typecheck, build, and browser checks pass."
+          "given": "the approved dedicated Railway and Supabase targets",
+          "when": "migrations and deployment run",
+          "then": "only approved pending migrations and the recorded HEAD reach the explicit one-replica service, terminal success, and public health while the legacy service is refused."
         },
         {
           "id": "AC3",
-          "given": "expected Railway identities",
-          "when": "the target is resolved",
-          "then": "project, environment, dedicated service, domain, and one replica match while the legacy service is refused."
+          "given": "the pinned deployment",
+          "when": "scenarios S1–S18 run",
+          "then": "every dashboard, Telegram, commitment, Calendar, work-session, continuation, recovery, non-response, and cancellation journey produces only the allowed owner-bound state and delivery."
         },
         {
           "id": "AC4",
-          "given": "committed and production migrations",
-          "when": "readiness is checked",
-          "then": "hashes, compatibility, approval, backup, and restore ownership are recorded without credentials."
+          "given": "the same pinned deployment",
+          "when": "scenarios S19–S28 run",
+          "then": "restart, replay, authorization, privacy, ambiguity, and cross-surface parity remain bounded, factual, and duplicate-free."
         },
         {
           "id": "AC5",
-          "given": "recorded source and migration state",
-          "when": "deployment runs",
-          "then": "only that source reaches terminal SUCCESS on the explicit one-replica service."
+          "given": "all journey and resilience checks",
+          "when": "release identity is compared before and after each phase",
+          "then": "source, deployment, service, environment, domain, replica count, and migration ledger remain unchanged."
         },
         {
           "id": "AC6",
-          "given": "terminal deployment success",
-          "when": "public health is queried",
-          "then": "the liveness response passes on the recorded dedicated origin."
+          "given": "all retained evidence and browser artifacts",
+          "when": "the manifest and redaction scan run",
+          "then": "every required scenario and execution mode is indexed and no secret, owner identity, OAuth material, webhook, private Calendar detail, unrelated event, or unrelated conversation is retained."
         },
         {
           "id": "AC7",
-          "given": "the completed deployment",
-          "when": "the release manifest is finalized",
-          "then": "it records the immutable release identity needed by S01-12b through S01-12d."
+          "given": "the final assessment",
+          "when": "PM and independent QA review it",
+          "then": "all passing scenarios, limitations, deviations, rollback baseline, and immutable release identity are signed off, or the slice remains unshipped and each defect returns to its owner story."
         }
       ],
       "verification": {
         "method": "manual-check",
         "commands": [
-          "npm run test --workspace @shiori/server -- src/release/verify.test.ts",
           "npm ci",
           "npm run test:db",
           "npm run check",
-          "npm run verify:release -- --env-file=.env.local --phase=deploy"
+          "npm run verify:release -- --env-file=.env.local --phase=deploy",
+          "npm run verify:release -- --env-file=.env.local --phase=journeys --release-manifest=evidence/S01-12/release-manifest.json",
+          "npm run verify:release -- --env-file=.env.local --phase=boundaries --release-manifest=evidence/S01-12/release-manifest.json",
+          "npm run verify:release -- --env-file=.env.local --phase=assess --release-manifest=evidence/S01-12/release-manifest.json",
+          "git diff --check"
         ],
         "evidence": [
           {
             "type": "test-output",
-            "path": "evidence/S01-12a/npm-check.txt"
+            "path": "evidence/S01-12/npm-check.txt"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-12a/identity-preflight.json"
+            "path": "evidence/S01-12/release-manifest.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-12a/migration-manifest.json"
-          },
-          {
-            "type": "log",
-            "path": "evidence/S01-12a/railway-deployment-status.json"
+            "path": "evidence/S01-12/scenarios-s01-s18.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-12a/release-manifest.json"
+            "path": "evidence/S01-12/scenarios-s19-s28.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-12a/deployed-health.json"
+            "path": "evidence/S01-12/privacy-redaction-scan.json"
           },
           {
             "type": "artifact",
-            "path": "evidence/S01-12a/rollback-baseline.json"
+            "path": "evidence/S01-12/rollback-baseline.json"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-12/final-assessment.md"
+          },
+          {
+            "type": "artifact",
+            "path": "evidence/S01-12/final-signoff.json"
           }
         ],
-        "done_when": "A reviewer can match a clean HEAD to one terminal-success dedicated deployment, health, migration identity, and secret-free release manifest."
+        "done_when": "A reviewer can traverse redacted S1–S28 evidence on one immutable healthy release and independently verify every required journey, boundary, limitation, and sign-off."
       },
       "depends_on": [
         "S01-00",
         "S01-05",
         "S01-11"
       ],
-      "blocks": [
-        "S01-12b"
-      ],
+      "blocks": [],
       "squad": {
-        "type": "release-foundation",
+        "type": "integrated-release-signoff",
         "members": [
-          "pm",
           "staff-engineer",
+          "pm",
           "qa"
         ],
-        "rationale": "PM owns mutation authorization, staff owns the fail-closed verifier, and QA verifies identity and evidence."
+        "rationale": "One engineer first builds and executes the release verifier; final PM and independent QA then assess the same immutable release. No Designer is required unless the final UI review finds a blocking usability defect."
       },
       "context": {
         "read_first": [
           "docs/product-slices/01-a-promise-that-fits/evidence.md",
           "docs/product-slices/01-a-promise-that-fits/scope.md#definition-of-shipped",
           "docs/product-slices/01-a-promise-that-fits/adr.md#decision-14-verification-strategy",
-          ".env.example",
           "docs/product-slices/01-a-promise-that-fits/progress.json",
+          ".env.example",
           "README.md",
           "package.json",
           "Dockerfile",
@@ -2288,436 +2299,8 @@
       },
       "status": "todo",
       "open_questions": [
-        "BLOCKING AT DEPLOY: Read-only Railway preflight found no application Supabase or database variables on either service. Configure the dedicated slice service from the owner-approved slice data plane without adding those values to legacy service shiori-spike, then prove the target identities differ or that the legacy has no Supabase data plane.",
-        "BLOCKING: Identify the migration approver, backup or PITR evidence, and restore owner.",
-        "Is an actual production rollback drill required, or is rollback readiness plus disposable rehearsal sufficient?",
-        "If no prior release SHA exists, which owner-approved recovery action replaces application rollback?"
-      ]
-    },
-    {
-      "id": "S01-12b",
-      "title": "Verify the deployed owner journeys",
-      "user_story": "As the product owner, I want S1–S18 verified on the pinned deployment, so that the shipped interaction loop is proven against configured services.",
-      "why_now": "S01-12a establishes the only release identity allowed to supply journey evidence.",
-      "scope_refs": [
-        "Scope §Acceptance criteria 1–17",
-        "Evidence §Scenarios S1–S18",
-        "ADR Decision 14"
-      ],
-      "in_scope": [
-        "Refuse identity drift from S01-12a.",
-        "Configure or verify the dedicated Telegram webhook and deployed Google callback safely.",
-        "Exercise dashboard, explicit, implied, and ordinary-question scenarios.",
-        "Exercise simple confirmation, reminder, Done, and cancellation.",
-        "Exercise free, conflicting, changed, and unavailable Calendar paths.",
-        "Exercise start, end, outcomes, continuation, recovery, and non-response."
-      ],
-      "out_of_scope": [
-        "Changing the pinned release.",
-        "S19–S28 resilience/privacy.",
-        "Unapproved production fault injection.",
-        "Recording unrelated personal data."
-      ],
-      "acceptance_criteria": [
-        {
-          "id": "AC1",
-          "given": "the S01-12a manifest",
-          "when": "journey verification starts and ends",
-          "then": "all release identities remain identical."
-        },
-        {
-          "id": "AC2",
-          "given": "S1–S5",
-          "when": "dashboard, explicit, implied, and ordinary-question paths run",
-          "then": "each produces only the allowed owner-bound state or no-mutation result."
-        },
-        {
-          "id": "AC3",
-          "given": "S6",
-          "when": "a simple action is confirmed, reminded, and completed",
-          "then": "one commitment, reminder, Done transition, and matching dashboard state exist."
-        },
-        {
-          "id": "AC4",
-          "given": "S7–S10",
-          "when": "Calendar paths run",
-          "then": "choices, final recheck, blocked stale save, and unverified behavior match frozen contracts."
-        },
-        {
-          "id": "AC5",
-          "given": "S11–S13",
-          "when": "a work session starts, ends, and completes",
-          "then": "one start, one end, one completion, and matching ledger/dashboard state exist."
-        },
-        {
-          "id": "AC6",
-          "given": "S14–S16",
-          "when": "partial, missed, continuation, and recovery run",
-          "then": "outcomes record once, at most one next session exists, recovery is bounded, and target is immutable."
-        },
-        {
-          "id": "AC7",
-          "given": "S17–S18",
-          "when": "non-response and cancellation run",
-          "then": "no extra logical notification exists and cancellation prevents unsent work."
-        }
-      ],
-      "verification": {
-        "method": "manual-check",
-        "commands": [
-          "npm run check",
-          "npm run verify:release -- --env-file=.env.local --phase=journeys --release-manifest=evidence/S01-12a/release-manifest.json"
-        ],
-        "evidence": [
-          {
-            "type": "test-output",
-            "path": "evidence/S01-12b/npm-check.txt"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12b/release-identity.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12b/scenarios-s01-s06.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12b/scenarios-s07-s10.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12b/scenarios-s11-s13.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12b/scenarios-s14-s16.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12b/scenarios-s17-s18.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12b/deployed-journey-assessment.md"
-          }
-        ],
-        "done_when": "A reviewer can trace S1–S18 through redacted input, state, delivery, ledger, and dashboard on the unchanged S01-12a release."
-      },
-      "depends_on": [
-        "S01-12a"
-      ],
-      "blocks": [
-        "S01-12c"
-      ],
-      "squad": {
-        "type": "deployed-journeys",
-        "members": [
-          "pm",
-          "designer",
-          "staff-engineer",
-          "qa"
-        ],
-        "rationale": "The story requires intent, deployed UX, diagnostics, and independent evidence ownership."
-      },
-      "context": {
-        "read_first": [
-          "evidence/S01-12a/release-manifest.json",
-          "docs/product-slices/01-a-promise-that-fits/evidence.md#scenario-matrix",
-          "docs/product-slices/01-a-promise-that-fits/scope.md#acceptance-criteria",
-          "docs/product-slices/01-a-promise-that-fits/progress.json",
-          ".env.example"
-        ]
-      },
-      "status": "todo",
-      "open_questions": [
-        "BLOCKING: Confirm the dedicated service has an isolated Telegram bot or approved webhook cutover that cannot divert the legacy spike.",
-        "Confirm the exact deployed Google callback without removing the legacy callback.",
-        "Approve the synthetic owner text and Calendar fixture retained in evidence.",
-        "Which safe mechanism verifies Calendar unavailable without corrupting the real connection?",
-        "Derive the numeric non-response window from completed scheduler constants.",
-        "S16 waits for the approved proactive recovery contract."
-      ]
-    },
-    {
-      "id": "S01-12c",
-      "title": "Verify deployed resilience and privacy",
-      "user_story": "As the product owner, I want restart, replay, authorization, ambiguity, privacy, and parity verified on the pinned release, so that failures remain bounded and honest.",
-      "why_now": "The deployed journeys pass; resilience and privacy can now be tested without changing product contracts.",
-      "scope_refs": [
-        "Scope §Acceptance criteria 18–23",
-        "Evidence §Scenarios S19–S28",
-        "ADR Decisions 10 and 13–14"
-      ],
-      "in_scope": [
-        "Refuse release identity drift.",
-        "Verify scheduled work survives a dedicated-service restart once.",
-        "Verify webhook, callback, and stale-action replay.",
-        "Verify Telegram and dashboard owner boundaries.",
-        "Verify Calendar, model, persistence, browser, and log privacy.",
-        "Verify ambiguous delivery remains unknown without resend.",
-        "Verify Telegram, ledger, API, and dashboard parity."
-      ],
-      "out_of_scope": [
-        "Changing the pinned release.",
-        "Destructive production failure injection or restore.",
-        "Targeting the legacy service.",
-        "Performance, cost, or repeated evaluation studies."
-      ],
-      "acceptance_criteria": [
-        {
-          "id": "AC1",
-          "given": "the S01-12a manifest",
-          "when": "resilience verification starts and ends",
-          "then": "the same release identity and one replica remain in force."
-        },
-        {
-          "id": "AC2",
-          "given": "S19 and future scheduled work",
-          "when": "only the dedicated service restarts",
-          "then": "work survives, health recovers, and one logical delivery occurs."
-        },
-        {
-          "id": "AC3",
-          "given": "S20–S21",
-          "when": "webhook and callbacks replay",
-          "then": "state and ledger do not duplicate."
-        },
-        {
-          "id": "AC4",
-          "given": "S22–S23",
-          "when": "unauthorized requests occur",
-          "then": "generic refusal or authentication failure exposes no owner state."
-        },
-        {
-          "id": "AC5",
-          "given": "S24–S26",
-          "when": "all privacy boundaries are inspected",
-          "then": "only allowed Calendar fields cross and no prohibited personal, provider, transcript, webhook, credential, or server-only data is retained."
-        },
-        {
-          "id": "AC6",
-          "given": "S27 and controlled ambiguity",
-          "when": "scheduler state is inspected",
-          "then": "delivery is unknown and no unsafe resend or production fault hook exists."
-        },
-        {
-          "id": "AC7",
-          "given": "S28",
-          "when": "opaque entities and times are compared",
-          "then": "Telegram, ledger, API, and read-only dashboard agree."
-        }
-      ],
-      "verification": {
-        "method": "manual-check",
-        "commands": [
-          "npm run test:db",
-          "npm run check",
-          "npm run verify:release -- --env-file=.env.local --phase=boundaries --release-manifest=evidence/S01-12a/release-manifest.json"
-        ],
-        "evidence": [
-          {
-            "type": "test-output",
-            "path": "evidence/S01-12c/npm-check.txt"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12c/release-identity.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12c/restart-durability.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12c/replay-and-owner-boundaries.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12c/calendar-model-persistence-audit.md"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12c/delivery-ambiguity.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12c/dashboard-parity.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12c/fault-boundary-manifest.json"
-          }
-        ],
-        "done_when": "A reviewer can reproduce S19–S28, distinguish execution modes, verify restart and release identity, and find no duplicate transition or privacy leak."
-      },
-      "depends_on": [
-        "S01-12b"
-      ],
-      "blocks": [
-        "S01-12d"
-      ],
-      "squad": {
-        "type": "resilience-privacy",
-        "members": [
-          "pm",
-          "designer",
-          "staff-engineer",
-          "qa"
-        ],
-        "rationale": "Operational and privacy verification needs fault authorization, parity review, diagnostics, and independent QA."
-      },
-      "context": {
-        "read_first": [
-          "evidence/S01-12a/release-manifest.json",
-          "evidence/S01-12b/deployed-journey-assessment.md",
-          "docs/product-slices/01-a-promise-that-fits/evidence.md#scenario-matrix",
-          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-10-database-backed-in-process-scheduler",
-          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-13-data-minimization",
-          "docs/product-slices/01-a-promise-that-fits/progress.json"
-        ]
-      },
-      "status": "todo",
-      "open_questions": [
-        "Approve the production-safe scenario set; destructive and provider-corruption faults remain disposable or controlled only.",
-        "Confirm S19 uses a dedicated-service process restart; S01-12a already proves redeploy.",
-        "Confirm retained screenshots use synthetic or visibly redacted identity data."
-      ]
-    },
-    {
-      "id": "S01-12d",
-      "title": "Assess and sign off the slice",
-      "user_story": "As the product owner, I want one redacted evidence index and final assessment, so that the slice is shipped only when every required scenario passes.",
-      "why_now": "S1–S28 have run against one immutable deployment; only evidence integrity and sign-off remain.",
-      "scope_refs": [
-        "Scope §Definition of shipped",
-        "Evidence §Evidence record format",
-        "Evidence §Final assessment",
-        "ADR Decision 14"
-      ],
-      "in_scope": [
-        "Verify one release identity across S01-12a through S01-12c.",
-        "Validate every required artifact and scenario.",
-        "Complete evidence.md for S1–S28.",
-        "Record environment, migrations, limitations, deviations, and execution modes.",
-        "Scan all evidence and browser artifacts for prohibited data.",
-        "Record PM and independent QA sign-off.",
-        "Keep the slice unshipped and return any failure to its owner story."
-      ],
-      "out_of_scope": [
-        "New deployment or release candidate.",
-        "Product fixes inside release sign-off.",
-        "Weakened criteria or relabeled failures.",
-        "Formal evaluation, cost, or performance systems."
-      ],
-      "acceptance_criteria": [
-        {
-          "id": "AC1",
-          "given": "S01-12a through S01-12c artifacts",
-          "when": "release identity is compared",
-          "then": "every artifact names the same source, deployment, service, environment, domain, and migrations."
-        },
-        {
-          "id": "AC2",
-          "given": "S1–S28 evidence",
-          "when": "the manifest is validated",
-          "then": "every required artifact parses, links, names its execution mode, and records result honestly."
-        },
-        {
-          "id": "AC3",
-          "given": "the scenario manifest",
-          "when": "evidence.md is completed",
-          "then": "it indexes scenarios, environment, gates, deployment, migrations, limitations, deviations, and result."
-        },
-        {
-          "id": "AC4",
-          "given": "all evidence and browser files",
-          "when": "redaction scan runs",
-          "then": "no secret, owner identity, OAuth material, webhook, Calendar detail, unrelated event, or unrelated conversation is retained."
-        },
-        {
-          "id": "AC5",
-          "given": "known limitations",
-          "when": "assessment is written",
-          "then": "OAuth expiry, at-most-once bias, immutable targets, stale-after-confirmation Calendar state, and deviations are visible."
-        },
-        {
-          "id": "AC6",
-          "given": "any failure or unapproved deviation",
-          "when": "sign-off is considered",
-          "then": "the slice remains unshipped and the defect returns to its owner."
-        },
-        {
-          "id": "AC7",
-          "given": "all scenarios pass",
-          "when": "PM and QA sign",
-          "then": "the slice is recorded shipped at the immutable release without product changes."
-        }
-      ],
-      "verification": {
-        "method": "inspection",
-        "commands": [
-          "npm run check",
-          "npm run verify:release -- --env-file=.env.local --phase=assess --release-manifest=evidence/S01-12a/release-manifest.json",
-          "git diff --check"
-        ],
-        "evidence": [
-          {
-            "type": "test-output",
-            "path": "evidence/S01-12d/npm-check.txt"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12d/evidence-manifest.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12d/privacy-redaction-scan.json"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12d/scenario-index.md"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12d/final-assessment.md"
-          },
-          {
-            "type": "artifact",
-            "path": "evidence/S01-12d/final-signoff.json"
-          }
-        ],
-        "done_when": "A reviewer can traverse passing S1–S28 evidence from the immutable release manifest and verify redaction, limitations, and independent shipped sign-off."
-      },
-      "depends_on": [
-        "S01-12c"
-      ],
-      "blocks": [],
-      "squad": {
-        "type": "release-signoff",
-        "members": [
-          "pm",
-          "designer",
-          "staff-engineer",
-          "qa"
-        ],
-        "rationale": "Final status requires scope, retained-visual, provenance, and independent evidence sign-off."
-      },
-      "context": {
-        "read_first": [
-          "evidence/S01-12a/release-manifest.json",
-          "evidence/S01-12b/deployed-journey-assessment.md",
-          "evidence/S01-12c/fault-boundary-manifest.json",
-          "docs/product-slices/01-a-promise-that-fits/evidence.md",
-          "docs/product-slices/01-a-promise-that-fits/scope.md#definition-of-shipped",
-          "docs/product-slices/01-a-promise-that-fits/adr.md#decision-14-verification-strategy",
-          "docs/product-slices/01-a-promise-that-fits/progress.json"
-        ]
-      },
-      "status": "todo",
-      "open_questions": [
-        "Who are the named PM and independent QA signatories?",
-        "Which owner-approved deviations, if any, may be accepted without changing an acceptance criterion?"
+        "Before deployed owner journeys, explicitly approve any Telegram webhook cutover or Google OAuth callback change that could divert an existing integration.",
+        "Before S19, explicitly approve one dedicated-service process restart; destructive and provider-corruption faults remain limited to disposable or controlled environments."
       ]
     }
   ]
