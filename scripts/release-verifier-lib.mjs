@@ -33,6 +33,7 @@ const GENERIC_SECRET_PATTERNS = [
   /\b\d{6,}:[A-Za-z0-9_-]{20,}\b/,
   /[?&](?:code|token|state)=[^&\s"]+/i,
   /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+  /\/(?:Users|home)\/[^/\s"'\\]+/,
 ];
 
 export class ReleaseVerificationError extends Error {
@@ -216,7 +217,8 @@ export function redactText(value, secrets = []) {
     .replace(
       /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
       "[REDACTED]",
-    );
+    )
+    .replace(/\/(?:Users|home)\/[^/\s"'\\]+/g, "/[REDACTED]");
   return redacted;
 }
 

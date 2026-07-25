@@ -262,14 +262,18 @@ test("redaction rejects configured values, generic credentials, identities, and 
     (error) => error.code === "sensitive_pattern",
   );
   assert.throws(
+    () => assertRedactedEvidence({ safe: "/Users/local-owner/project" }),
+    (error) => error.code === "sensitive_pattern",
+  );
+  assert.throws(
     () => assertRedactedEvidence({ responseBody: { status: "ok" } }),
     (error) => error.code === "forbidden_evidence_field",
   );
   assert.equal(
     redactText(
-      "failure for person@example.com using sb_secret_abcdefgh",
+      "failure for person@example.com using sb_secret_abcdefgh at /Users/local-owner/project",
     ),
-    "failure for [REDACTED] using [REDACTED]",
+    "failure for [REDACTED] using [REDACTED] at /[REDACTED]/project",
   );
 });
 

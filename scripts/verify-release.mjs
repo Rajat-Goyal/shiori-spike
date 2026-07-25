@@ -390,7 +390,7 @@ function runRepositoryGates(environment) {
         "let ok = false;",
         "for (let attempt = 0; attempt < 20; attempt += 1) {",
         "  try {",
-        "    const response = await fetch(`${url}/rest/v1/`, {",
+        "    const response = await fetch(`${url}/rest/v1/telegram_updates?select=update_id&limit=0`, {",
         "      headers: { apikey: key, authorization: `Bearer ${key}` },",
         "      signal: AbortSignal.timeout(1000),",
         "    });",
