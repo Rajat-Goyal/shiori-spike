@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-06",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC2", "AC5", "AC6"],
+  "observations": {
+    "commitment_cancelled_events": 1,
+    "commitment_done_events": 1,
+    "scheduled_message_cancelled_events": 3,
+    "prior_events_deleted": 0,
+    "duplicate_terminal_events": 0,
+    "google_connection_rows_changed": 0
+  },
+  "database_test": "server/test/status-cancel-db.integration.ts (1 passed, 0 failed)"
+}

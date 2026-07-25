@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-06",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC2", "AC6"],
+  "observations": {
+    "done_transitions": 1,
+    "done_events": 1,
+    "actual_completion_time_recorded": true,
+    "eligible_unsent_messages_cancelled": 2,
+    "replay_transitions": 0,
+    "stale_version_transitions": 0,
+    "resolved_copy_returned": true
+  },
+  "database_test": "server/test/status-cancel-db.integration.ts (1 passed, 0 failed)"
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-06",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC1"],
+  "observations": {
+    "managed_commitments": 2,
+    "ordering": "target_then_id",
+    "fields_present": ["definition_of_done", "target", "overdue_state", "next_item", "calendar_check"],
+    "actions": ["Done", "Cancel"],
+    "other_actions": 0,
+    "empty_copy": "No active promises."
+  },
+  "tests": [
+    "server/src/telegram/status-cancel.test.ts: orders by target and ID and renders every required field with one action row",
+    "server/test/status-cancel-db.integration.ts: lists, completes, and second-confirms cancellation without duplicate consequence"
+  ]
+}

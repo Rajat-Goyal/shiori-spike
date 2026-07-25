@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-06",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC3", "AC4", "AC5", "AC6"],
+  "observations": {
+    "draft_cancel_created_commitment": false,
+    "draft_cancel_created_schedule": false,
+    "saved_first_cancel_mutated_commitment": false,
+    "second_current_confirmation_required": true,
+    "saved_cancel_transitions": 1,
+    "cancelled_unsent_messages": 1,
+    "replay_transitions": 0,
+    "stale_confirmation_transitions": 0,
+    "calendar_write_calls": 0
+  },
+  "database_test": "server/test/status-cancel-db.integration.ts (1 passed, 0 failed)"
+}

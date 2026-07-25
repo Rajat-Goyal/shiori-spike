@@ -1,0 +1,25 @@
+S01-06 independent story-level QA
+Generated: 2026-07-25T03:21:39Z
+Product source: f2fe1934cd1f4af85c494543942cca38383f61a6
+Result: PASS
+
+Runtime: Node.js v24.18.0; npm 11.17.0
+
+Focused unit command:
+  npm run test --workspace @shiori/server -- src/telegram/status-cancel.test.ts
+Result: 1 file passed; 3 tests passed; 0 failed.
+
+Declared database command:
+  npm run test:db
+Result on a fresh Docker-local Supabase: 9 files passed; 27 tests passed;
+0 failed. The S01-06 status/cancel database file passed 1/1.
+
+Repository gate:
+  npm run check
+Result under Node 24: PASS — typechecks; 379 server tests; 22 verifier
+tests; both builds; 50 isolated browser tests.
+
+Hygiene: git diff --check PASS. No Calendar write, external call, secret,
+owner identity, provider payload, or raw conversation is retained.
+
+AC1 PASS; AC2 PASS; AC3 PASS; AC4 PASS; AC5 PASS; AC6 PASS.
