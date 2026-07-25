@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-05",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC4", "AC6"],
+  "observations": {
+    "definitive_non_retryable_state": "permanent_failure",
+    "automatic_retry": false,
+    "validated_rate_limit_maximum_total_attempts": 3,
+    "retry_after_exhaustion": false,
+    "logical_key_reused": true
+  },
+  "tests": [
+    "server/src/scheduler/scheduler.test.ts: records permanent_failure once and does not retry",
+    "server/src/scheduler/scheduler.test.ts: leaves an exhausted third validated rate limit without retry time",
+    "server/test/scheduler-db.integration.ts: bounds validated 429 attempts and keeps permanent rejection terminal"
+  ]
+}

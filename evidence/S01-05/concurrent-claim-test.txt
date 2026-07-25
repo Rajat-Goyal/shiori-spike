@@ -1,0 +1,18 @@
+S01-05 concurrent claim verification
+Source: f2fe1934cd1f4af85c494543942cca38383f61a6
+Runtime: Node.js v24.18.0
+Result: PASS
+
+Command:
+  npm run test:db -- server/test/scheduler-db.integration.ts
+
+Observed:
+- 3/3 database tests passed on a freshly migrated Docker-local Supabase.
+- Two concurrent claimers produced one current lease for one logical message.
+- An expired unstarted lease was reclaimed with the same attempt count and a
+  new lease token.
+- A started but expired send became delivery_unknown and was not reclaimed.
+- Validated 429 retries remained bounded to three total attempts and reused
+  the logical key.
+
+Mapped criteria: AC1, AC2, AC3, AC4.

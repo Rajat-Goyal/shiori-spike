@@ -1,0 +1,30 @@
+S01-05 independent story-level QA
+Generated: 2026-07-25T03:21:39Z
+Product source: f2fe1934cd1f4af85c494543942cca38383f61a6
+Result: PASS
+
+Runtime: Node.js v24.18.0; npm 11.17.0
+
+Declared focused unit command:
+  npm run test --workspace @shiori/server -- src/scheduler/scheduler.test.ts
+Result: 1 file passed; 19 tests passed; 0 failed.
+
+Declared focused database command:
+  npm run test:db -- server/test/scheduler-db.integration.ts
+Result on clean Docker-local Supabase: 1 file passed; 3 tests passed; 0 failed.
+
+Clean aggregate database gate:
+  npm run test:db
+Result: 9 files passed; 27 tests passed; 0 failed.
+
+Exact repository gate:
+  npm run check
+Result under Node 24: PASS — 379 server tests, 22 release-verifier tests,
+both production builds, and 50 isolated Playwright tests.
+The sandboxed first attempt reached Playwright but could not start its
+loopback web server; the exact unsandboxed rerun passed without a source change.
+
+Hygiene: git diff --check PASS. No external system was called. No secret,
+owner identity, provider payload, or conversation content is retained.
+
+AC1 PASS; AC2 PASS; AC3 PASS; AC4 PASS; AC5 PASS; AC6 PASS.

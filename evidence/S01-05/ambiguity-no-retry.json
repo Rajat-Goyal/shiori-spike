@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-05",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC5"],
+  "observations": {
+    "ambiguous_send_terminal_state": "delivery_unknown",
+    "automatic_resend": false,
+    "second_poll_claim_count": 0,
+    "success_without_provider_message_identity": "delivery_unknown",
+    "started_expired_lease_reclaimed": false
+  },
+  "tests": [
+    "server/src/scheduler/scheduler.test.ts: records delivery_unknown once and does not retry",
+    "server/src/scheduler/scheduler.test.ts: treats a success response without a message identity as unknown",
+    "server/test/scheduler-db.integration.ts: turns an expired started send into delivery_unknown without resend"
+  ]
+}
