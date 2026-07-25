@@ -1,6 +1,6 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-25T08:22:25Z",
+  "updated_at": "2026-07-25T13:29:43Z",
   "current_story": "S01-12",
   "summary": "17/18 done",
   "log": [
@@ -1396,6 +1396,47 @@
         "S01-12 must deploy a fresh immutable candidate and reproduce five 401 responses followed by 429 with Retry-After before release signoff."
       ],
       "context_for_next": "S01-01 AC2 is repaired and independently reverified.\nOwner-login failures now share one stable configured-owner bucket instead of Railway gateway socket IPs.\nThe implementation does not enable trustProxy or consume spoofable forwarding headers.\nA production-shaped regression rotates remoteAddress and X-Forwarded-For, then proves five 401 responses followed by 429 and Retry-After 60.\nA valid password remains blocked during the bounded lockout and receives no cookie.\nNode 24 focused tests and the complete repository gate passed.\nCandidate 2 is superseded; S01-12 must release and pin a fresh candidate before further production journeys."
+    },
+    {
+      "story_id": "S01-03a",
+      "started_at": "2026-07-25T13:20:46Z",
+      "finished_at": "2026-07-25T13:29:43Z",
+      "squad": "decision-runtime-repair",
+      "outcome": "done",
+      "commits": [
+        "0316d1d chore(S01-03a): reopen decision timeout boundary",
+        "357fc90 fix(S01-03a): extend decision timeout diagnostics",
+        "66964ef test(S01-03a): verify extended decision timeout"
+      ],
+      "ac_results": [
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/timeout-repair-qa.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/timeout-repair-qa.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/timeout-repair-qa.json"
+        }
+      ],
+      "decisions": [
+        "The bounded OpenAI Responses request timeout is exactly 30 seconds; responses beyond that limit remain non-authorizing failures.",
+        "Operational diagnostics emit only the allowlisted decision_failure event and bounded failure class, with logging isolated from product behavior."
+      ],
+      "deviations_from_plan": [
+        "S01-03a was reopened after candidate-3 production timings showed repeatable fail-closed decisions just beyond the previous five-second provider deadline.",
+        "The first full-gate attempts in managed sandboxes reached browser verification but could not bind the local test port; exact approved reruns passed."
+      ],
+      "follow_ups": [
+        "S01-12 must deploy a fresh immutable candidate, prove an ordinary question succeeds within the extended production boundary, and record only redacted latency/failure-class evidence."
+      ],
+      "context_for_next": "S01-03a AC2, AC4, and AC5 are repaired and independently reverified.\nOpenAI decision requests now use an exact 30-second AbortSignal deadline.\nAll nine bounded failure classes remain preserve-only and non-authorizing.\nProduction diagnostics contain exactly event and failureClass; no owner text, provider material, identifiers, tokens, credentials, traces, or chain-of-thought are emitted.\nLogging failure cannot alter the safe response.\nTelegram update claim and replay suppression still precede decision work.\nFocused tests passed 144/144 and the complete Node 24 gate passed.\nCandidate 3 is superseded; S01-12 must deploy and pin a fresh candidate before continuing production journeys."
     }
   ]
 }
