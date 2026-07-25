@@ -680,7 +680,7 @@
           "supabase/migrations/20260724130000_add_telegram_ingress.sql"
         ]
       },
-      "status": "done",
+      "status": "blocked",
       "open_questions": []
     },
     {

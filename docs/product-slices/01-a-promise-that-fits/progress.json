@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-25T01:52:32Z",
+  "updated_at": "2026-07-25T02:22:18Z",
   "current_story": "S01-12",
-  "summary": "9/18 done",
+  "summary": "8/18 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -732,6 +732,34 @@
         "A fresh S01-11 engineer task must diagnose the clean-state work-session draft transition failure, add regression coverage, and return the story to QA without weakening the populated dashboard fields."
       ],
       "context_for_next": "S01-11 implementation commits remain green at focused server 13/13, clean dashboard DB 2/2, focused browser 48/48, full API 376/376, full DB 24/24, and E2E 50/50.\nFinal QA could not establish the required populated production-repository fixture after two honest attempts.\nThe clean attempt failed in SupabaseWorkSessionFlowRepository.transition with Work-session draft persistence failed.\nNo S01-11 declared evidence or screenshots were committed.\nThe worktree was clean after temporary fixture cleanup.\nA fresh engineer must diagnose the repository transition boundary before QA retries."
+    },
+    {
+      "story_id": "S01-03b",
+      "started_at": "2026-07-25T02:16:36Z",
+      "finished_at": "2026-07-25T02:22:18Z",
+      "squad": "conversation-state-regression",
+      "outcome": "blocked",
+      "commits": [],
+      "ac_results": [
+        {
+          "id": "AC4",
+          "result": "fail",
+          "evidence": "evidence/S01-03b/concurrent-claim-regression-blocker.json"
+        }
+      ],
+      "decisions": [
+        "The owner-delivery insert in claim_telegram_update must handle either singleton or private-chat uniqueness conflicts so concurrent first-owner claims converge instead of exposing PostgreSQL 23505.",
+        "Database integration tests must wait for a guarded Docker-local PostgREST endpoint after reset; no production repository retry is permitted for this test-environment readiness issue."
+      ],
+      "deviations_from_plan": [
+        "Node 26 passed the full database suite while required Node 24 reproduced the concurrent private-chat uniqueness race.",
+        "The forward SQL fix removed the 409/23505 race, but the second honest fix attempt hit Docker-local PostgREST 503/PGRST002 for longer than the bounded ten-second readiness window."
+      ],
+      "follow_ups": [
+        "Owner direction is required before a third attempt changes the bounded local readiness policy or restarts the disposable stack.",
+        "After approval, finish and verify migration 20260725060000_fix_concurrent_telegram_owner_claim.sql, the concurrent regression, and the guarded local readiness setup before resuming S01-11 QA."
+      ],
+      "context_for_next": "Required Node 24 exposed a real concurrent first-owner claim race: one request may return HTTP 409/PostgreSQL 23505 on private-chat uniqueness.\nAn uncommitted forward migration changes only the owner-delivery insert to untargeted ON CONFLICT DO NOTHING while preserving both uniqueness constraints.\nFocused Node 24 passed after that SQL fix.\nA separate Docker-local reset issue can leave PostgREST at HTTP 503/PGRST002 beyond a bounded ten-second read-only readiness wait.\nThe second honest fix attempt therefore stopped before full gates and no code was committed.\nOwned uncommitted paths are the 060 migration, conversation DB regression, db-readiness setup, and vitest DB config.\nS01-11 fixture paths are separate and must remain untouched."
     }
   ]
 }
