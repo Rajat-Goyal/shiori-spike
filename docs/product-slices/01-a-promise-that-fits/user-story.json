@@ -451,8 +451,10 @@
           "server/package.json"
         ]
       },
-      "status": "done",
-      "open_questions": []
+      "status": "todo",
+      "open_questions": [
+        "Owner decision required: should a structurally valid but semantically invalid provider decision receive exactly one bounded internal retry within the existing 30-second total decision budget, while both attempts remain non-authorizing until one passes strict validation?"
+      ]
     },
     {
       "id": "S01-03a1",
@@ -2287,8 +2289,10 @@
           "supabase/migrations/"
         ]
       },
-      "status": "in_progress",
-      "open_questions": []
+      "status": "blocked",
+      "open_questions": [
+        "S01-12 cannot resume until the owner approves a reliability repair for S01-03a after two clean production S6 requests returned semantic failures."
+      ]
     }
   ]
 }

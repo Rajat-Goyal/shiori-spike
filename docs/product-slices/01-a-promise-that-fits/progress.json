@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-25T13:29:43Z",
-  "current_story": "S01-12",
-  "summary": "17/18 done",
+  "updated_at": "2026-07-25T14:44:01Z",
+  "current_story": null,
+  "summary": "16/18 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -1437,6 +1437,70 @@
         "S01-12 must deploy a fresh immutable candidate, prove an ordinary question succeeds within the extended production boundary, and record only redacted latency/failure-class evidence."
       ],
       "context_for_next": "S01-03a AC2, AC4, and AC5 are repaired and independently reverified.\nOpenAI decision requests now use an exact 30-second AbortSignal deadline.\nAll nine bounded failure classes remain preserve-only and non-authorizing.\nProduction diagnostics contain exactly event and failureClass; no owner text, provider material, identifiers, tokens, credentials, traces, or chain-of-thought are emitted.\nLogging failure cannot alter the safe response.\nTelegram update claim and replay suppression still precede decision work.\nFocused tests passed 144/144 and the complete Node 24 gate passed.\nCandidate 3 is superseded; S01-12 must deploy and pin a fresh candidate before continuing production journeys."
+    },
+    {
+      "story_id": "S01-12",
+      "started_at": "2026-07-25T13:50:16Z",
+      "finished_at": "2026-07-25T14:44:01Z",
+      "squad": "integrated-release-signoff",
+      "outcome": "blocked",
+      "commits": [
+        "950998e test(S01-12): retain timeout-repaired release",
+        "73aaf9b test(S01-12): retain semantic decision failure"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-12/release-manifest.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-12/release-manifest.json"
+        },
+        {
+          "id": "AC3",
+          "result": "fail",
+          "evidence": "evidence/S01-12/failed-70129a3c/semantic-decision-failure.json"
+        },
+        {
+          "id": "AC4",
+          "result": "fail",
+          "evidence": "evidence/S01-12/failed-70129a3c/semantic-decision-failure.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-12/release-manifest.json"
+        },
+        {
+          "id": "AC6",
+          "result": "fail",
+          "evidence": "evidence/S01-12/failed-70129a3c/semantic-decision-failure.json"
+        },
+        {
+          "id": "AC7",
+          "result": "fail",
+          "evidence": "evidence/S01-12/failed-70129a3c/semantic-decision-failure.json"
+        }
+      ],
+      "decisions": [
+        "Candidate 4 pins source 357fc90, deployment 70129a3c, gpt-5.6-terra, one dedicated replica, exact runtime configuration, and all 17 hosted migrations.",
+        "Two clean, valid production S6 requests independently returned the allowlisted semantic failure class and created no draft or consequential state; the strict fail-closed boundary worked but the required simple-action journey did not.",
+        "No acceptance criterion is weakened and candidate 4 remains unshipped."
+      ],
+      "deviations_from_plan": [
+        "Candidate 3 was invalidated by a delayed CLI redeploy and sole OPENAI_MODEL drift, then superseded by the owner-approved timeout repair; none of its journey evidence is reused for final signoff.",
+        "Candidate-4 S4 initially failed because the QA harness appended a machine marker; one clean retry passed and the harness defect is excluded from the product verdict.",
+        "Candidate-4 boundary scenarios S1, S2, S23, S24, S25, and S26 passed, and S4/S5/S22 passed, but later scenarios stopped after two clean S6 semantic failures.",
+        "An isolated provider-only reproduction passed strict semantics once; it is diagnostic only and cannot override two failed production journeys."
+      ],
+      "follow_ups": [
+        "OWNER: approve or reject exactly one bounded internal retry for structurally valid but semantically invalid decisions within the existing 30-second total budget.",
+        "After an approved S01-03a repair and independent QA, deploy a fresh immutable candidate and rerun S1-S28 from the beginning."
+      ],
+      "context_for_next": "Slice 01 is blocked at 16/18 done; S01-03a is reopened todo and S01-12 is blocked.\nCandidate 4 is deployment 70129a3c from source 357fc90 with model gpt-5.6-terra and 17/17 migrations.\nThe 30-second timeout and safe failure-class logging work as designed.\nTwo clean production S6 requests failed semantic validation in about 3-4 seconds and created zero consequential state.\nOne isolated exact-input provider diagnostic passed, proving stochastic model variance rather than a deterministic validator mismatch.\nRetained redacted failure evidence is under evidence/S01-12/failed-70129a3c/.\nDo not resume production journeys or reuse prior scenario evidence.\nOwner must choose the S01-03a reliability repair before implementation."
     }
   ]
 }
