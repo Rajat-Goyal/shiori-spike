@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-09a",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC3", "AC6"],
+  "observations": {
+    "default_window_sgt": "08:00-20:00",
+    "maximum_rule_lines": 4,
+    "allowed_selectors": "daily or comma-separated mon..sun",
+    "endpoint_granularity_minutes": 30,
+    "custom_unmatched_days_closed": true,
+    "adjacent_windows_merged": true,
+    "unsupported_examples_rejected": 10,
+    "unsupported_input_calendar_reads": 0,
+    "repeated_read_results_equal": true
+  },
+  "unit_test": "server/src/work-sessions/availability-integration.test.ts (18 passed, 0 failed)"
+}

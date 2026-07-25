@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-09a",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC2"],
+  "matrix": [
+    {"condition": "missing_or_unreadable_connection", "result": "unavailable", "product_writes": 0},
+    {"condition": "stored_expired_authorization", "result": "authorization_expired", "provider_calls": 0},
+    {"condition": "provider_invalid_grant", "result": "authorization_expired", "bounded_expiry_mark": 1},
+    {"condition": "provider_transport_or_malformed_response", "result": "provider_failure", "product_writes": 0},
+    {"condition": "invalid_timing_constraints", "result": "invalid_timing_constraints", "calendar_reads": 0}
+  ],
+  "tests_passed": 27,
+  "tests_failed": 0
+}

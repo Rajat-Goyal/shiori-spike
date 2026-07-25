@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-09a",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC1", "AC2", "AC5"],
+  "observations": {
+    "credential_decryption_location": "server_token_provider_only",
+    "refresh_grant_location": "server_only",
+    "valid_output_fields": ["status", "accessToken"],
+    "missing_or_unreadable_connection": "unavailable",
+    "expired_grant": "authorization_expired",
+    "transient_or_malformed_provider_result": "provider_failure",
+    "mismatched_owner_or_encryption_context_provider_calls": 0,
+    "consequential_product_rows_created": 0
+  },
+  "tests": [
+    "server/src/google/token-provider.test.ts (6 passed)",
+    "server/test/google-calendar-db.integration.ts (3 passed)"
+  ]
+}
