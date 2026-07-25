@@ -1,0 +1,153 @@
+{
+  "createdAt": "2026-07-25T03:33:45.297Z",
+  "health": {
+    "schemaValid": true,
+    "status": 200
+  },
+  "immutable": true,
+  "railway": {
+    "deploymentId": "47b4948b-294a-48ad-8cdb-7529117c63fa",
+    "domain": "shiori-slice-01-production.up.railway.app",
+    "environmentId": "0a533591-3fce-4904-8fb3-84d0f52346e7",
+    "imageDigest": "sha256:0c9a4bf886fee9a65e8420800f3d53ebac9b465d925440097795e737832aeb63",
+    "projectId": "d8806797-6bb9-495b-8e10-b13122a6eff6",
+    "replicas": 1,
+    "serviceId": "85bc7677-b070-43ce-8ae1-e2c65241a721",
+    "status": "SUCCESS",
+    "hostedSupabase": true,
+    "legacyServiceExcluded": true,
+    "poolerExcluded": true,
+    "runtimeConfigHash": "d2daea91e16ba7c099ea5a8e3c5f98f4252ac6ddf2a8381ff065f16216915d27",
+    "runtimeKeysExact": true,
+    "targetEnvironmentExact": true,
+    "targetProjectExact": true,
+    "targetServiceExact": true
+  },
+  "runtime": {
+    "node": "24.18.0",
+    "npm": "11.17.0",
+    "railway": "5.27.2",
+    "supabase": "2.109.1"
+  },
+  "schemaVersion": 1,
+  "source": {
+    "archiveSha256": "eddeac25c046a1179b5aa158e01bc722adcd079b7df6ba5e12f77e79694d7e97",
+    "commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+    "dockerfileSha256": "5c210e4aff74fd83650322fc619e2b912731c1dee48906d6a58e8681bfb326fc",
+    "lockfileSha256": "507131d7dc0b224e5b718b0df9c05b80d4403bfeb9f6df84163777796c51dd1c",
+    "tree": "05a0fa4219ad1c0cb0052893c3a4154601d26eaf"
+  },
+  "supabase": {
+    "ledger": [
+      "20260724110000",
+      "20260724130000",
+      "20260724150000",
+      "20260725010000",
+      "20260725030000",
+      "20260725051000",
+      "20260725052000",
+      "20260725053000",
+      "20260725054000",
+      "20260725055000",
+      "20260725056000",
+      "20260725057000",
+      "20260725058000",
+      "20260725059000",
+      "20260725060000",
+      "20260725061000",
+      "20260725062000"
+    ],
+    "manifest": [
+      {
+        "file": "20260724110000_create_commitments.sql",
+        "sha256": "afbcb3ef169fe574d252d0c159b8c8ad1d6f0e7079d324ab6b1312b7e88a1ac7",
+        "version": "20260724110000"
+      },
+      {
+        "file": "20260724130000_add_telegram_ingress.sql",
+        "sha256": "47c1b4d6793b5f2ef8669321b0b271ce91486e1187ed560a30cfaa86965a09f6",
+        "version": "20260724130000"
+      },
+      {
+        "file": "20260724150000_add_google_calendar_connection.sql",
+        "sha256": "43b204fa718c880ea1c5d5e4972f24983d9e08d5f2714c82b5912af99395cb3f",
+        "version": "20260724150000"
+      },
+      {
+        "file": "20260725010000_add_conversation_drafts.sql",
+        "sha256": "53310b75af037e40c282e6a94bff47c604f6c9124ba93d771c8833acf337ec64",
+        "version": "20260725010000"
+      },
+      {
+        "file": "20260725030000_add_simple_confirmation.sql",
+        "sha256": "3f09c8a152dee44f2e0e994d2525a4e5b50921bd888a857de9d0a43906724b41",
+        "version": "20260725030000"
+      },
+      {
+        "file": "20260725051000_add_google_calendar_token_boundary.sql",
+        "sha256": "d2de5a154c84e68dc5308c509335506e297bee12d59a9ce59752632017cfb927",
+        "version": "20260725051000"
+      },
+      {
+        "file": "20260725052000_deliver_simple_reminders.sql",
+        "sha256": "5bcf778dde83120b199fb71b7dd637b4b6bad3c2fee47c978468d62c3ddb7688",
+        "version": "20260725052000"
+      },
+      {
+        "file": "20260725053000_make_scheduled_delivery_restart_safe.sql",
+        "sha256": "340f9b7331fe8cab458df1c62eaf2bbc0c6183ed67e318d9f41dca46f5305e11",
+        "version": "20260725053000"
+      },
+      {
+        "file": "20260725054000_add_work_session_draft_flow.sql",
+        "sha256": "7a518bd99a9d468cb874d49238abffbb3432e5cdd43274b685a925238df062ff",
+        "version": "20260725054000"
+      },
+      {
+        "file": "20260725055000_confirm_work_sessions_atomically.sql",
+        "sha256": "cd4b3a49901900db0be76a52c76af0555d8d40a8f03270a900f177afe0b84366",
+        "version": "20260725055000"
+      },
+      {
+        "file": "20260725056000_manage_active_promises.sql",
+        "sha256": "412c4a089751f2304bec2d65e119e4ff79a80e11ad0de4c1730ed2fcff671c35",
+        "version": "20260725056000"
+      },
+      {
+        "file": "20260725057000_deliver_and_resolve_work_sessions.sql",
+        "sha256": "9db1b329483c8be69007d5a880f71b193f23467951a9828f6bde9ca9751247d0",
+        "version": "20260725057000"
+      },
+      {
+        "file": "20260725058000_continue_work_sessions_atomically.sql",
+        "sha256": "211c45b6276c442c5aa787c0849f29fdbbfafb6b6e092fd5369e7ebc431553de",
+        "version": "20260725058000"
+      },
+      {
+        "file": "20260725059000_read_dashboard_summary.sql",
+        "sha256": "9bbb160a787d4499bc722c75606b988e80d260cca3cb309f3c0dd4059342c53f",
+        "version": "20260725059000"
+      },
+      {
+        "file": "20260725060000_fix_concurrent_telegram_owner_claim.sql",
+        "sha256": "f6160cfade287f496213e2c8086997befc580854ddedecc869f96d021a94a934",
+        "version": "20260725060000"
+      },
+      {
+        "file": "20260725061000_preserve_final_calendar_truth.sql",
+        "sha256": "82b1eb5e6a9ddada9c1440e3f3df604e452e97eae50f1756e5eab250c605442f",
+        "version": "20260725061000"
+      },
+      {
+        "file": "20260725062000_bound_work_session_continuations.sql",
+        "sha256": "79f22d48220030f57f7bb1ce89591c23c0efd8b4296080774fd0f54e89906cd0",
+        "version": "20260725062000"
+      }
+    ],
+    "targetHash": "c9434470bf8701c12c1f846d5a3b5d5451f9dc59d22425ba3fa28ac5017c7dc4"
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "digest": "aafa0b4641484d6ff4d2e6484bc04b351de904d42311f45331cfb754960e6120"
+  }
+}
