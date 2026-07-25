@@ -1069,7 +1069,7 @@
           "server/src/telegram/"
         ]
       },
-      "status": "in_progress",
+      "status": "done",
       "open_questions": []
     },
     {
@@ -1192,7 +1192,7 @@
           "server/src/scheduler/"
         ]
       },
-      "status": "in_progress",
+      "status": "done",
       "open_questions": []
     },
     {
@@ -1575,7 +1575,7 @@
           "server/src/conversation/"
         ]
       },
-      "status": "in_progress",
+      "status": "done",
       "open_questions": []
     },
     {
@@ -1712,7 +1712,7 @@
           "server/src/work-sessions/"
         ]
       },
-      "status": "in_progress",
+      "status": "done",
       "open_questions": []
     },
     {
@@ -1851,7 +1851,7 @@
           "supabase/migrations/"
         ]
       },
-      "status": "in_progress",
+      "status": "done",
       "open_questions": []
     },
     {
@@ -1930,7 +1930,7 @@
         "method": "automated-test",
         "commands": [
           "npm run test --workspace @shiori/server -- src/work-sessions/notifications.test.ts src/work-sessions/outcomes.test.ts src/work-sessions/continuation.test.ts",
-          "npm run test:db -- server/test/work-session-outcomes-db.integration.ts server/test/work-session-continuation-db.integration.ts",
+          "npm run test:db -- server/test/work-session-confirmation-db.integration.ts",
           "npm run test:db",
           "npm run check"
         ],
@@ -1992,7 +1992,7 @@
           "server/src/telegram/"
         ]
       },
-      "status": "in_progress",
+      "status": "done",
       "open_questions": []
     },
     {

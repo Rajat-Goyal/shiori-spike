@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-25T03:21:56Z",
+  "updated_at": "2026-07-25T03:27:10Z",
   "current_story": "S01-12",
-  "summary": "11/18 done",
+  "summary": "17/18 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -938,6 +938,368 @@
         "S01-12 must retain deployed dashboard parity and responsive screenshots against the same immutable release identity."
       ],
       "context_for_next": "S01-11 is complete with AC1-AC7 independently evidenced.\nThe dashboard derives live owner summary data through authenticated Fastify GET routes and one bounded database RPC.\nThe deterministic fixture proves two active commitments, one terminal commitment, one session-history group, and eleven append-only events.\nRepresentative Telegram updates, ledger rows, API entities, timestamps, and browser facts match; another owner receives empty state.\nDesktop and mobile populated captures are usable and contain no owner identity, credential, raw message, or provider payload.\nThe browser makes no direct Supabase or product-mutation request; refresh repeats reads only.\nFocused server 13/13, focused DB 2/2, browser matrix 48/48, full DB 27/27, server 379/379, verifier 22/22, and browser 50/50 passed."
+    },
+    {
+      "story_id": "S01-05",
+      "started_at": "2026-07-24T20:45:55Z",
+      "finished_at": "2026-07-25T03:27:10Z",
+      "squad": "reliability",
+      "outcome": "done",
+      "commits": [
+        "8da950d chore(S01-05): start story",
+        "df1392d feat(S01-05): recover scheduled delivery leases safely",
+        "cd5c5e9 test(S01-05): prove restart-safe delivery claims",
+        "4a25530 test(S01-05): verify restart-safe delivery",
+        "e79dbaf test(S01-05): normalize evidence formatting"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-05/concurrent-claim-test.txt"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-05/restart-recovery-timeline.md"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-05/restart-recovery-timeline.md"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-05/restart-recovery-timeline.md"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-05/ambiguity-no-retry.json"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-05/permanent-failure.json"
+        }
+      ],
+      "decisions": [
+        "Logical delivery keys, transactional leases, bounded safe retry, permanent failure, and ambiguous delivery remain database-owned and restart-safe.",
+        "Ambiguous delivery is never automatically resent, and definitive non-retryable rejection is terminal permanent_failure."
+      ],
+      "deviations_from_plan": [
+        "Final verification was consolidated at the owner-requested story-level QA boundary after implementation."
+      ],
+      "follow_ups": [
+        "S01-12 must prove restart durability and delivery ambiguity on the immutable deployed release."
+      ],
+      "context_for_next": "S01-05 is complete with AC1-AC6 independently evidenced.\nConcurrent workers grant one current lease and one logical attempt identity.\nExpired claims recover only under bounded safe-retry rules.\nPending schedules remain durable across process and Railway restarts.\nAmbiguous sends become delivery_unknown with no resend; definitive rejection becomes permanent_failure.\nFocused unit 19/19, focused DB 3/3, full DB 27/27, and the Node 24 repository gate passed."
+    },
+    {
+      "story_id": "S01-06",
+      "started_at": "2026-07-24T21:39:13Z",
+      "finished_at": "2026-07-25T03:27:10Z",
+      "squad": "telegram-management",
+      "outcome": "done",
+      "commits": [
+        "d285103 chore(S01-06): start story",
+        "709b49a feat(S01-06): manage active promises in Telegram",
+        "ba7e23c test(S01-06): prove status and cancellation lifecycle",
+        "5d6c596 test(S01-06): verify promise management"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-06/status-ordering.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-06/done-idempotency.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-06/cancellation-confirmation.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-06/cancellation-confirmation.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-06/ledger-preservation.json"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-06/done-idempotency.json"
+        }
+      ],
+      "decisions": [
+        "Telegram /status exposes only Done and Cancel against ordered active commitments; saved cancellation requires a second current confirmation.",
+        "Done and confirmed cancellation transition once, cancel eligible unsent messages, preserve append-only events, and perform no Calendar write."
+      ],
+      "deviations_from_plan": [
+        "PM and QA review were consolidated after engineer-first implementation as directed by the owner."
+      ],
+      "follow_ups": [
+        "S01-12 must verify deployed status, completion, cancellation, stale action, and cross-surface parity journeys."
+      ],
+      "context_for_next": "S01-06 is complete with AC1-AC6 independently evidenced.\n/status orders active promises by target and shows the required factual fields with Done and Cancel only.\nDone closes once and cancels eligible unsent messages.\nDraft cancellation is direct; saved commitment cancellation requires a second current confirmation.\nStale and replayed actions return current state without duplicate transitions or events.\nFocused unit 3/3, status/cancel DB 1/1, full DB 27/27, and the Node 24 repository gate passed."
+    },
+    {
+      "story_id": "S01-09a",
+      "started_at": "2026-07-24T20:11:43Z",
+      "finished_at": "2026-07-25T03:27:10Z",
+      "squad": "calendar-boundary",
+      "outcome": "done",
+      "commits": [
+        "bd9778b chore(S01-09a): start story",
+        "137be2e feat(S01-09a): refresh bounded Calendar credentials",
+        "57f5065 feat(S01-09a): normalize Calendar work windows",
+        "06e6b5e test(S01-09a): audit existing product tables",
+        "7f6b4fe test(S01-09a): verify Calendar boundary",
+        "0267d71 test(S01-09a): normalize evidence formatting"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-09a/token-provider-boundary.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-09a/calendar-failure-matrix.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-09a/timing-constraint-normalization.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-09a/provider-privacy-audit.md"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-09a/provider-privacy-audit.md"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-09a/token-provider-boundary.json"
+        }
+      ],
+      "decisions": [
+        "Google credentials remain server-only; Calendar reads are primary-only, read-only, bounded, and return typed failures without product consequences.",
+        "Timing constraints accept only default or the strict bounded Singapore-time line format and never use model translation."
+      ],
+      "deviations_from_plan": [
+        "No live provider mutation was required; final QA used controlled provider boundaries and disposable database verification."
+      ],
+      "follow_ups": [
+        "S01-12 must verify deployed OAuth/Calendar authorization and privacy boundaries without retaining owner or provider detail."
+      ],
+      "context_for_next": "S01-09a is complete with AC1-AC6 independently evidenced.\nCredentials decrypt and refresh only inside the server Calendar boundary.\nOnly primary Calendar minimum read-only fields are requested.\nSupported timing constraints normalize deterministically in Asia/Singapore; unsupported prose fails with format help.\nTyped unavailable, authorization-expired, and provider-failure outcomes create no consequential rows.\nFocused unit 24/24, focused DB 3/3, full DB 27/27, and the Node 24 repository gate passed."
+    },
+    {
+      "story_id": "S01-09b",
+      "started_at": "2026-07-24T20:47:03Z",
+      "finished_at": "2026-07-25T03:27:10Z",
+      "squad": "work-session-choice",
+      "outcome": "done",
+      "commits": [
+        "3ba0897 chore(S01-09b): start story",
+        "1df7e71 feat(S01-09b): orchestrate versioned work choices",
+        "f40dda5 feat(S01-09b): persist bounded work choice state",
+        "5882a42 test(S01-09b): verify versioned work choices"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-09b/help-duration-flow.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-09b/free-proposal.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-09b/busy-alternatives.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-09b/final-recheck.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-09b/versioned-actions.json"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-09b/unverified-offer.json"
+        },
+        {
+          "id": "AC7",
+          "result": "pass",
+          "evidence": "evidence/S01-09b/versioned-actions.json"
+        }
+      ],
+      "decisions": [
+        "One versioned draft owns the proposed session, alternatives, consent, and final-recheck path; stale or replayed actions cannot create consequences.",
+        "Provider unavailability offers only explicit reconnect, unverified-save, or cancel paths and always states that Google Calendar will not be changed."
+      ],
+      "deviations_from_plan": [
+        "Final user-copy and factual Calendar-state verification were consolidated with S01-09c/S01-10 QA after the approved contract repair."
+      ],
+      "follow_ups": [
+        "S01-12 must drive the deployed free, busy, no-fit, reconnect, unverified, stale, and replay journeys on one release."
+      ],
+      "context_for_next": "S01-09b is complete with AC1-AC7 independently evidenced.\nThe owner can decline help, provide duration, accept a free proposal, or choose from at most two deterministic alternatives.\nAll inline actions are draft/version-bound and stale or replayed callbacks are non-consequential.\nFinal availability is rechecked immediately before the save boundary.\nProvider failure exposes explicit reconnect, unverified-save, or cancel without Calendar writes.\nFocused unit 10/10, focused DB 1/1, full DB 27/27, and the Node 24 repository gate passed."
+    },
+    {
+      "story_id": "S01-09c",
+      "started_at": "2026-07-24T21:24:07Z",
+      "finished_at": "2026-07-25T03:27:10Z",
+      "squad": "transaction-integration",
+      "outcome": "done",
+      "commits": [
+        "0939e1f chore(S01-09c): start story",
+        "a0a0c9d feat(S01-09c): confirm work sessions atomically",
+        "59ec011 test(S01-09c): prove atomic session confirmation",
+        "1ea86f1 test(S01-09c): isolate rollback fixture",
+        "b0744e0 fix(S01-09c): preserve final calendar truth",
+        "e5a4b4b test(S01-09c): verify atomic work-session save"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-09c/atomic-session-confirmation.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-09c/conflict-kept.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-09c/unverified-save.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-09c/replay-concurrency.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-09c/rollback-matrix.json"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-09c/scheduler-compatibility.json"
+        },
+        {
+          "id": "AC7",
+          "result": "pass",
+          "evidence": "evidence/S01-09c/atomic-session-confirmation.json"
+        }
+      ],
+      "decisions": [
+        "Commitment, planned session, start/end schedules, and creation events persist in one version-current transaction or not at all.",
+        "Final Calendar truth is factual: a conflict that clears persists and displays free, while earlier keep-conflict consent remains audit-only."
+      ],
+      "deviations_from_plan": [
+        "The approved contract repair added forward migration 061 so final-recheck truth is persisted honestly without weakening prior consent auditing."
+      ],
+      "follow_ups": [
+        "S01-12 must prove atomic save, rollback, conflict, unverified save, replay, concurrency, and scheduler parity on the deployed release."
+      ],
+      "context_for_next": "S01-09c is complete with AC1-AC7 independently evidenced.\nVersion-current confirmation atomically saves one commitment, one planned session, two schedules, and append-only events.\nFinal free, conflict-kept, and explicit unverified states are persisted and copied factually.\nA cleared final conflict displays free and retains prior consent only in audit.\nReplay, concurrency, stale actions, and forced failures cannot create partial or duplicate state.\nFocused unit 6/6, consolidated DB 11/11, full DB 27/27, and the Node 24 repository gate passed."
+    },
+    {
+      "story_id": "S01-10",
+      "started_at": "2026-07-24T21:57:35Z",
+      "finished_at": "2026-07-25T03:27:10Z",
+      "squad": "integrated-work-session-engineering",
+      "outcome": "done",
+      "commits": [
+        "6e653a6 chore(S01-10): start story",
+        "9af435c fix(S01-10): bound recovery to immutable target",
+        "209ce51 feat(S01-10): deliver and resolve work sessions",
+        "b24b07f test(S01-10): cover notifications and honest outcomes",
+        "1fe2bee feat(S01-10): continue work sessions explicitly",
+        "cf33131 test(S01-10): prove continuation and recovery lifecycle",
+        "f2fe193 feat(S01-10): bound continuation recovery",
+        "ce46cf6 test(S01-10): verify work-session lifecycle"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-10/start-and-end-delivery.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-10/done-transition.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-10/more-time-flow.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-10/missed-flow.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-10/continuation-session.json"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-10/recovery-session.json"
+        },
+        {
+          "id": "AC7",
+          "result": "pass",
+          "evidence": "evidence/S01-10/continuation-session.json"
+        }
+      ],
+      "decisions": [
+        "Need more time records partial work, then collects duration, then requires a separate Find a time opt-in; duration alone never starts a Calendar search.",
+        "Continuation expires after 24 hours; conflict and unavailable final rechecks expose explicit version-bound retry, reconnect, unverified-save, or cancel paths.",
+        "Recovery begins at the first Singapore half-hour strictly after both immutable target and now, remains within seven days, and never moves the target."
+      ],
+      "deviations_from_plan": [
+        "The approved contract repair added forward migration 062 for durable continuation expiry and final-recheck state.",
+        "The story originally named two database test files that do not exist after consolidation. QA retained the literal failure, proved the scenarios in work-session-confirmation-db.integration.ts 11/11, and the Project Lead corrected only the verification command; no AC changed."
+      ],
+      "follow_ups": [
+        "S01-12 must prove deployed delivery, outcomes, continuation, recovery, non-response, restart, replay, and one-future-session limits on one immutable release."
+      ],
+      "context_for_next": "S01-10 is complete with AC1-AC7 independently evidenced.\nOne start reminder and one end check-in use only the allowed actions and suppress honestly after terminal state.\nDone, partial, and missed outcomes record exactly once; duration collection cannot create a session without separate opt-in.\nContinuation expires after 24 hours and all consequential choices are version-bound.\nFinal conflict/unavailable states require explicit retry, reconnect, unverified-save, or cancel.\nRecovery starts strictly after max(target, now) on an SGT half-hour within target plus seven days; target stays immutable.\nFocused unit 18/18, consolidated DB 11/11, full DB 27/27, and the Node 24 repository gate passed."
     }
   ]
 }
