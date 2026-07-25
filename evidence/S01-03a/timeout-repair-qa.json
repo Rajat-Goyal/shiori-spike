@@ -1,0 +1,90 @@
+{
+  "story_id": "S01-03a",
+  "captured_at": "2026-07-25T13:28:25Z",
+  "repair_commit": "357fc90db95ffcb62b6e5de7997faf5689e8364d",
+  "result": "pass",
+  "runtime": {
+    "node": "v24.18.0",
+    "npm": "11.17.0"
+  },
+  "commands": [
+    {
+      "command": "npm run test --workspace @shiori/server -- src/decision/engine.test.ts src/telegram/conversation.test.ts",
+      "result": "pass",
+      "test_files_passed": 2,
+      "tests_passed": 144
+    },
+    {
+      "command": "npm run check",
+      "result": "pass",
+      "server_test_files_passed": 24,
+      "server_tests_passed": 381,
+      "release_verifier_tests_passed": 22,
+      "browser_tests_passed": 50,
+      "server_build": "pass",
+      "web_build": "pass",
+      "typecheck": "pass"
+    }
+  ],
+  "acceptance_criteria": {
+    "AC2": {
+      "result": "pass",
+      "evidence": [
+        "The adapter passes exactly 30000 to AbortSignal.timeout.",
+        "The timeout remains attached to the single strict, stateless, tool-free Responses request.",
+        "Configured server credential, model, prompt version, strict schema, and store false behavior are unchanged."
+      ]
+    },
+    "AC4": {
+      "result": "pass",
+      "evidence": [
+        "All nine bounded failure classes preserve conversation state and create no decision audit or authorized consequence.",
+        "Provider rejection details are discarded and classified as opaque HTTP failure.",
+        "An operational observer exception cannot change the bounded safe response or preservation command."
+      ]
+    },
+    "AC5": {
+      "result": "pass",
+      "evidence": [
+        "The operational payload has exactly the keys event and failureClass.",
+        "The event name is the fixed literal decision_failure and failureClass is restricted to the nine-class union.",
+        "The event contains no owner input, provider output or error, Telegram update or user identifier, token, credential, trace, or chain of thought.",
+        "The production logger receives only that allowlisted payload.",
+        "Telegram update identity is claimed before conversation or provider execution, so concurrent retry of the same update is stopped before the engine and produces no second reply."
+      ]
+    }
+  },
+  "privacy_inspection": {
+    "operational_payload_keys": [
+      "event",
+      "failureClass"
+    ],
+    "bounded_failure_class_count": 9,
+    "raw_owner_input_emitted": false,
+    "provider_output_emitted": false,
+    "provider_error_emitted": false,
+    "telegram_identifiers_emitted": false,
+    "credential_or_token_emitted": false,
+    "provider_trace_emitted": false,
+    "chain_of_thought_emitted": false,
+    "observer_error_propagates": false
+  },
+  "replay_inspection": {
+    "claim_occurs_before_decision": true,
+    "same_update_reaches_engine_more_than_once": false,
+    "same_update_sends_more_than_one_reply": false,
+    "product_mutations_per_replayed_update": 0
+  },
+  "residual_timing_risk": [
+    "A provider response slower than thirty seconds still fails closed as timeout.",
+    "The longer bound increases webhook latency and can overlap a Telegram retry; the durable pre-engine update claim suppresses duplicate processing.",
+    "Deployed provider latency and Telegram delivery still require S01-12 release evidence; this QA made no external request or mutation."
+  ],
+  "retention": {
+    "environment_values_recorded": false,
+    "raw_input_recorded": false,
+    "raw_provider_material_recorded": false,
+    "external_system_mutation": false
+  },
+  "execution_note": "The first full-gate attempt was denied localhost binding by the QA sandbox. The exact command was rerun with localhost permission and passed completely."
+}
