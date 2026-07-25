@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-25T02:34:04Z",
+  "updated_at": "2026-07-25T03:21:56Z",
   "current_story": "S01-12",
-  "summary": "9/18 done",
+  "summary": "11/18 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -822,6 +822,122 @@
         "S01-12 must retain deployed reminder and non-response scenario evidence on the final immutable release."
       ],
       "context_for_next": "S01-04 is complete with AC1-AC6 independently evidenced.\nOne due simple reminder is claimed under a unique logical key and delivered with Done/Cancel.\nDone closes once at actual completion time and cancels pending messages atomically; replay is idempotent.\nOnly validated HTTP 429 is retry-safe for three total attempts; exhaustion is terminal.\nAmbiguous delivery becomes delivery_unknown without automatic resend.\nNon-response schedules no additional notification.\nSaved-commitment Cancel remains a non-mutating confirmation-required response owned by S01-06.\nFocused unit 38/38, focused DB 3/3, full API 376/376, verifier 22/22, and E2E 50/50 passed."
+    },
+    {
+      "story_id": "S01-03b",
+      "started_at": "2026-07-25T02:34:04Z",
+      "finished_at": "2026-07-25T03:21:56Z",
+      "squad": "conversation-state-regression",
+      "outcome": "done",
+      "commits": [
+        "7170f34 fix(S01-03b): serialize owner delivery claims",
+        "a5da457 test(S01-03b): await local database readiness",
+        "3aa34b3 test(S01-03b): verify restart-safe conversation story"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/draft-lifecycle.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/pre-confirmation-state.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/conversation-failures.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/draft-lifecycle.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/conversation-failures.json"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-03b/pre-confirmation-state.json"
+        }
+      ],
+      "decisions": [
+        "Concurrent first-owner claims converge through an untargeted conflict-safe owner-delivery insert while the primary key, private-chat uniqueness, and singleton constraint remain enforced.",
+        "Disposable-local database readiness is bounded to sixty seconds and probes only the expected localhost PostgREST endpoint; the approved restart fallback was not needed."
+      ],
+      "deviations_from_plan": [
+        "The owner-approved third attempt used the longer bounded readiness policy; three independent Node 24 resets passed without restarting disposable Supabase.",
+        "Final story-level QA was consolidated after the repair and independently verified all six acceptance criteria."
+      ],
+      "follow_ups": [
+        "S01-12 must retain deployed replay, restart, authorization, and duplicate-free owner-delivery evidence on the immutable release."
+      ],
+      "context_for_next": "S01-03b is complete with AC1-AC6 independently evidenced.\nMigration 060 makes concurrent first-owner delivery claims conflict-safe without removing any uniqueness or singleton constraint.\nThree clean Node 24 resets produced 48 successful concurrent claims with zero 409/23505 failures and one owner-delivery row per run.\nOne structured 24-hour draft survives restart; corrections are CAS/versioned and Telegram replay is non-mutating.\nImplied intention requires permission and retains only a bounded non-actionable audit record before agreement.\nOrdinary questions, failures, expiry, collision, and refusal create no consequential records or raw-message retention.\nFocused conversation 39/39, focused DB 2/2, full DB 27/27, server 379/379, verifier 22/22, and browser 50/50 passed."
+    },
+    {
+      "story_id": "S01-11",
+      "started_at": "2026-07-25T02:34:04Z",
+      "finished_at": "2026-07-25T03:21:56Z",
+      "squad": "dashboard-ux-qa",
+      "outcome": "done",
+      "commits": [
+        "008432a test(S01-11): add deterministic dashboard QA fixture",
+        "7252ad0 test(S01-11): verify live dashboard story"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-11/dashboard-api-parity.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-11/dashboard-api-parity.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-11/telegram-ledger-dashboard-parity.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-11/dashboard-populated-desktop.png"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-11/dashboard-api-parity.json"
+        },
+        {
+          "id": "AC6",
+          "result": "pass",
+          "evidence": "evidence/S01-11/dashboard-populated-mobile.png"
+        },
+        {
+          "id": "AC7",
+          "result": "pass",
+          "evidence": "evidence/S01-11/read-only-boundary-audit.md"
+        }
+      ],
+      "decisions": [
+        "The final populated fixture is deterministic, localhost-only, and uses production repositories so API, ledger, browser, delivery, session, terminal, and event facts share one source of truth.",
+        "The dashboard remains a Fastify GET-only read surface; browser code has no direct Supabase access and no commitment or session mutation control."
+      ],
+      "deviations_from_plan": [
+        "The earlier clean-state fixture blocker was superseded by a production-repository fixture that passed focused database verification and produced factual desktop and mobile captures.",
+        "The S01-11 QA lane released the shared database before its own full-DB rerun; the independent core QA lane then completed a fresh-reset full database pass of 27/27."
+      ],
+      "follow_ups": [
+        "S01-12 must retain deployed dashboard parity and responsive screenshots against the same immutable release identity."
+      ],
+      "context_for_next": "S01-11 is complete with AC1-AC7 independently evidenced.\nThe dashboard derives live owner summary data through authenticated Fastify GET routes and one bounded database RPC.\nThe deterministic fixture proves two active commitments, one terminal commitment, one session-history group, and eleven append-only events.\nRepresentative Telegram updates, ledger rows, API entities, timestamps, and browser facts match; another owner receives empty state.\nDesktop and mobile populated captures are usable and contain no owner identity, credential, raw message, or provider payload.\nThe browser makes no direct Supabase or product-mutation request; refresh repeats reads only.\nFocused server 13/13, focused DB 2/2, browser matrix 48/48, full DB 27/27, server 379/379, verifier 22/22, and browser 50/50 passed."
     }
   ]
 }

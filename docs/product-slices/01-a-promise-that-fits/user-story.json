@@ -680,7 +680,7 @@
           "supabase/migrations/20260724130000_add_telegram_ingress.sql"
         ]
       },
-      "status": "in_progress",
+      "status": "done",
       "open_questions": []
     },
     {
@@ -2132,7 +2132,7 @@
           "tests/e2e/google-connection.spec.ts"
         ]
       },
-      "status": "blocked",
+      "status": "done",
       "open_questions": []
     },
     {
