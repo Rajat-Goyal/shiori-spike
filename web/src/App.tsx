@@ -1,13 +1,77 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 type DashboardSummary = {
-  commitments: unknown[];
   counts: {
     active: number;
     dueToday: number;
     overdue: number;
   };
+  commitments: DashboardCommitment[];
+  events: DashboardEvent[];
+  sessionHistory: SessionHistoryEntry[];
+  terminalCommitments: TerminalCommitment[];
   updatedAt: string;
+};
+
+type DashboardCommitment = {
+  calendar: {
+    attemptedAt: string | null;
+    checkedAt: string | null;
+    kind: "not_needed" | "free" | "conflict_kept" | "unverified";
+    label: string;
+  };
+  definitionOfDone: string;
+  deliveries: {
+    dueAt: string;
+    kind: string;
+    label: string;
+    state: string;
+  }[];
+  expectedDurationMinutes: number | null;
+  id: string;
+  next: {
+    at: string | null;
+    kind: string;
+    label: string;
+  };
+  status: "active";
+  targetAt: string;
+};
+
+type SessionHistoryEntry = {
+  commitmentId: string;
+  definitionOfDone: string;
+  sessions: {
+    durationMinutes: number;
+    endAt: string;
+    id: string;
+    isRecovery: boolean;
+    label: string;
+    outcomeAt: string | null;
+    sequenceNumber: number;
+    startAt: string;
+    status: string;
+  }[];
+  truncated: boolean;
+};
+
+type TerminalCommitment = {
+  definitionOfDone: string;
+  id: string;
+  label: string;
+  status: "done" | "cancelled";
+  targetAt: string;
+  terminalAt: string;
+};
+
+type DashboardEvent = {
+  actor: "owner" | "system";
+  commitmentId: string;
+  definitionOfDone: string;
+  eventType: string;
+  id: string;
+  label: string;
+  occurredAt: string;
 };
 
 type LoginError = "failure" | "invalid" | "rate-limited";
@@ -78,18 +142,118 @@ function isDashboardSummary(value: unknown): value is DashboardSummary {
       ? (summary.counts as Record<string, unknown>)
       : undefined;
 
-  return (
-    Array.isArray(summary.commitments) &&
-    typeof summary.updatedAt === "string" &&
-    !Number.isNaN(Date.parse(summary.updatedAt)) &&
-    Boolean(counts) &&
-    ["active", "dueToday", "overdue"].every(
-      (key) =>
-        typeof counts?.[key] === "number" &&
-        Number.isInteger(counts[key]) &&
-        Number(counts[key]) >= 0,
+  const isString = (candidate: unknown) => typeof candidate === "string";
+  const isInstant = (candidate: unknown) =>
+    isString(candidate) && !Number.isNaN(Date.parse(candidate));
+  const isNullableInstant = (candidate: unknown) =>
+    candidate === null || isInstant(candidate);
+  const isNonNegativeInteger = (candidate: unknown) =>
+    typeof candidate === "number" &&
+    Number.isInteger(candidate) &&
+    candidate >= 0;
+  const isRecord = (candidate: unknown): candidate is Record<string, unknown> =>
+    Boolean(candidate) && typeof candidate === "object";
+  const isCommitment = (candidate: unknown) => {
+    if (!isRecord(candidate)) return false;
+    const next = candidate.next;
+    const calendar = candidate.calendar;
+    return (
+      isString(candidate.id) &&
+      candidate.status === "active" &&
+      isString(candidate.definitionOfDone) &&
+      isInstant(candidate.targetAt) &&
+      (candidate.expectedDurationMinutes === null ||
+        isNonNegativeInteger(candidate.expectedDurationMinutes)) &&
+      isRecord(next) &&
+      isString(next.kind) &&
+      isString(next.label) &&
+      isNullableInstant(next.at) &&
+      isRecord(calendar) &&
+      ["not_needed", "free", "conflict_kept", "unverified"].includes(
+        String(calendar.kind),
+      ) &&
+      isString(calendar.label) &&
+      isNullableInstant(calendar.attemptedAt) &&
+      isNullableInstant(calendar.checkedAt) &&
+      Array.isArray(candidate.deliveries) &&
+      candidate.deliveries.every(
+        (delivery) =>
+          isRecord(delivery) &&
+          isString(delivery.kind) &&
+          isString(delivery.label) &&
+          isString(delivery.state) &&
+          isInstant(delivery.dueAt),
+      )
+    );
+  };
+  const isSessionHistory = (candidate: unknown) =>
+    isRecord(candidate) &&
+    isString(candidate.commitmentId) &&
+    isString(candidate.definitionOfDone) &&
+    typeof candidate.truncated === "boolean" &&
+    Array.isArray(candidate.sessions) &&
+    candidate.sessions.every(
+      (session) =>
+        isRecord(session) &&
+        isString(session.id) &&
+        isNonNegativeInteger(session.sequenceNumber) &&
+        isString(session.status) &&
+        isString(session.label) &&
+        isInstant(session.startAt) &&
+        isInstant(session.endAt) &&
+        isNonNegativeInteger(session.durationMinutes) &&
+        isNullableInstant(session.outcomeAt) &&
+        typeof session.isRecovery === "boolean",
+    );
+  const isTerminalCommitment = (candidate: unknown) =>
+    isRecord(candidate) &&
+    isString(candidate.id) &&
+    isString(candidate.definitionOfDone) &&
+    isInstant(candidate.targetAt) &&
+    ["done", "cancelled"].includes(String(candidate.status)) &&
+    isString(candidate.label) &&
+    isInstant(candidate.terminalAt);
+  const isEvent = (candidate: unknown) =>
+    isRecord(candidate) &&
+    isString(candidate.id) &&
+    isString(candidate.commitmentId) &&
+    isString(candidate.definitionOfDone) &&
+    isString(candidate.eventType) &&
+    isString(candidate.label) &&
+    ["owner", "system"].includes(String(candidate.actor)) &&
+    isInstant(candidate.occurredAt);
+
+  if (
+    !Array.isArray(summary.commitments) ||
+    !summary.commitments.every(isCommitment) ||
+    !isInstant(summary.updatedAt) ||
+    !counts ||
+    !["active", "dueToday", "overdue"].every((key) =>
+      isNonNegativeInteger(counts[key]),
     )
+  ) {
+    return false;
+  }
+
+  const optionalCollections = [
+    ["events", isEvent],
+    ["sessionHistory", isSessionHistory],
+    ["terminalCommitments", isTerminalCommitment],
+  ] as const;
+  return optionalCollections.every(
+    ([key, predicate]) =>
+      summary[key] === undefined ||
+      (Array.isArray(summary[key]) && summary[key].every(predicate)),
   );
+}
+
+function normalizeDashboardSummary(summary: DashboardSummary): DashboardSummary {
+  return {
+    ...summary,
+    events: summary.events ?? [],
+    sessionHistory: summary.sessionHistory ?? [],
+    terminalCommitments: summary.terminalCommitments ?? [],
+  };
 }
 
 async function readSummary(): Promise<
@@ -112,7 +276,7 @@ async function readSummary(): Promise<
 
     const body: unknown = await response.json();
     return isDashboardSummary(body)
-      ? { kind: "success", summary: body }
+      ? { kind: "success", summary: normalizeDashboardSummary(body) }
       : { kind: "unavailable" };
   } catch {
     return { kind: "unavailable" };
@@ -499,6 +663,363 @@ function CalendarPanel({
   );
 }
 
+const compactSingaporeTimestamp = new Intl.DateTimeFormat("en-SG", {
+  day: "2-digit",
+  hour: "2-digit",
+  hour12: false,
+  minute: "2-digit",
+  month: "short",
+  timeZone: "Asia/Singapore",
+  timeZoneName: "short",
+  year: "numeric",
+});
+
+function Timestamp({
+  fallback = "Not recorded",
+  value,
+}: {
+  fallback?: string;
+  value: string | null;
+}) {
+  return value ? (
+    <time dateTime={value}>
+      {compactSingaporeTimestamp.format(new Date(value))}
+    </time>
+  ) : (
+    <>{fallback}</>
+  );
+}
+
+function RecordReference({ id }: { id: string }) {
+  return <span className="record-reference">Reference {id}</span>;
+}
+
+function EmptySection({
+  body,
+  heading,
+}: {
+  body: string;
+  heading: string;
+}) {
+  return (
+    <div className="section-empty">
+      <p>{heading}</p>
+      <span>{body}</span>
+    </div>
+  );
+}
+
+function calendarObservation(
+  calendar: DashboardCommitment["calendar"],
+): string {
+  if (calendar.kind === "not_needed") {
+    return "Calendar check not needed";
+  }
+  if (calendar.kind === "unverified") {
+    return "Saved without a Calendar check";
+  }
+  return calendar.label;
+}
+
+function ActivePromises({
+  commitments,
+}: {
+  commitments: DashboardCommitment[];
+}) {
+  return (
+    <section
+      className={`promise-panel${
+        commitments.length > 0 ? " promise-panel--populated" : ""
+      }`}
+      aria-labelledby="active-promises-title"
+    >
+      {commitments.length === 0 ? (
+        <>
+          <div className="empty-illustration" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <h2 id="active-promises-title">No active promises</h2>
+          <p>Confirmed promises will appear here.</p>
+        </>
+      ) : (
+        <>
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Current</p>
+              <h2 id="active-promises-title">Active promises</h2>
+            </div>
+            <span>{commitments.length}</span>
+          </div>
+          <div className="record-list">
+            {commitments.map((commitment) => (
+              <article className="promise-card" key={commitment.id}>
+                <div className="record-heading">
+                  <div>
+                    <span className="status-chip status-chip--active">
+                      {commitment.status}
+                    </span>
+                    <h3>{commitment.definitionOfDone}</h3>
+                  </div>
+                  <RecordReference id={commitment.id} />
+                </div>
+
+                <dl className="detail-grid">
+                  <div>
+                    <dt>Target</dt>
+                    <dd>
+                      <Timestamp value={commitment.targetAt} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Expected duration</dt>
+                    <dd>
+                      {commitment.expectedDurationMinutes === null
+                        ? "Not set"
+                        : `${commitment.expectedDurationMinutes} minutes`}
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className="observation-grid">
+                  <section aria-label="Next action">
+                    <span className="detail-label">Next · {commitment.next.kind}</span>
+                    <strong>{commitment.next.label}</strong>
+                    <p>
+                      <Timestamp
+                        fallback="No time scheduled"
+                        value={commitment.next.at}
+                      />
+                    </p>
+                  </section>
+                  <section
+                    className={`calendar-observation calendar-observation--${commitment.calendar.kind}`}
+                    aria-label="Calendar observation"
+                  >
+                    <span className="detail-label">
+                      Calendar · {commitment.calendar.kind.replaceAll("_", " ")}
+                    </span>
+                    <strong>{calendarObservation(commitment.calendar)}</strong>
+                    <p>
+                      Attempted:{" "}
+                      <Timestamp
+                        fallback="Not attempted"
+                        value={commitment.calendar.attemptedAt}
+                      />
+                      <br />
+                      Checked:{" "}
+                      <Timestamp
+                        fallback="Not checked"
+                        value={commitment.calendar.checkedAt}
+                      />
+                    </p>
+                  </section>
+                </div>
+
+                <div className="nested-records">
+                  <h4>Reminder deliveries</h4>
+                  {commitment.deliveries.length === 0 ? (
+                    <p className="inline-empty">No reminder deliveries.</p>
+                  ) : (
+                    <ul className="delivery-list">
+                      {commitment.deliveries.map((delivery, index) => (
+                        <li key={`${delivery.kind}-${delivery.dueAt}-${index}`}>
+                          <div>
+                            <strong>{delivery.label}</strong>
+                            <span>
+                              {delivery.kind} · {delivery.state}
+                            </span>
+                          </div>
+                          <Timestamp value={delivery.dueAt} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function SessionHistory({ history }: { history: SessionHistoryEntry[] }) {
+  return (
+    <section className="dashboard-section" aria-labelledby="sessions-title">
+      <div className="section-heading">
+        <div>
+          <p className="section-kicker">Work</p>
+          <h2 id="sessions-title">Session history</h2>
+        </div>
+        <span>{history.length}</span>
+      </div>
+      {history.length === 0 ? (
+        <EmptySection
+          body="Completed and interrupted work sessions will appear here."
+          heading="No session history"
+        />
+      ) : (
+        <div className="record-list">
+          {history.map((entry) => (
+            <article className="history-card" key={entry.commitmentId}>
+              <div className="record-heading">
+                <div>
+                  <span className="detail-label">Promise</span>
+                  <h3>{entry.definitionOfDone}</h3>
+                </div>
+                <RecordReference id={entry.commitmentId} />
+              </div>
+              <ol className="session-list">
+                {entry.sessions.map((session) => (
+                  <li key={session.id}>
+                    <div className="session-sequence">
+                      <span>Session {session.sequenceNumber}</span>
+                      <span
+                        className={`status-chip${
+                          session.isRecovery ? " status-chip--recovery" : ""
+                        }`}
+                      >
+                        {session.isRecovery ? "Recovery" : "Standard"}
+                      </span>
+                    </div>
+                    <div>
+                      <strong>{session.label}</strong>
+                      <span>
+                        {session.status} · {session.durationMinutes} minutes
+                      </span>
+                    </div>
+                    <p>
+                      <Timestamp value={session.startAt} /> –{" "}
+                      <Timestamp value={session.endAt} />
+                    </p>
+                    <p>
+                      Outcome:{" "}
+                      <Timestamp fallback="Not recorded" value={session.outcomeAt} />
+                    </p>
+                    <RecordReference id={session.id} />
+                  </li>
+                ))}
+              </ol>
+              <p
+                className={`truncation-note${
+                  entry.truncated ? "" : " truncation-note--complete"
+                }`}
+              >
+                {entry.truncated
+                  ? "Earlier sessions are not shown in this summary."
+                  : "Complete session history shown."}
+              </p>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PromiseHistory({
+  commitments,
+}: {
+  commitments: TerminalCommitment[];
+}) {
+  return (
+    <section className="dashboard-section" aria-labelledby="history-title">
+      <div className="section-heading">
+        <div>
+          <p className="section-kicker">Closed</p>
+          <h2 id="history-title">Promise history</h2>
+        </div>
+        <span>{commitments.length}</span>
+      </div>
+      {commitments.length === 0 ? (
+        <EmptySection
+          body="Done and cancelled promises will appear here."
+          heading="No completed or cancelled promises"
+        />
+      ) : (
+        <div className="compact-record-list">
+          {commitments.map((commitment) => (
+            <article className="compact-record" key={commitment.id}>
+              <div>
+                <span
+                  className={`status-chip status-chip--${commitment.status}`}
+                >
+                  {commitment.label}
+                </span>
+                <span className="terminal-state">
+                  State · {commitment.status}
+                </span>
+                <h3>{commitment.definitionOfDone}</h3>
+              </div>
+              <dl className="detail-grid">
+                <div>
+                  <dt>Target</dt>
+                  <dd>
+                    <Timestamp value={commitment.targetAt} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>{commitment.status === "done" ? "Completed" : "Cancelled"}</dt>
+                  <dd>
+                    <Timestamp value={commitment.terminalAt} />
+                  </dd>
+                </div>
+              </dl>
+              <RecordReference id={commitment.id} />
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ActivityHistory({ events }: { events: DashboardEvent[] }) {
+  return (
+    <section className="dashboard-section" aria-labelledby="activity-title">
+      <div className="section-heading">
+        <div>
+          <p className="section-kicker">Timeline</p>
+          <h2 id="activity-title">Recent activity</h2>
+        </div>
+        <span>{events.length}</span>
+      </div>
+      {events.length === 0 ? (
+        <EmptySection
+          body="Owner and system events will appear here."
+          heading="No recent activity"
+        />
+      ) : (
+        <ol className="activity-list">
+          {events.map((event) => (
+            <li key={event.id}>
+              <span
+                className={`activity-marker activity-marker--${event.actor}`}
+                aria-hidden="true"
+              />
+              <div>
+                <div className="activity-meta">
+                  <span>{event.actor}</span>
+                  <span>{event.eventType}</span>
+                  <Timestamp value={event.occurredAt} />
+                </div>
+                <strong>{event.label}</strong>
+                <p>{event.definitionOfDone}</p>
+                <span className="record-reference">
+                  Event {event.id} · Promise {event.commitmentId}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 function DashboardView({
   calendarConnection,
   calendarInitiating,
@@ -586,15 +1107,10 @@ function DashboardView({
           onCalendarConnect={onCalendarConnect}
         />
 
-        <section className="promise-panel" aria-labelledby="promises-empty-title">
-          <div className="empty-illustration" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
-          <h2 id="promises-empty-title">No active promises</h2>
-          <p>Confirmed promises will appear here.</p>
-        </section>
+        <ActivePromises commitments={summary.commitments} />
+        <SessionHistory history={summary.sessionHistory} />
+        <PromiseHistory commitments={summary.terminalCommitments} />
+        <ActivityHistory events={summary.events} />
       </div>
     </main>
   );
