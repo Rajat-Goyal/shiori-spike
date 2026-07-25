@@ -1,6 +1,6 @@
 # S01-05 restart and recovery timeline
 
-Source: `f2fe1934cd1f4af85c494543942cca38383f61a6`  
+Source: `f2fe1934cd1f4af85c494543942cca38383f61a6`
 Result: PASS
 
 The clean database test established this bounded sequence:
