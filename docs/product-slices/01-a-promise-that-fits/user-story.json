@@ -680,7 +680,7 @@
           "supabase/migrations/20260724130000_add_telegram_ingress.sql"
         ]
       },
-      "status": "blocked",
+      "status": "in_progress",
       "open_questions": []
     },
     {
@@ -1713,12 +1713,7 @@
         ]
       },
       "status": "in_progress",
-      "open_questions": [
-        "When planning help is declined, PM recommends preserving the same possible-work draft, collecting supported duration and an owner-chosen exact session start as needed, and keeping Cancel as a separate explicit action instead of silently converting the intention to simple-action confirmation. Owner approval is required.",
-        "When Google authorization has expired, PM recommends that a concrete selected time offer Reconnect, Check again, explicit Save without Calendar check, and Cancel; without a concrete time the flow offers Reconnect, Check again, owner-chosen time, and Cancel but cannot offer an unverified save. Owner approval is required.",
-        "PM recommends that the single conversation draft own all planning state while at most two sanitized ephemeral option rows are bound to its current ID and version, replaced or cleared atomically on every accepted version change. No second active scheduling draft is created. Owner approval is required.",
-        "If an explicitly kept conflict is free at final recheck, PM recommends that the committer receive both the final free observation and the earlier conflict-consent audit, display the final state as Free when checked, and retain the explicit keep decision only in audit history. Owner approval is required."
-      ]
+      "open_questions": []
     },
     {
       "id": "S01-09c",
@@ -1857,12 +1852,7 @@
         ]
       },
       "status": "in_progress",
-      "open_questions": [
-        "S01-05 must publish a stable schedule-creation handoff before this story begins. PM recommends logicalKey, commitmentId, optional workSessionId, kind, and dueAt as creation inputs; pending state, attempt zero, and null lease/provider/error fields as defaults; kinds work_session_start and work_session_end; and keys ws:<session-uuid>:start|end. The dependency's actual output must be checked before implementation.",
-        "For an unverified save, PM recommends calendar_checked_at remain null and a separate calendar_attempted_at record the failed-attempt time, so failed verification is never represented as a successful check. Owner approval is required.",
-        "For a kept conflict that becomes free at final recheck, PM recommends separate final observation and conflict-consent fields so both the final free result and earlier explicit keep audit survive honestly. Owner approval is required.",
-        "PM recommends frozen success copy that states the promise was saved, names the start and end reminder times, explicitly says Google Calendar was not changed, and adds either `You kept the conflicting time.` or `saved without a Calendar check` only for the applicable outcome. Owner approval is required."
-      ]
+      "open_questions": []
     },
     {
       "id": "S01-10",
@@ -2298,10 +2288,7 @@
         ]
       },
       "status": "in_progress",
-      "open_questions": [
-        "Before deployed owner journeys, explicitly approve any Telegram webhook cutover or Google OAuth callback change that could divert an existing integration.",
-        "Before S19, explicitly approve one dedicated-service process restart; destructive and provider-corruption faults remain limited to disposable or controlled environments."
-      ]
+      "open_questions": []
     }
   ]
 }
