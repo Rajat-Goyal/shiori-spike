@@ -1,6 +1,6 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-25T07:52:15Z",
+  "updated_at": "2026-07-25T08:22:25Z",
   "current_story": "S01-12",
   "summary": "17/18 done",
   "log": [
@@ -1366,6 +1366,36 @@
         "After correction, validate REST authentication, upload only the exact Railway variable, produce a new immutable deployment and manifest, then rerun S1-S28, one identity-preserving restart, redaction scan, assessment, and independent sign-off."
       ],
       "context_for_next": "S01-12 is blocked and Slice 01 remains unshipped at 17/18 done.\nCanonical failed candidate source is f2fe193 and deployment is 47b4948b with migrations through 062 and healthy public process state.\nThe deployed SUPABASE_SECRET_KEY hash matches local but the service_role JWT belongs to another project than SUPABASE_URL.\nDashboard authenticated reads and owner-private Telegram processing return bounded 503; hosted REST returns 401.\nS1-S3 and S23/S26 fail; S24/S25 pass; dependent scenarios remain blocked in integrity-wrapped redacted evidence.\nWebhook is configured to the dedicated URL with message and callback_query only.\nNo restart, Calendar mutation, later owner journey, or legacy-service action occurred.\nOwner must install the correct same-project server key locally before resuming a fresh release candidate."
+    },
+    {
+      "story_id": "S01-01",
+      "started_at": "2026-07-25T08:12:53Z",
+      "finished_at": "2026-07-25T08:22:25Z",
+      "squad": "security-repair",
+      "outcome": "done",
+      "commits": [
+        "e6fe79e chore(S01-01): reopen production rate limiting",
+        "b1823b5 fix(S01-01): stabilize owner login rate limit",
+        "c6a9c2e test(S01-01): verify stable owner login rate limit"
+      ],
+      "ac_results": [
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-01/rate-limit-repair-qa.txt"
+        }
+      ],
+      "decisions": [
+        "The single configured owner is the stable rate-limit principal; Railway gateway connection rotation and client-spoofable forwarding headers cannot create fresh login buckets.",
+        "The bounded in-process limiter remains consistent with the slice's one-replica architecture and introduces no runtime dependency."
+      ],
+      "deviations_from_plan": [
+        "S01-01 was reopened after immutable candidate-2 production verification showed six rotating-gateway invalid logins all returned 401 instead of rate-limiting."
+      ],
+      "follow_ups": [
+        "S01-12 must deploy a fresh immutable candidate and reproduce five 401 responses followed by 429 with Retry-After before release signoff."
+      ],
+      "context_for_next": "S01-01 AC2 is repaired and independently reverified.\nOwner-login failures now share one stable configured-owner bucket instead of Railway gateway socket IPs.\nThe implementation does not enable trustProxy or consume spoofable forwarding headers.\nA production-shaped regression rotates remoteAddress and X-Forwarded-For, then proves five 401 responses followed by 429 and Retry-After 60.\nA valid password remains blocked during the bounded lockout and receives no cookie.\nNode 24 focused tests and the complete repository gate passed.\nCandidate 2 is superseded; S01-12 must release and pin a fresh candidate before further production journeys."
     }
   ]
 }
