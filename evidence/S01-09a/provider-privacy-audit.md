@@ -1,6 +1,6 @@
 # S01-09a provider privacy audit
 
-Source: `f2fe1934cd1f4af85c494543942cca38383f61a6`  
+Source: `f2fe1934cd1f4af85c494543942cca38383f61a6`
 Result: PASS
 
 - The adapter rejects any Calendar ID other than `primary`.
