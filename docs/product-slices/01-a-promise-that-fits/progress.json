@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-25T03:53:35Z",
-  "current_story": "S01-12",
-  "summary": "17/18 done",
+  "updated_at": "2026-07-25T04:03:55Z",
+  "current_story": null,
+  "summary": "17/18 done; S01-12 blocked",
   "log": [
     {
       "story_id": "S01-00",
@@ -1300,6 +1300,72 @@
         "S01-12 must prove deployed delivery, outcomes, continuation, recovery, non-response, restart, replay, and one-future-session limits on one immutable release."
       ],
       "context_for_next": "S01-10 is complete with AC1-AC7 independently evidenced.\nOne start reminder and one end check-in use only the allowed actions and suppress honestly after terminal state.\nDone, partial, and missed outcomes record exactly once; duration collection cannot create a session without separate opt-in.\nContinuation expires after 24 hours and all consequential choices are version-bound.\nFinal conflict/unavailable states require explicit retry, reconnect, unverified-save, or cancel.\nRecovery starts strictly after max(target, now) on an SGT half-hour within target plus seven days; target stays immutable.\nFocused unit 18/18, consolidated DB 11/11, full DB 27/27, and the Node 24 repository gate passed."
+    },
+    {
+      "story_id": "S01-12",
+      "started_at": "2026-07-25T01:48:42Z",
+      "finished_at": "2026-07-25T04:03:55Z",
+      "squad": "integrated-release-signoff",
+      "outcome": "blocked",
+      "commits": [
+        "0bd55da fix(S01-12): compare deployed runtime configuration",
+        "500c79b test(S01-12): retain immutable release identity",
+        "fd28af1 test(S01-12): retain failed production signoff",
+        "d0480b9 chore(S01-12): assign credential correction"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-12/release-manifest.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-12/release-manifest.json"
+        },
+        {
+          "id": "AC3",
+          "result": "fail",
+          "evidence": "evidence/S01-12/scenarios-s01-s18.json"
+        },
+        {
+          "id": "AC4",
+          "result": "fail",
+          "evidence": "evidence/S01-12/scenarios-s19-s28.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-12/release-manifest.json"
+        },
+        {
+          "id": "AC6",
+          "result": "fail",
+          "evidence": "evidence/S01-12/scenarios-s19-s28.json"
+        },
+        {
+          "id": "AC7",
+          "result": "fail",
+          "evidence": "evidence/S01-12/scenarios-s01-s18.json"
+        }
+      ],
+      "decisions": [
+        "The fail-closed verifier pins exact source f2fe193, deployment 47b4948b, one dedicated replica, hosted migrations through 062, exact runtime inventory, public health, and legacy-service exclusion.",
+        "A healthy process and matching configuration hashes are insufficient sign-off when the deployed Supabase server credential cannot authenticate to the configured hosted project.",
+        "No acceptance criterion, scenario status, or privacy requirement is weakened; the slice remains unshipped."
+      ],
+      "deviations_from_plan": [
+        "Production journeys stopped after one owner-private S3 attempt because dashboard and Telegram paths returned 503 and the configured hosted Supabase credential returned 401.",
+        "The configured non-expired service_role JWT belongs to a different Supabase project than SUPABASE_URL; local and Railway hashes match the same invalid value.",
+        "S24 and S25 passed exact-source read-only audits; S26 remained unproven because the required hosted privacy scan could not authenticate.",
+        "The approved identity-preserving restart and remaining S1-S28 journeys were not run because the earlier database-authentication failure made them invalid and unsafe as sign-off evidence."
+      ],
+      "follow_ups": [
+        "OWNER: replace SUPABASE_SECRET_KEY in .env.local with the server secret or legacy service_role key from the same project as SUPABASE_URL, without pasting it into chat.",
+        "After correction, validate REST authentication, upload only the exact Railway variable, produce a new immutable deployment and manifest, then rerun S1-S28, one identity-preserving restart, redaction scan, assessment, and independent sign-off."
+      ],
+      "context_for_next": "S01-12 is blocked and Slice 01 remains unshipped at 17/18 done.\nCanonical failed candidate source is f2fe193 and deployment is 47b4948b with migrations through 062 and healthy public process state.\nThe deployed SUPABASE_SECRET_KEY hash matches local but the service_role JWT belongs to another project than SUPABASE_URL.\nDashboard authenticated reads and owner-private Telegram processing return bounded 503; hosted REST returns 401.\nS1-S3 and S23/S26 fail; S24/S25 pass; dependent scenarios remain blocked in integrity-wrapped redacted evidence.\nWebhook is configured to the dedicated URL with message and callback_query only.\nNo restart, Calendar mutation, later owner journey, or legacy-service action occurred.\nOwner must install the correct same-project server key locally before resuming a fresh release candidate."
     }
   ]
 }
