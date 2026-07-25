@@ -1,0 +1,49 @@
+S01-11 independent story-level QA gate
+Captured: 2026-07-25T03:18:07Z
+Verified tree: f2fe1934cd1f4af85c494543942cca38383f61a6
+Runtime: Node.js v24.18.0 / npm 11
+Result: PASS
+
+Exact story commands
+1. npm run test --workspace @shiori/server -- src/dashboard.test.ts src/app.test.ts
+   PASS, 13/13.
+2. npm run test:db -- server/test/dashboard-db.integration.ts
+   PASS, 2/2, against the approved disposable local Supabase.
+3. npm run test:e2e -- tests/e2e/dashboard.spec.ts
+   tests/e2e/owner-dashboard-states.spec.ts
+   tests/e2e/google-connection.spec.ts
+   PASS, 48/48 across Chromium desktop and mobile.
+4. npm run check
+   PASS: typechecks; 379/379 server tests; 22/22 release-verifier tests;
+   both production builds; 50/50 isolated browser cases.
+
+Populated live-data capture
+- A clean disposable local Supabase was migrated and seeded only through
+  production repositories.
+- Seed result: active 2, events 11, session-history groups 1, terminal 1.
+- Desktop screenshot: 1440 x 4253.
+- Mobile screenshot: 390 x 5527.
+- Both captures used the Fastify dashboard API over the live repository read.
+- External provider calls completed: 0.
+
+Acceptance sign-off
+- AC1 PASS: active count, due/overdue facts, next action, reminder delivery,
+  expected duration, and Calendar truth are covered by API, database, and
+  responsive browser verification.
+- AC2 PASS: live active states include simple and work-session paths with
+  pending/no-delivery and unverified Calendar facts.
+- AC3 PASS: more-work-needed session history, terminal done state, and ordered
+  append-only activity are read from the persisted ledger.
+- AC4 PASS: disconnected, connected, authorization-expired, unavailable, and
+  callback outcomes are verified across desktop and mobile.
+- AC5 PASS: populated, empty, loading, initial error, refresh failure with
+  retained last success, and expired owner-session states are verified.
+- AC6 PASS: all required facts remain usable at desktop and phone widths with
+  no horizontal overflow.
+- AC7 PASS: dashboard product traffic is GET-only through Fastify; the browser
+  makes no Supabase request and exposes no commitment mutation control.
+
+Coordination note
+- The required focused database command passed on the stabilized source tree.
+- The shared disposable database was then released to consolidated core QA;
+  no second full database-suite run was performed by this story verifier.

@@ -1,0 +1,68 @@
+{
+  "story_id": "S01-11",
+  "captured_at": "2026-07-25T03:18:07Z",
+  "verified_source_sha": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "fixture": {
+    "kind": "synthetic disposable-local",
+    "base_telegram_update_id": 1911000000,
+    "owner_identity_retained": false,
+    "raw_message_text_retained": false,
+    "provider_payload_retained": false
+  },
+  "correlated_flows": [
+    {
+      "telegram_update_ids": [
+        1911000000,
+        1911000001
+      ],
+      "ledger_definition": "Submit the synthetic QA summary",
+      "ledger_state": "active",
+      "dashboard_state": "active",
+      "dashboard_next_action": "simple_reminder",
+      "parity": true
+    },
+    {
+      "telegram_update_ids": [
+        1911000010,
+        1911000011,
+        1911000012
+      ],
+      "ledger_definition": "Archive the synthetic release note",
+      "ledger_state": "done",
+      "dashboard_state": "done",
+      "dashboard_label": "Completed",
+      "parity": true
+    },
+    {
+      "telegram_update_ids": [
+        1911000020,
+        1911000021,
+        1911000022,
+        1911000023
+      ],
+      "ledger_definition": "Review the synthetic implementation brief",
+      "ledger_state": "active",
+      "work_session_duration_minutes": 60,
+      "work_session_outcome": "more_work_needed",
+      "calendar_state": "unverified",
+      "dashboard_state": "active",
+      "dashboard_session_label": "More work needed",
+      "parity": true
+    }
+  ],
+  "repository_assertions": {
+    "active_commitment_ids_equal_sorted_owner_ledger_ids": true,
+    "runtime_generated_commitment_ids_match_exactly": true,
+    "session_history_is_bounded_to_five_per_commitment": true,
+    "terminal_history_is_bounded_to_ten": true,
+    "recent_events_are_bounded_to_twenty": true,
+    "another_owner_receives_empty_state": true
+  },
+  "read_probe": {
+    "product_writes": 0,
+    "calendar_writes": 0,
+    "telegram_sends": 0,
+    "external_calls_completed": 0
+  }
+}
