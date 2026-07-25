@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-04",
+  "generated_at": "2026-07-25T01:45:42.191Z",
+  "source_commit": "0bd55dafa16549c0492e1b9a4ed4c93669f51718",
+  "result": "pass",
+  "execution_mode": "disposable",
+  "acceptance_criteria": [
+    {
+      "id": "AC3",
+      "result": "pass",
+      "tests": [
+        {
+          "file": "server/src/commitments/simple-action.test.ts",
+          "name": "returns the bounded done copy",
+          "result": "pass"
+        },
+        {
+          "file": "server/test/simple-reminder-db.integration.ts",
+          "name": "claims and delivers once, records no follow-up, and resolves Done once",
+          "result": "pass"
+        },
+        {
+          "file": "server/test/simple-reminder-db.integration.ts",
+          "name": "keeps Cancel non-mutating and atomically cancels pending work on Done",
+          "result": "pass"
+        }
+      ],
+      "observed_counts": {
+        "commitment_rows": 1,
+        "done_transitions": 1,
+        "done_events": 1,
+        "pending_messages_cancelled_by_done": 1,
+        "scheduled_message_cancelled_events": 1
+      },
+      "timestamp_oracle": {
+        "actual_completion_timestamp_recorded": true,
+        "completion_timestamp_within_test_action_window": true
+      }
+    },
+    {
+      "id": "AC4",
+      "result": "pass",
+      "tests": [
+        {
+          "file": "server/src/commitments/simple-action.test.ts",
+          "name": "returns the bounded already_done copy",
+          "result": "pass"
+        },
+        {
+          "file": "server/src/commitments/simple-action.test.ts",
+          "name": "suppresses exact Telegram update replay",
+          "result": "pass"
+        },
+        {
+          "file": "server/test/simple-reminder-db.integration.ts",
+          "name": "claims and delivers once, records no follow-up, and resolves Done once",
+          "result": "pass"
+        }
+      ],
+      "observed_counts": {
+        "done_action_attempts_in_database_oracle": 3,
+        "done_transitions": 1,
+        "done_events": 1,
+        "additional_done_events_after_replay": 0,
+        "additional_deliveries_after_second_poll": 0
+      }
+    }
+  ],
+  "bounded_observations": {
+    "terminal_commitment_state": "done",
+    "completion_copy_class": "done",
+    "replay_copy_class": "already_done",
+    "atomic_pending_message_cleanup": true,
+    "calendar_write_calls": 0
+  },
+  "verification_runs": [
+    {
+      "command": "npm run test --workspace @shiori/server -- src/scheduler/scheduler.test.ts src/commitments/simple-action.test.ts",
+      "started_at": "2026-07-25T09:40:12+08:00",
+      "tests_passed": 38,
+      "tests_failed": 0
+    },
+    {
+      "command": "npm run test:db -- server/test/simple-reminder-db.integration.ts",
+      "started_at": "2026-07-25T09:43:43+08:00",
+      "tests_passed": 3,
+      "tests_failed": 0
+    }
+  ]
+}

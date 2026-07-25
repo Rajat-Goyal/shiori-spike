@@ -1,0 +1,82 @@
+S01-04 independent QA verification
+Generated: 2026-07-25T01:45:42.191Z
+Source HEAD: 0bd55dafa16549c0492e1b9a4ed4c93669f51718
+Result: PASS
+
+Runtime:
+- Node.js v26.5.0
+- npm 11.17.0
+
+Reviewed S01-04 implementation commits:
+- e219d9f966208153263c5ca2d7924088d27c38c4
+  feat(S01-04): add durable reminder transitions
+- 186d307379383155c4818afcb6f755384a1e69e1
+  feat(S01-04): deliver and resolve simple reminders
+- 001a32fadaaeb606400278044f4db46c9a4db348
+  test(S01-04): isolate database integration files
+
+Exact focused unit command:
+  npm run test --workspace @shiori/server -- src/scheduler/scheduler.test.ts src/commitments/simple-action.test.ts
+Result:
+- Test files: 2 passed, 0 failed
+- Tests: 38 passed, 0 failed
+- scheduler.test.ts: 19 passed
+- simple-action.test.ts: 19 passed
+- Vitest duration: 309 ms
+
+Disposable database preparation:
+  npx --no-install supabase db reset --local
+Result:
+- Supabase CLI: 2.109.1
+- Local Docker database recreated from 14 committed migrations
+- Seed files applied: 0
+- Hosted database operations: 0
+
+Exact focused database command:
+  npm run test:db -- server/test/simple-reminder-db.integration.ts
+Environment:
+- Freshly reset Docker-local Supabase API on the guarded local test port
+- Generated local credentials were injected only into the child process
+- No local credential value is retained in this evidence
+Result:
+- Test files: 1 passed, 0 failed
+- Tests: 3 passed, 0 failed
+- Test duration: 230 ms
+- Vitest duration: 423 ms
+
+Exact repository command:
+  npm run check
+Final result:
+- Server and web typechecks: pass
+- Server tests: 376 passed, 0 failed across 24 files
+- Release-verifier tests: 22 passed, 0 failed
+- Server and web production builds: pass
+- Isolated Playwright tests: 50 passed, 0 failed
+
+Attempt provenance:
+- The first repository-check attempt passed typechecks, 376 server tests,
+  22 release-verifier tests, and both builds.
+- That attempt then failed because the execution sandbox refused the local
+  Playwright web-server bind on port 3000 with EPERM.
+- A direct server-start diagnostic confirmed the same sandbox denial.
+- The exact repository command was rerun outside only that network-bind
+  sandbox and passed completely.
+- No product fix or source change was made between attempts.
+
+Scope and hygiene:
+- git diff --check before evidence: pass
+- Source worktree before evidence: clean
+- S01-04 implementation paths reviewed: 11
+- Paths outside the reminder scheduler, simple-action transition, Telegram
+  routing/client, application wiring, migration, and DB-test configuration: 0
+- Runtime dependency changes in the S01-04 implementation commits: 0
+- Production deployments, migrations, restarts, webhooks, OAuth callbacks,
+  Telegram sends, and hosted database operations: 0
+
+AC sign-off:
+- AC1: PASS
+- AC2: PASS
+- AC3: PASS
+- AC4: PASS
+- AC5: PASS
+- AC6: PASS

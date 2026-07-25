@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-04",
+  "generated_at": "2026-07-25T01:45:42.191Z",
+  "source_commit": "0bd55dafa16549c0492e1b9a4ed4c93669f51718",
+  "result": "pass",
+  "execution_mode": "disposable",
+  "acceptance_criteria": [
+    {
+      "id": "AC5",
+      "result": "pass",
+      "tests": [
+        {
+          "file": "server/src/scheduler/scheduler.test.ts",
+          "name": "records delivery_unknown once and does not retry",
+          "result": "pass"
+        },
+        {
+          "file": "server/src/scheduler/scheduler.test.ts",
+          "name": "records permanent_failure once and does not retry",
+          "result": "pass"
+        },
+        {
+          "file": "server/src/scheduler/scheduler.test.ts",
+          "name": "treats a success response without a message identity as unknown",
+          "result": "pass"
+        },
+        {
+          "file": "server/src/scheduler/scheduler.test.ts",
+          "name": "records validated rate limiting with retry time before exhaustion",
+          "result": "pass"
+        },
+        {
+          "file": "server/src/scheduler/scheduler.test.ts",
+          "name": "leaves an exhausted third validated rate limit without retry time",
+          "result": "pass"
+        },
+        {
+          "file": "server/src/scheduler/scheduler.test.ts",
+          "name": "accepts only a validated HTTP 429 as retry-safe",
+          "result": "pass"
+        },
+        {
+          "file": "server/src/scheduler/scheduler.test.ts",
+          "name": "classifies ambiguous and definitive non-retryable failures",
+          "result": "pass"
+        },
+        {
+          "file": "server/test/simple-reminder-db.integration.ts",
+          "name": "bounds validated 429 retries at three and never retries ambiguity",
+          "result": "pass"
+        }
+      ]
+    }
+  ],
+  "failure_matrix": [
+    {
+      "failure_class": "validated_http_429_before_acceptance",
+      "automatic_retry": true,
+      "maximum_total_attempts": 3,
+      "observed_attempt_events": 3,
+      "observed_retry_scheduled_events": 2,
+      "observed_retry_exhausted_events": 1,
+      "terminal_state": "retryable_failure",
+      "next_attempt_present_after_exhaustion": false,
+      "result": "pass"
+    },
+    {
+      "failure_class": "ambiguous_send",
+      "automatic_retry": false,
+      "observed_attempts": 1,
+      "second_poll_claims": 0,
+      "terminal_state": "delivery_unknown",
+      "next_attempt_present": false,
+      "result": "pass"
+    },
+    {
+      "failure_class": "success_without_message_identity",
+      "automatic_retry": false,
+      "terminal_state": "delivery_unknown",
+      "result": "pass"
+    },
+    {
+      "failure_class": "definitive_non_retryable_rejection",
+      "automatic_retry": false,
+      "terminal_state": "permanent_failure",
+      "result": "pass"
+    }
+  ],
+  "verification_runs": [
+    {
+      "command": "npm run test --workspace @shiori/server -- src/scheduler/scheduler.test.ts src/commitments/simple-action.test.ts",
+      "started_at": "2026-07-25T09:40:12+08:00",
+      "tests_passed": 38,
+      "tests_failed": 0
+    },
+    {
+      "command": "npm run test:db -- server/test/simple-reminder-db.integration.ts",
+      "started_at": "2026-07-25T09:43:43+08:00",
+      "tests_passed": 3,
+      "tests_failed": 0
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-04",
+  "generated_at": "2026-07-25T01:45:42.191Z",
+  "source_commit": "0bd55dafa16549c0492e1b9a4ed4c93669f51718",
+  "result": "pass",
+  "execution_mode": "disposable",
+  "acceptance_criteria": [
+    {
+      "id": "AC6",
+      "result": "pass",
+      "tests": [
+        {
+          "file": "server/src/scheduler/scheduler.test.ts",
+          "name": "claims and records one delivered reminder without a follow-up",
+          "result": "pass"
+        },
+        {
+          "file": "server/test/simple-reminder-db.integration.ts",
+          "name": "claims and delivers once, records no follow-up, and resolves Done once",
+          "result": "pass"
+        }
+      ],
+      "observed_counts": {
+        "scheduled_messages_for_commitment": 1,
+        "telegram_send_calls": 1,
+        "first_poll_claims": 1,
+        "second_poll_claims": 0,
+        "follow_up_messages": 0,
+        "additional_schedule_rows": 0
+      }
+    }
+  ],
+  "bounded_observations": {
+    "state_after_delivery_without_response": "delivered",
+    "next_attempt_present": false,
+    "later_current_done_action_succeeded": true,
+    "outstanding_before_done_proven_by_later_done_transition": true,
+    "automatic_nag_or_follow_up_present": false
+  },
+  "verification_runs": [
+    {
+      "command": "npm run test --workspace @shiori/server -- src/scheduler/scheduler.test.ts src/commitments/simple-action.test.ts",
+      "started_at": "2026-07-25T09:40:12+08:00",
+      "tests_passed": 38,
+      "tests_failed": 0
+    },
+    {
+      "command": "npm run test:db -- server/test/simple-reminder-db.integration.ts",
+      "started_at": "2026-07-25T09:43:43+08:00",
+      "tests_passed": 3,
+      "tests_failed": 0
+    }
+  ]
+}
