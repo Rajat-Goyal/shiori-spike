@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-09b",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC3", "AC4"],
+  "observations": {
+    "conflict_explained": true,
+    "maximum_alternatives": 2,
+    "keep_conflict_requires_new_confirmation": true,
+    "conflict_consequence_before_confirmation": 0,
+    "superseded_action_calendar_calls": 0,
+    "superseded_action_consequences": 0,
+    "private_event_details_exposed": false
+  },
+  "tests": ["server/src/work-sessions/flow.test.ts", "server/test/work-session-draft-db.integration.ts"]
+}

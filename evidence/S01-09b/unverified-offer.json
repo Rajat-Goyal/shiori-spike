@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-09b",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC6", "AC7"],
+  "observations": {
+    "distinct_action_text": "Save without Calendar check",
+    "requires_concrete_selected_window": true,
+    "version_bound": true,
+    "committer_calls_before_explicit_action": 0,
+    "committer_calls_after_current_action": 1,
+    "calendar_status": "unverified",
+    "checked_at": null,
+    "final_observation": "unavailable",
+    "calendar_write_calls": 0
+  },
+  "unit_test": "server/src/work-sessions/flow.test.ts (10 passed, 0 failed)"
+}

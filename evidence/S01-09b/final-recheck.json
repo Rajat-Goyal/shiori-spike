@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-09b",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC4", "AC5", "AC6"],
+  "matrix": [
+    {"final_observation": "free", "committer_calls": 1, "stored_status": "free"},
+    {"final_observation": "new_conflict", "committer_calls": 0, "next_state": "conflict_choice"},
+    {"final_observation": "unavailable_with_selection", "committer_calls": 0, "next_action": "save_unverified"},
+    {"final_observation": "unavailable_without_selection", "committer_calls": 0, "save_unverified_offered": false}
+  ],
+  "prior_conflict_consent_retained_only_as_audit": true,
+  "free_success_copy_contains_conflict_warning": false
+}
