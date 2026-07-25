@@ -382,7 +382,7 @@ function generatedRange(base: ValidatedBase): MillisecondInterval | undefined {
 
 function recoveryRange(base: ValidatedBase): MillisecondInterval | undefined {
   const startMillis = roundedUpBoundary(
-    Math.max(base.nowMillis, base.targetMillis),
+    Math.max(base.nowMillis, base.targetMillis) + 1,
   );
   const endMillis = base.targetMillis + RECOVERY_CAP_MILLISECONDS;
   return startMillis + base.durationMilliseconds <= endMillis

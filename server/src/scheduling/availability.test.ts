@@ -353,9 +353,23 @@ describe("findWorkWindows", () => {
     expect(early.calls).toEqual([
       {
         endAt: "2026-08-10T08:00:00+08:00",
-        startAt: "2026-08-03T08:00:00+08:00",
+        startAt: "2026-08-03T08:30:00+08:00",
       },
     ]);
+
+    const exactNowBoundary = controlled([]);
+    await findWorkWindows(
+      {
+        ...base,
+        kind: "recovery",
+        now: "2026-08-03T08:30:00+08:00",
+        targetAt: "2026-08-03T08:00:00+08:00",
+      },
+      exactNowBoundary.reader,
+    );
+    expect(exactNowBoundary.calls[0]?.startAt).toBe(
+      "2026-08-03T09:00:00+08:00",
+    );
 
     const expired = controlled([]);
     await expect(

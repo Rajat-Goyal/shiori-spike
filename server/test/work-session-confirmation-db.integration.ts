@@ -68,7 +68,11 @@ function nextBoundary(afterMillis: number): number {
   return Math.ceil(afterMillis / halfHour) * halfHour;
 }
 
-type ConfirmationOutcome = "conflict_kept" | "free" | "unverified";
+type ConfirmationOutcome =
+  | "conflict_cleared"
+  | "conflict_kept"
+  | "free"
+  | "unverified";
 
 async function preparedDraft(
   outcome: ConfirmationOutcome,
@@ -145,20 +149,21 @@ async function preparedDraft(
   const expectedStage =
     outcome === "free"
       ? "confirming"
-      : outcome === "conflict_kept"
+      : outcome === "conflict_kept" || outcome === "conflict_cleared"
         ? "conflict_confirming"
         : "unverified_confirming";
   const transitioned = await flow.transition({
     calendarAttemptedAt: attemptedAt,
     calendarCheckedAt: checkedAt,
     chatId: config.telegramOwnerUserId,
-    conflictConsent: outcome === "conflict_kept",
+    conflictConsent:
+      outcome === "conflict_kept" || outcome === "conflict_cleared",
     durationMinutes: 60,
     expectedStage: "offer_help",
     finalObservation:
       outcome === "unverified"
         ? "unavailable"
-        : outcome === "conflict_kept"
+        : outcome === "conflict_kept" || outcome === "conflict_cleared"
           ? "conflict"
           : "free",
     nextStage: expectedStage,
@@ -174,7 +179,13 @@ async function preparedDraft(
   }
   const snapshot = transitioned.snapshot;
   const finalObservation =
-    outcome === "unverified" ? "unavailable" : "free";
+    outcome === "unverified"
+      ? "unavailable"
+      : outcome === "conflict_kept"
+        ? "conflict"
+        : "free";
+  const calendarStatus =
+    outcome === "conflict_cleared" ? "free" : outcome;
   return {
     config,
     request: {
@@ -189,9 +200,10 @@ async function preparedDraft(
           outcome === "unverified"
             ? null
             : new Date(now + 4_000).toISOString(),
-        conflictConsent: outcome === "conflict_kept",
+        conflictConsent:
+          outcome === "conflict_kept" || outcome === "conflict_cleared",
         finalObservation,
-        status: outcome,
+        status: calendarStatus,
       },
       chatId: config.telegramOwnerUserId,
       definitionOfDone: snapshot.definitionOfDone,
@@ -220,6 +232,7 @@ function committer(
 describe("atomic work-session confirmation on local Supabase", () => {
   it.each([
     "free",
+    "conflict_cleared",
     "conflict_kept",
     "unverified",
   ] satisfies ConfirmationOutcome[])(
@@ -261,7 +274,7 @@ describe("atomic work-session confirmation on local Supabase", () => {
       );
       expect(sessions).toEqual([
         expect.objectContaining({
-          calendar_status: outcome,
+          calendar_status: prepared.request.calendar.status,
           commitment_id: commitmentId,
           conflict_consent:
             prepared.request.calendar.conflictConsent,
@@ -754,22 +767,35 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
         `c:${intentId}:1:duration_60`,
       ),
     ).resolves.toMatchObject({
-      actions: [expect.objectContaining({ text: "Choose option 1" }), expect.anything()],
+      actions: [
+        expect.objectContaining({ text: "Find a time" }),
+        expect.objectContaining({ text: "Not now" }),
+      ],
     });
+    expect(availability).not.toHaveBeenCalled();
     await expect(
       continuation.handle(
         baseUpdateId + 5,
         prepared.config.telegramOwnerUserId,
-        `c:${intentId}:2:option_1`,
+        `c:${intentId}:2:another`,
+      ),
+    ).resolves.toMatchObject({
+      actions: [expect.objectContaining({ text: "Choose option 1" }), expect.anything()],
+    });
+    await expect(
+      continuation.handle(
+        baseUpdateId + 6,
+        prepared.config.telegramOwnerUserId,
+        `c:${intentId}:3:option_1`,
       ),
     ).resolves.toMatchObject({
       actions: [expect.objectContaining({ text: "Confirm" }), expect.anything()],
     });
     await expect(
       continuation.handle(
-        baseUpdateId + 6,
+        baseUpdateId + 7,
         prepared.config.telegramOwnerUserId,
-        `c:${intentId}:3:confirm`,
+        `c:${intentId}:4:confirm`,
       ),
     ).resolves.toMatchObject({
       text: expect.stringMatching(/Next work session scheduled/),
@@ -813,9 +839,9 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
     ]);
 
     await continuation.handle(
-      baseUpdateId + 7,
+      baseUpdateId + 8,
       prepared.config.telegramOwnerUserId,
-      `c:${intentId}:3:confirm`,
+      `c:${intentId}:4:confirm`,
     );
     expect(
       await rows(
@@ -825,6 +851,183 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
         `&commitment_id=eq.${commitmentId}`,
       ),
     ).toHaveLength(2);
+  });
+
+  it("persists conflict and unavailable final rechecks before explicit unverified save", async () => {
+    const baseUpdateId =
+      9_710_000_000 + randomInt(10_000_000);
+    const prepared = await preparedDraft("free", baseUpdateId);
+    await committer(prepared).commit(prepared.request);
+    const [commitment] = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "commitments",
+      `&source_draft_id=eq.${prepared.snapshot.id}`,
+    );
+    const [sourceSession] = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "work_sessions",
+      `&commitment_id=eq.${commitment.id}`,
+    );
+    const outcome = new SupabaseWorkSessionOutcomeRepository({
+      ownerId: prepared.config.telegramOwnerUserId,
+      supabaseSecretKey: prepared.config.supabaseSecretKey,
+      supabaseUrl: prepared.config.supabaseUrl,
+    });
+    const missed = await outcome.resolve({
+      action: "missed",
+      chatId: prepared.config.telegramOwnerUserId,
+      sessionId: String(sourceSession.id),
+      updateId: baseUpdateId + 3,
+      version: 1,
+    });
+    expect(missed.kind).toBe("missed");
+    if (missed.kind !== "missed") {
+      throw new Error("missed outcome was not persisted");
+    }
+
+    const startMillis = nextBoundary(Date.now() + 12 * 60 * 60_000);
+    const option = {
+      endAt: singaporeInstant(startMillis + 60 * 60_000),
+      startAt: singaporeInstant(startMillis),
+    };
+    const checkedAt = new Date().toISOString();
+    const availability = vi
+      .fn()
+      .mockResolvedValueOnce({
+        alternatives: [option],
+        checkedAt,
+        proposed: null,
+        status: "available",
+      })
+      .mockResolvedValueOnce({
+        alternatives: [],
+        checkedAt,
+        proposed: { status: "conflict", window: option },
+        status: "available",
+      })
+      .mockResolvedValueOnce({
+        status: "authorization_expired",
+      });
+    const repository = new SupabaseWorkSessionContinuationRepository({
+      ownerId: prepared.config.telegramOwnerUserId,
+      supabaseSecretKey: prepared.config.supabaseSecretKey,
+      supabaseUrl: prepared.config.supabaseUrl,
+    });
+    const continuation = new WorkSessionContinuationService({
+      availability,
+      repository,
+    });
+    const intentId = missed.continuationId;
+
+    await continuation.handle(
+      baseUpdateId + 4,
+      prepared.config.telegramOwnerUserId,
+      `c:${intentId}:1:another`,
+    );
+    await continuation.handle(
+      baseUpdateId + 5,
+      prepared.config.telegramOwnerUserId,
+      `c:${intentId}:2:option_1`,
+    );
+    await expect(
+      continuation.handle(
+        baseUpdateId + 6,
+        prepared.config.telegramOwnerUserId,
+        `c:${intentId}:3:confirm`,
+      ),
+    ).resolves.toMatchObject({
+      actions: [
+        expect.objectContaining({ text: "Check again" }),
+        expect.objectContaining({ text: "Not now" }),
+      ],
+    });
+    const conflictState = await repository.read({
+      id: intentId,
+      version: 4,
+    });
+    expect(conflictState).toMatchObject({
+      kind: "current",
+      snapshot: {
+        calendarCheckedAt: expect.any(String),
+        finalObservation: "conflict",
+        stage: "conflict_choice",
+      },
+    });
+    if (conflictState.kind !== "current") {
+      throw new Error("conflict continuation state was not persisted");
+    }
+    expect(
+      Date.parse(String(conflictState.snapshot.calendarCheckedAt)),
+    ).toBe(Date.parse(checkedAt));
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "work_sessions",
+        `&commitment_id=eq.${commitment.id}`,
+      ),
+    ).toHaveLength(1);
+
+    await expect(
+      continuation.handle(
+        baseUpdateId + 7,
+        prepared.config.telegramOwnerUserId,
+        `c:${intentId}:4:check_again`,
+      ),
+    ).resolves.toMatchObject({
+      actions: [
+        expect.objectContaining({ text: "Reconnect" }),
+        expect.objectContaining({ text: "Check again" }),
+        expect.objectContaining({ text: "Save without Calendar check" }),
+        expect.objectContaining({ text: "Not now" }),
+      ],
+    });
+    await expect(
+      repository.read({ id: intentId, version: 5 }),
+    ).resolves.toMatchObject({
+      kind: "current",
+      snapshot: {
+        calendarAttemptedAt: expect.any(String),
+        calendarCheckedAt: null,
+        finalObservation: "unavailable",
+        stage: "unverified_confirming",
+      },
+    });
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "work_sessions",
+        `&commitment_id=eq.${commitment.id}`,
+      ),
+    ).toHaveLength(1);
+
+    await expect(
+      continuation.handle(
+        baseUpdateId + 8,
+        prepared.config.telegramOwnerUserId,
+        `c:${intentId}:5:save_unverified`,
+      ),
+    ).resolves.toMatchObject({
+      text: expect.stringMatching(/Next work session scheduled/),
+    });
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "work_sessions",
+        `&commitment_id=eq.${commitment.id}&sequence_number=eq.2`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        calendar_checked_at: null,
+        calendar_status: "unverified",
+        final_calendar_observation: "unavailable",
+        source_session_id: sourceSession.id,
+      }),
+    ]);
   });
 
   it("offers and confirms one recovery only inside the immutable target-relative cap", async () => {
@@ -933,7 +1136,7 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
         }),
       ]),
     );
-    expect(Date.parse(String(sessions[1].start_at))).toBeGreaterThanOrEqual(
+    expect(Date.parse(String(sessions[1].start_at))).toBeGreaterThan(
       targetMillis,
     );
     expect(Date.parse(String(sessions[1].end_at))).toBeLessThanOrEqual(

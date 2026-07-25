@@ -83,7 +83,7 @@ describe("work-session outcomes", () => {
       actions: [
         {
           callbackData: `c:${continuationId}:1:another`,
-          text: "Find another window",
+          text: "Find a time",
         },
         {
           callbackData: `c:${continuationId}:1:decline`,

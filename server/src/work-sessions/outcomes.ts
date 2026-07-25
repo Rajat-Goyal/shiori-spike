@@ -268,7 +268,7 @@ export class WorkSessionOutcomeService {
       case "missed":
         return {
           actions: [
-            continuationAction(result, "another", "Find another window"),
+            continuationAction(result, "another", "Find a time"),
             continuationAction(result, "decline", "Not now"),
           ],
           text: workSessionOutcomeCopy.missed,

@@ -18,6 +18,7 @@ const DURATIONS = [30, 60, 90, 120] as const;
 
 export type WorkSessionContinuationAction =
   | "another"
+  | "check_again"
   | "confirm"
   | "decline"
   | "duration_30"
@@ -25,19 +26,26 @@ export type WorkSessionContinuationAction =
   | "duration_90"
   | "duration_120"
   | "option_1"
-  | "option_2";
+  | "option_2"
+  | "reconnect"
+  | "save_unverified";
 
 export type WorkSessionContinuationStage =
   | "awaiting_duration"
+  | "conflict_choice"
   | "offer"
   | "choosing"
-  | "confirming";
+  | "confirming"
+  | "unverified_confirming";
 
 export type WorkSessionContinuationSnapshot = Readonly<{
+  calendarAttemptedAt: string | null;
+  calendarCheckedAt: string | null;
   commitmentId: string;
   commitmentStatus: "active";
   definitionOfDone: string;
   durationMinutes: 30 | 60 | 90 | 120 | null;
+  finalObservation: "conflict" | "free" | "unavailable" | null;
   id: string;
   isRecovery: boolean;
   options: readonly WorkWindow[];
@@ -57,11 +65,20 @@ type ParsedContinuationAction = Readonly<{
 
 export type WorkSessionContinuationTransition = Readonly<{
   action: WorkSessionContinuationAction;
+  calendarAttemptedAt?: string | null;
+  calendarCheckedAt?: string | null;
   chatId: number;
   durationMinutes?: 30 | 60 | 90 | 120;
   expectedStage: WorkSessionContinuationStage;
+  finalObservation?: "conflict" | "free" | "unavailable" | null;
   isRecovery?: boolean;
-  nextStage: "choosing" | "confirming" | "declined" | "offer";
+  nextStage:
+    | "choosing"
+    | "confirming"
+    | "conflict_choice"
+    | "declined"
+    | "offer"
+    | "unverified_confirming";
   options?: readonly WorkWindow[];
   reference: Readonly<{ id: string; version: number }>;
   selectedWindow?: WorkWindow;
@@ -73,24 +90,27 @@ export interface WorkSessionContinuationRepository {
     command: Readonly<{
       attemptedAt: string;
       chatId: number;
-      checkedAt: string;
+      checkedAt: string | null;
+      expectedStage: WorkSessionContinuationStage;
+      finalObservation: "free" | "unavailable";
       reference: Readonly<{ id: string; version: number }>;
+      status: "free" | "unverified";
       updateId: number;
     }>,
   ): Promise<
     | Readonly<{ kind: "applied"; workSessionId: string }>
-    | Readonly<{ kind: "replay" | "stale" }>
+    | Readonly<{ kind: "expired" | "replay" | "stale" }>
   >;
   read(reference: Readonly<{ id: string; version: number }>): Promise<
     | Readonly<{ kind: "current"; snapshot: WorkSessionContinuationSnapshot }>
-    | Readonly<{ kind: "missing" | "stale" }>
+    | Readonly<{ kind: "expired" | "missing" | "stale" }>
   >;
   transition(command: WorkSessionContinuationTransition): Promise<
     | Readonly<{
         kind: "applied";
         snapshot: WorkSessionContinuationSnapshot;
       }>
-    | Readonly<{ kind: "replay" | "stale" }>
+    | Readonly<{ kind: "expired" | "replay" | "stale" }>
   >;
 }
 
@@ -106,6 +126,7 @@ type WorkSessionContinuationServiceOptions = Readonly<{
 
 const actions = new Set<WorkSessionContinuationAction>([
   "another",
+  "check_again",
   "confirm",
   "decline",
   "duration_30",
@@ -114,16 +135,26 @@ const actions = new Set<WorkSessionContinuationAction>([
   "duration_120",
   "option_1",
   "option_2",
+  "reconnect",
+  "save_unverified",
 ]);
 
 export const workSessionContinuationCopy = {
   calendarUnavailable:
     "I couldn’t verify Calendar availability. Nothing was scheduled.",
+  conflict:
+    "That time now conflicts with your Calendar, so nothing was scheduled.",
   confirmed:
     "Next work session scheduled. I’ll send a start reminder and an end check-in. Google Calendar was not changed.",
   declined: "No next work session was scheduled.",
+  expired:
+    "That continuation expired after 24 hours. Nothing was changed.",
   noFit:
     "I couldn’t find a fitting work window. Nothing was scheduled.",
+  reconnect:
+    "Reconnect Google Calendar from the protected dashboard, then press Check again.",
+  remainingDuration:
+    "Remaining focus time recorded. Find a time now?",
   recovery:
     "No pre-target window fits. I found a recovery window after the original target.",
   stale: "That continuation action is stale. Nothing was changed.",
@@ -174,11 +205,35 @@ function parseSnapshot(value: unknown): WorkSessionContinuationSnapshot {
     typeof item.id !== "string" ||
     !new RegExp(`^${UUID_PATTERN}$`).test(item.id) ||
     !positiveInteger(item.version) ||
-    !["awaiting_duration", "offer", "choosing", "confirming"].includes(
+    ![
+      "awaiting_duration",
+      "conflict_choice",
+      "offer",
+      "choosing",
+      "confirming",
+      "unverified_confirming",
+    ].includes(
       String(item.stage),
     ) ||
     typeof item.commitmentId !== "string" ||
     typeof item.sourceSessionId !== "string" ||
+    !(
+      item.calendarAttemptedAt === null ||
+      (
+        typeof item.calendarAttemptedAt === "string" &&
+        Number.isFinite(Date.parse(item.calendarAttemptedAt))
+      )
+    ) ||
+    !(
+      item.calendarCheckedAt === null ||
+      (
+        typeof item.calendarCheckedAt === "string" &&
+        Number.isFinite(Date.parse(item.calendarCheckedAt))
+      )
+    ) ||
+    ![null, "conflict", "free", "unavailable"].includes(
+      item.finalObservation as null | string,
+    ) ||
     item.commitmentStatus !== "active" ||
     typeof item.definitionOfDone !== "string" ||
     typeof item.targetAt !== "string" ||
@@ -195,6 +250,8 @@ function parseSnapshot(value: unknown): WorkSessionContinuationSnapshot {
     throw new Error("Continuation snapshot returned invalid data");
   }
   return {
+    calendarAttemptedAt: item.calendarAttemptedAt as string | null,
+    calendarCheckedAt: item.calendarCheckedAt as string | null,
     commitmentId: item.commitmentId,
     commitmentStatus: "active",
     definitionOfDone: item.definitionOfDone,
@@ -203,6 +260,11 @@ function parseSnapshot(value: unknown): WorkSessionContinuationSnapshot {
       | 60
       | 90
       | 120
+      | null,
+    finalObservation: item.finalObservation as
+      | "conflict"
+      | "free"
+      | "unavailable"
       | null,
     id: item.id,
     isRecovery: item.isRecovery,
@@ -218,22 +280,28 @@ function parseSnapshot(value: unknown): WorkSessionContinuationSnapshot {
 
 function parseRead(value: unknown) {
   const item = record(value);
-  if (!item || !["current", "missing", "stale"].includes(String(item.kind))) {
+  if (
+    !item ||
+    !["current", "expired", "missing", "stale"].includes(String(item.kind))
+  ) {
     throw new Error("Continuation read returned invalid data");
   }
   return item.kind === "current"
     ? { kind: "current" as const, snapshot: parseSnapshot(item.snapshot) }
-    : { kind: item.kind as "missing" | "stale" };
+    : { kind: item.kind as "expired" | "missing" | "stale" };
 }
 
 function parseTransition(value: unknown) {
   const item = record(value);
-  if (!item || !["applied", "replay", "stale"].includes(String(item.kind))) {
+  if (
+    !item ||
+    !["applied", "expired", "replay", "stale"].includes(String(item.kind))
+  ) {
     throw new Error("Continuation transition returned invalid data");
   }
   return item.kind === "applied"
     ? { kind: "applied" as const, snapshot: parseSnapshot(item.snapshot) }
-    : { kind: item.kind as "replay" | "stale" };
+    : { kind: item.kind as "expired" | "replay" | "stale" };
 }
 
 export function parseWorkSessionContinuationAction(
@@ -304,8 +372,14 @@ export class SupabaseWorkSessionContinuationRepository
     return parseTransition(
       await this.#rpc("transition_work_session_continuation", {
         p_action: command.action,
+        p_calendar_attempted_at:
+          command.calendarAttemptedAt ?? null,
+        p_calendar_checked_at:
+          command.calendarCheckedAt ?? null,
         p_duration_minutes: command.durationMinutes ?? null,
         p_expected_stage: command.expectedStage,
+        p_final_observation:
+          command.finalObservation ?? null,
         p_intent_id: command.reference.id,
         p_is_recovery: command.isRecovery ?? null,
         p_next_stage: command.nextStage,
@@ -323,14 +397,20 @@ export class SupabaseWorkSessionContinuationRepository
   async confirm(command: {
     attemptedAt: string;
     chatId: number;
-    checkedAt: string;
+    checkedAt: string | null;
+    expectedStage: WorkSessionContinuationStage;
+    finalObservation: "free" | "unavailable";
     reference: Readonly<{ id: string; version: number }>;
+    status: "free" | "unverified";
     updateId: number;
   }) {
     const value = record(
-      await this.#rpc("confirm_work_session_continuation", {
+      await this.#rpc("confirm_work_session_continuation_final_state", {
         p_calendar_attempted_at: command.attemptedAt,
         p_calendar_checked_at: command.checkedAt,
+        p_calendar_status: command.status,
+        p_expected_stage: command.expectedStage,
+        p_final_observation: command.finalObservation,
         p_intent_id: command.reference.id,
         p_owner_chat_id: command.chatId,
         p_owner_id: this.#ownerId,
@@ -340,7 +420,7 @@ export class SupabaseWorkSessionContinuationRepository
     );
     if (
       !value ||
-      !["applied", "replay", "stale"].includes(String(value.kind))
+      !["applied", "expired", "replay", "stale"].includes(String(value.kind))
     ) {
       throw new Error("Continuation confirmation returned invalid data");
     }
@@ -358,7 +438,7 @@ export class SupabaseWorkSessionContinuationRepository
           kind: "applied" as const,
           workSessionId: value.workSessionId as string,
         }
-      : { kind: value.kind as "replay" | "stale" };
+      : { kind: value.kind as "expired" | "replay" | "stale" };
   }
 
   async #rpc(name: string, body: Record<string, unknown>): Promise<unknown> {
@@ -413,6 +493,59 @@ function choices(
         (window, index) =>
           `${index + 1}. ${formatSingaporeTarget(window.startAt)} to ${formatSingaporeTarget(window.endAt)}`,
       ),
+      "Google Calendar will not be changed.",
+    ].join("\n"),
+  };
+}
+
+function findTimeOffer(
+  snapshot: WorkSessionContinuationSnapshot,
+): TelegramReply {
+  return {
+    actions: [
+      button(snapshot, "another", "Find a time"),
+      button(snapshot, "decline", "Not now"),
+    ],
+    text: workSessionContinuationCopy.remainingDuration,
+  };
+}
+
+function finalConflictReply(
+  snapshot: WorkSessionContinuationSnapshot,
+): TelegramReply {
+  return {
+    actions: [
+      button(snapshot, "check_again", "Check again"),
+      button(snapshot, "decline", "Not now"),
+    ],
+    text: [
+      workSessionContinuationCopy.conflict,
+      "Google Calendar will not be changed.",
+    ].join("\n"),
+  };
+}
+
+function finalUnavailableReply(
+  snapshot: WorkSessionContinuationSnapshot,
+  authorizationExpired: boolean,
+): TelegramReply {
+  return {
+    actions: [
+      ...(authorizationExpired
+        ? [button(snapshot, "reconnect", "Reconnect")]
+        : []),
+      button(snapshot, "check_again", "Check again"),
+      button(
+        snapshot,
+        "save_unverified",
+        "Save without Calendar check",
+      ),
+      button(snapshot, "decline", "Not now"),
+    ],
+    text: [
+      workSessionContinuationCopy.calendarUnavailable,
+      "You can retry or explicitly save without a Calendar check.",
+      "Google Calendar will not be changed.",
     ].join("\n"),
   };
 }
@@ -443,10 +576,19 @@ export class WorkSessionContinuationService {
     } catch {
       return { text: workSessionContinuationCopy.uncertain };
     }
+    if (read.kind === "expired") {
+      return { text: workSessionContinuationCopy.expired };
+    }
     if (read.kind !== "current") {
       return { text: workSessionContinuationCopy.stale };
     }
     const snapshot = read.snapshot;
+    if (
+      parsed.action === "reconnect" &&
+      snapshot.stage === "unverified_confirming"
+    ) {
+      return { text: workSessionContinuationCopy.reconnect };
+    }
     if (parsed.action === "decline") {
       const result = await this.#transition({
         action: parsed.action,
@@ -460,24 +602,39 @@ export class WorkSessionContinuationService {
         ? { text: workSessionContinuationCopy.declined }
         : result?.kind === "replay"
           ? null
+          : result?.kind === "expired"
+            ? { text: workSessionContinuationCopy.expired }
           : { text: workSessionContinuationCopy.stale };
     }
-    if (
-      parsed.action === "another" ||
-      parsed.action.startsWith("duration_")
-    ) {
-      const duration =
-        parsed.action === "another"
-          ? snapshot.durationMinutes
-          : Number(parsed.action.slice("duration_".length));
+    if (parsed.action.startsWith("duration_")) {
+      const duration = Number(
+        parsed.action.slice("duration_".length),
+      );
       if (
         !DURATIONS.includes(duration as 30 | 60 | 90 | 120) ||
-        (
-          parsed.action === "another"
-            ? snapshot.stage !== "offer"
-            : snapshot.stage !== "awaiting_duration"
-        )
+        snapshot.stage !== "awaiting_duration"
       ) {
+        return { text: workSessionContinuationCopy.stale };
+      }
+      const result = await this.#transition({
+        action: parsed.action,
+        chatId,
+        durationMinutes: duration as 30 | 60 | 90 | 120,
+        expectedStage: "awaiting_duration",
+        nextStage: "offer",
+        reference: parsed,
+        updateId,
+      });
+      return result?.kind === "applied"
+        ? findTimeOffer(result.snapshot)
+        : result?.kind === "replay"
+          ? null
+          : result?.kind === "expired"
+            ? { text: workSessionContinuationCopy.expired }
+            : { text: workSessionContinuationCopy.stale };
+    }
+    if (parsed.action === "another") {
+      if (!snapshot.durationMinutes || snapshot.stage !== "offer") {
         return { text: workSessionContinuationCopy.stale };
       }
       return this.#findAndPersist(
@@ -485,7 +642,7 @@ export class WorkSessionContinuationService {
         chatId,
         parsed,
         snapshot,
-        duration as 30 | 60 | 90 | 120,
+        snapshot.durationMinutes,
       );
     }
     if (parsed.action === "option_1" || parsed.action === "option_2") {
@@ -508,6 +665,8 @@ export class WorkSessionContinuationService {
       if (!result || result.kind !== "applied") {
         return result?.kind === "replay"
           ? null
+          : result?.kind === "expired"
+            ? { text: workSessionContinuationCopy.expired }
           : { text: workSessionContinuationCopy.stale };
       }
       return {
@@ -518,11 +677,42 @@ export class WorkSessionContinuationService {
         text: [
           `Schedule ${formatSingaporeTarget(selected.startAt)} to ${formatSingaporeTarget(selected.endAt)}?`,
           "I’ll check Calendar again before saving.",
+          "Google Calendar will not be changed.",
         ].join("\n"),
       };
     }
-    if (parsed.action === "confirm") {
+    if (
+      parsed.action === "confirm" &&
+      snapshot.stage === "confirming"
+    ) {
       return this.#confirm(updateId, chatId, parsed, snapshot);
+    }
+    if (
+      parsed.action === "check_again" &&
+      (
+        snapshot.stage === "conflict_choice" ||
+        snapshot.stage === "unverified_confirming"
+      )
+    ) {
+      return this.#confirm(updateId, chatId, parsed, snapshot);
+    }
+    if (
+      parsed.action === "save_unverified" &&
+      snapshot.stage === "unverified_confirming" &&
+      snapshot.calendarAttemptedAt &&
+      snapshot.finalObservation === "unavailable"
+    ) {
+      return this.#persistConfirmedSession(
+        updateId,
+        chatId,
+        parsed,
+        snapshot,
+        {
+          checkedAt: null,
+          finalObservation: "unavailable",
+          status: "unverified",
+        },
+      );
     }
     return { text: workSessionContinuationCopy.stale };
   }
@@ -557,7 +747,7 @@ export class WorkSessionContinuationService {
       isRecovery = available.status === "available";
     }
     if (available.status !== "available" || available.alternatives.length === 0) {
-      await this.#transition({
+      const result = await this.#transition({
         action: reference.action,
         chatId,
         durationMinutes,
@@ -566,6 +756,15 @@ export class WorkSessionContinuationService {
         reference,
         updateId,
       });
+      if (result?.kind === "replay") {
+        return null;
+      }
+      if (result?.kind === "expired") {
+        return { text: workSessionContinuationCopy.expired };
+      }
+      if (!result || result.kind !== "applied") {
+        return { text: workSessionContinuationCopy.stale };
+      }
       return {
         text:
           available.status === "no_fit"
@@ -588,7 +787,9 @@ export class WorkSessionContinuationService {
       ? choices(result.snapshot, isRecovery)
       : result?.kind === "replay"
         ? null
-        : { text: workSessionContinuationCopy.stale };
+          : result?.kind === "expired"
+            ? { text: workSessionContinuationCopy.expired }
+            : { text: workSessionContinuationCopy.stale };
   }
 
   async #confirm(
@@ -598,7 +799,11 @@ export class WorkSessionContinuationService {
     snapshot: WorkSessionContinuationSnapshot,
   ): Promise<TelegramReply | null> {
     if (
-      snapshot.stage !== "confirming" ||
+      ![
+        "confirming",
+        "conflict_choice",
+        "unverified_confirming",
+      ].includes(snapshot.stage) ||
       !snapshot.selectedWindow ||
       !snapshot.durationMinutes
     ) {
@@ -613,23 +818,104 @@ export class WorkSessionContinuationService {
       targetAt: snapshot.targetAt,
       timingConstraints: snapshot.timingConstraints,
     });
-    if (
-      availability.status !== "available" ||
-      availability.proposed?.status !== "free" ||
-      !availability.checkedAt
-    ) {
-      return { text: workSessionContinuationCopy.calendarUnavailable };
+    if (availability.status === "available" && availability.proposed) {
+      if (
+        availability.proposed.status === "free" &&
+        availability.checkedAt
+      ) {
+        return this.#persistConfirmedSession(
+          updateId,
+          chatId,
+          reference,
+          snapshot,
+          {
+            attemptedAt,
+            checkedAt: availability.checkedAt,
+            finalObservation: "free",
+            status: "free",
+          },
+        );
+      }
+      const result = await this.#transition({
+        action: reference.action,
+        calendarAttemptedAt: attemptedAt,
+        calendarCheckedAt: availability.checkedAt,
+        chatId,
+        expectedStage: snapshot.stage,
+        finalObservation: "conflict",
+        nextStage: "conflict_choice",
+        reference,
+        updateId,
+      });
+      return result?.kind === "applied"
+        ? finalConflictReply(result.snapshot)
+        : result?.kind === "replay"
+          ? null
+        : result?.kind === "expired"
+          ? { text: workSessionContinuationCopy.expired }
+          : { text: workSessionContinuationCopy.stale };
     }
+    if (
+      availability.status === "authorization_expired" ||
+      availability.status === "provider_failure" ||
+      availability.status === "unavailable"
+    ) {
+      const result = await this.#transition({
+        action: reference.action,
+        calendarAttemptedAt: attemptedAt,
+        calendarCheckedAt: null,
+        chatId,
+        expectedStage: snapshot.stage,
+        finalObservation: "unavailable",
+        nextStage: "unverified_confirming",
+        reference,
+        updateId,
+      });
+      return result?.kind === "applied"
+        ? finalUnavailableReply(
+            result.snapshot,
+            availability.status === "authorization_expired",
+          )
+        : result?.kind === "replay"
+          ? null
+          : result?.kind === "expired"
+            ? { text: workSessionContinuationCopy.expired }
+            : { text: workSessionContinuationCopy.stale };
+    }
+    return { text: workSessionContinuationCopy.stale };
+  }
+
+  async #persistConfirmedSession(
+    updateId: number,
+    chatId: number,
+    reference: ParsedContinuationAction,
+    snapshot: WorkSessionContinuationSnapshot,
+    calendar: Readonly<{
+      attemptedAt?: string;
+      checkedAt: string | null;
+      finalObservation: "free" | "unavailable";
+      status: "free" | "unverified";
+    }>,
+  ): Promise<TelegramReply | null> {
     try {
       const result = await this.#repository.confirm({
-        attemptedAt,
+        attemptedAt:
+          calendar.attemptedAt ??
+          snapshot.calendarAttemptedAt ??
+          this.#now().toISOString(),
         chatId,
-        checkedAt: availability.checkedAt,
+        checkedAt: calendar.checkedAt,
+        expectedStage: snapshot.stage,
+        finalObservation: calendar.finalObservation,
         reference,
+        status: calendar.status,
         updateId,
       });
       if (result.kind === "replay") {
         return null;
+      }
+      if (result.kind === "expired") {
+        return { text: workSessionContinuationCopy.expired };
       }
       return {
         text:
