@@ -1,0 +1,40 @@
+S01-01 independent QA: stable owner login rate limit repair
+Captured: 2026-07-25T08:21:24Z
+Source commit: b1823b58c892af3483a5848d6211b51065d7f38b
+Runtime: Node v24.18.0; npm 11.17.0
+
+Scope and design verdict
+- PASS: Scope defines one configured owner and ADR Decision 6 requires the
+  single-owner password gate to rate-limit login attempts.
+- PASS: The configured-owner process bucket is stable when Railway rotates
+  gateway connection addresses.
+- PASS: The login boundary does not enable Fastify proxy trust or derive the
+  limiter key from X-Forwarded-For, so a caller cannot bypass the limit by
+  spoofing forwarding headers.
+- PASS: Tests rotate both remote socket addresses and X-Forwarded-For values,
+  receive five 401 responses followed by 429 with Retry-After, and prove a
+  valid password cannot obtain a cookie while the bucket is blocked.
+
+Exact verification commands
+1. npm run test --workspace @shiori/server -- src/app.test.ts
+   PASS — 1 file, 8 tests.
+2. npm run check
+   PASS — server and web typechecks; 24 server files / 379 tests; 22 release
+   verifier tests; both production builds; 50 isolated browser tests.
+
+The full check was rerun with permission for Playwright to bind its localhost
+test server after the managed sandbox correctly refused local socket binding.
+The permitted run passed without source changes.
+
+Acceptance criterion verdict
+- AC2 PASS: only the configured Argon2id password is admitted; the session
+  cookie remains short-lived, HttpOnly, Secure, and SameSite=Lax; repeated
+  failures remain rate-limited across changing connection/header identities.
+
+Residual risk
+- The process-wide bucket allows any remote caller to deny owner login for at
+  most the 60-second block window after five failures. This is the explicit
+  single-owner trade-off that avoids trusting spoofable proxy headers.
+- The limiter is in memory, so a process restart clears it and multiple
+  replicas would not share failures. Slice 01 is constrained to one replica;
+  scaling or stronger abuse resistance requires a shared trusted limiter.
