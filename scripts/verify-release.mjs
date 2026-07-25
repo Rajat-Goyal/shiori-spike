@@ -373,13 +373,41 @@ function runRepositoryGates(environment) {
       "Disposable database did not resolve to the guarded local target",
     );
   }
-  run("npm", ["run", "test:db"], {
-    env: {
-      ...childEnvironment,
-      SHIORI_TEST_SUPABASE_PORT: "54321",
-      SUPABASE_SECRET_KEY: localSecret,
-      SUPABASE_URL: localUrl,
+  const localTestEnvironment = {
+    ...childEnvironment,
+    SHIORI_TEST_SUPABASE_PORT: "54321",
+    SUPABASE_SECRET_KEY: localSecret,
+    SUPABASE_URL: localUrl,
+  };
+  run(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      [
+        "const url = process.env.SUPABASE_URL;",
+        "const key = process.env.SUPABASE_SECRET_KEY;",
+        "let ok = false;",
+        "for (let attempt = 0; attempt < 20; attempt += 1) {",
+        "  try {",
+        "    const response = await fetch(`${url}/rest/v1/`, {",
+        "      headers: { apikey: key, authorization: `Bearer ${key}` },",
+        "      signal: AbortSignal.timeout(1000),",
+        "    });",
+        "    if (response.ok) { ok = true; break; }",
+        "  } catch {}",
+        "  await new Promise((resolve) => setTimeout(resolve, 500));",
+        "}",
+        "if (!ok) process.exit(1);",
+      ].join("\n"),
+    ],
+    {
+      env: localTestEnvironment,
+      label: "disposable database readiness check",
     },
+  );
+  run("npm", ["run", "test:db"], {
+    env: localTestEnvironment,
     label: "database integration gate",
   });
   run("npm", ["run", "check"], {
