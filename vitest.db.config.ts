@@ -20,6 +20,7 @@ class DatabaseSequencer extends BaseSequencer {
 export default defineConfig({
   test: {
     fileParallelism: false,
+    globalSetup: ["./server/test/db-readiness.ts"],
     include: ["server/test/**/*.integration.ts"],
     sequence: {
       sequencer: DatabaseSequencer,
