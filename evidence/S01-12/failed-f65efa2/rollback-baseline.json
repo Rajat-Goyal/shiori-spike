@@ -1,0 +1,12 @@
+{
+  "deploymentId": "32be01c5-8753-4070-b8d7-eb0dd1ef89dd",
+  "environmentId": "0a533591-3fce-4904-8fb3-84d0f52346e7",
+  "imageDigest": "sha256:1eaefb990b37efceb87f2cdcccbe42c7a021586b136c2be2cfccbf92a3ef9e82",
+  "releaseManifestHash": "4c6b3bca8e95a06878e204c72bd6f4ae3a27f5e11341ffb19929c01910b3502b",
+  "schemaVersion": 1,
+  "serviceId": "85bc7677-b070-43ce-8ae1-e2c65241a721",
+  "integrity": {
+    "algorithm": "sha256",
+    "digest": "8437ed05e33cccbf853b0b1f1414a7e9c228c4e2bea34d45048e3ce54aac6289"
+  }
+}
