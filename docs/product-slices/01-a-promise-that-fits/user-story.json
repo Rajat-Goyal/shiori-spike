@@ -2288,7 +2288,9 @@
         ]
       },
       "status": "in_progress",
-      "open_questions": []
+      "open_questions": [
+        "OWNER TASK: Replace SUPABASE_SECRET_KEY in .env.local with the server-side secret or service_role key from the same Supabase project as SUPABASE_URL. The current non-expired service_role JWT belongs to a different project. Do not paste the key into chat; reply updated after saving it locally."
+      ]
     }
   ]
 }
