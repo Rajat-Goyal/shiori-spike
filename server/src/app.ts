@@ -101,6 +101,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     options.dashboardRepository ??
     new SupabaseDashboardRepository({
       now,
+      ownerId: options.config.telegramOwnerUserId,
       ownerTimeZone: options.config.ownerTimeZone,
       supabaseSecretKey: options.config.supabaseSecretKey,
       supabaseUrl: options.config.supabaseUrl,

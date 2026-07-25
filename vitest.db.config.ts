@@ -4,13 +4,13 @@ import { BaseSequencer, type TestSpecification } from "vitest/node";
 class DatabaseSequencer extends BaseSequencer {
   async sort(files: TestSpecification[]): Promise<TestSpecification[]> {
     return [...files].sort((left, right) => {
-      const leftIsEmptyDashboard =
+      const leftIsDashboard =
         left.moduleId.endsWith("/dashboard-db.integration.ts");
-      const rightIsEmptyDashboard =
+      const rightIsDashboard =
         right.moduleId.endsWith("/dashboard-db.integration.ts");
 
-      if (leftIsEmptyDashboard !== rightIsEmptyDashboard) {
-        return leftIsEmptyDashboard ? -1 : 1;
+      if (leftIsDashboard !== rightIsDashboard) {
+        return leftIsDashboard ? 1 : -1;
       }
       return left.moduleId.localeCompare(right.moduleId);
     });

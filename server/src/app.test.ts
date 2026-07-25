@@ -50,12 +50,19 @@ function repositoryReturning(summary: DashboardSummary): DashboardRepository {
   };
 }
 
+const emptyDashboardSummary: DashboardSummary = {
+  commitments: [],
+  counts: { active: 0, dueToday: 0, overdue: 0 },
+  events: [],
+  sessionHistory: [],
+  terminalCommitments: [],
+  updatedAt: testNow.toISOString(),
+};
+
 async function appWith(
-  dashboardRepository: DashboardRepository = repositoryReturning({
-    commitments: [],
-    counts: { active: 0, dueToday: 0, overdue: 0 },
-    updatedAt: testNow.toISOString(),
-  }),
+  dashboardRepository: DashboardRepository = repositoryReturning(
+    emptyDashboardSummary,
+  ),
 ) {
   const app = await buildApp({
     config: testConfig,
@@ -108,11 +115,9 @@ describe("API contracts", () => {
   });
 
   it("refuses owner state without a valid session", async () => {
-    const dashboardRepository = repositoryReturning({
-      commitments: [],
-      counts: { active: 0, dueToday: 0, overdue: 0 },
-      updatedAt: testNow.toISOString(),
-    });
+    const dashboardRepository = repositoryReturning(
+      emptyDashboardSummary,
+    );
     const app = await appWith(dashboardRepository);
 
     const [sessionResponse, summaryResponse] = await Promise.all([
@@ -176,11 +181,7 @@ describe("API contracts", () => {
   });
 
   it("returns the live dashboard repository result only to an authenticated owner", async () => {
-    const summary: DashboardSummary = {
-      commitments: [],
-      counts: { active: 0, dueToday: 0, overdue: 0 },
-      updatedAt: testNow.toISOString(),
-    };
+    const summary = emptyDashboardSummary;
     const dashboardRepository = repositoryReturning(summary);
     const app = await appWith(dashboardRepository);
     const cookie = await login(app);
@@ -204,11 +205,9 @@ describe("API contracts", () => {
   });
 
   it("expires invalid owner sessions without reading the dashboard", async () => {
-    const dashboardRepository = repositoryReturning({
-      commitments: [],
-      counts: { active: 0, dueToday: 0, overdue: 0 },
-      updatedAt: testNow.toISOString(),
-    });
+    const dashboardRepository = repositoryReturning(
+      emptyDashboardSummary,
+    );
     const app = await appWith(dashboardRepository);
 
     const response = await app.inject({

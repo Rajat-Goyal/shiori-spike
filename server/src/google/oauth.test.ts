@@ -604,6 +604,9 @@ async function routeApp(
       readSummary: vi.fn().mockResolvedValue({
         commitments: [],
         counts: { active: 0, dueToday: 0, overdue: 0 },
+        events: [],
+        sessionHistory: [],
+        terminalCommitments: [],
         updatedAt: now.toISOString(),
       }),
     },

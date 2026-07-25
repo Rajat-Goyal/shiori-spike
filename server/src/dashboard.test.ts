@@ -1,35 +1,89 @@
 import { describe, expect, it, vi } from "vitest";
 import { SupabaseDashboardRepository } from "./dashboard.js";
 
-const commitmentRows = [
-  {
-    id: "10000000-0000-4000-8000-000000000001",
-    status: "active",
-    target_at: "2026-07-23T15:59:59.000Z",
-  },
-  {
-    id: "10000000-0000-4000-8000-000000000002",
-    status: "active",
-    target_at: "2026-07-24T10:00:00.000Z",
-  },
-  {
-    id: "10000000-0000-4000-8000-000000000003",
-    status: "active",
-    target_at: "2026-07-24T15:00:00.000Z",
-  },
-  {
-    id: "10000000-0000-4000-8000-000000000004",
-    status: "active",
-    target_at: "2026-07-25T00:00:00.000Z",
-  },
-] as const;
+const ids = {
+  commitment1: "10000000-0000-4000-8000-000000000001",
+  commitment2: "10000000-0000-4000-8000-000000000002",
+  commitment3: "10000000-0000-4000-8000-000000000003",
+  event1: "30000000-0000-4000-8000-000000000001",
+  message1: "40000000-0000-4000-8000-000000000001",
+  session1: "50000000-0000-4000-8000-000000000001",
+  session2: "50000000-0000-4000-8000-000000000002",
+} as const;
+
+function emptyReadModel() {
+  return {
+    activeCommitments: [],
+    events: [],
+    sessionHistoryRows: [],
+    terminalCommitments: [],
+  };
+}
 
 describe("SupabaseDashboardRepository", () => {
-  it("derives overlapping due-today and exact-instant overdue facts after the DB read", async () => {
+  it("derives owner-time-zone counts and stable live-state labels from one bounded RPC read", async () => {
     const events: string[] = [];
     const fetchFromSupabase = vi.fn(async () => {
       events.push("database-read");
-      return Response.json(commitmentRows);
+      return Response.json({
+        activeCommitments: [
+          {
+            continuation: null,
+            currentSession: {
+              calendarAttemptedAt: "2026-07-24T07:00:00.000Z",
+              calendarCheckedAt: null,
+              calendarStatus: "unverified",
+              conflictConsent: false,
+              durationMinutes: 60,
+              endAt: "2026-07-24T10:00:00.000Z",
+              finalCalendarObservation: "unavailable",
+              id: ids.session1,
+              isRecovery: false,
+              outcomeAt: null,
+              sequenceNumber: 1,
+              startAt: "2026-07-24T09:00:00.000Z",
+              status: "started",
+            },
+            definitionOfDone: "Finish the live-state read model",
+            deliveries: [
+              {
+                dueAt: "2026-07-24T10:00:00.000Z",
+                id: ids.message1,
+                kind: "work_session_end",
+                state: "pending",
+              },
+            ],
+            id: ids.commitment2,
+            targetAt: "2026-07-24T10:00:00.000Z",
+          },
+          {
+            continuation: null,
+            currentSession: null,
+            definitionOfDone: "Send the proposal",
+            deliveries: [
+              {
+                dueAt: "2026-07-23T15:59:59.000Z",
+                id: ids.message1,
+                kind: "simple_reminder",
+                state: "delivery_unknown",
+              },
+            ],
+            id: ids.commitment1,
+            targetAt: "2026-07-23T15:59:59.000Z",
+          },
+          {
+            continuation: null,
+            currentSession: null,
+            definitionOfDone: "Prepare tomorrow",
+            deliveries: [],
+            id: ids.commitment3,
+            targetAt: "2026-07-25T00:00:00.000Z",
+          },
+        ],
+        events: [],
+        sessionHistoryRows: [],
+        terminalCommitments: [],
+      });
     });
     const repository = new SupabaseDashboardRepository({
       fetch: fetchFromSupabase as typeof fetch,
@@ -37,6 +91,7 @@ describe("SupabaseDashboardRepository", () => {
         events.push("timestamp");
         return new Date("2026-07-24T12:34:56.000Z");
       },
+      ownerId: 998877,
       ownerTimeZone: "Asia/Singapore",
       supabaseSecretKey: "sb_secret_opaque-server-key",
       supabaseUrl: "http://127.0.0.1:54321",
@@ -45,37 +100,153 @@ describe("SupabaseDashboardRepository", () => {
     const summary = await repository.readSummary();
 
     expect(events).toEqual(["database-read", "timestamp"]);
-    expect(summary).toEqual({
-      commitments: commitmentRows.map((commitment) => ({
-        id: commitment.id,
-        status: commitment.status,
-        targetAt: commitment.target_at,
-      })),
-      counts: {
-        active: 4,
-        dueToday: 2,
-        overdue: 2,
-      },
-      updatedAt: "2026-07-24T12:34:56.000Z",
+    expect(summary.counts).toEqual({
+      active: 3,
+      dueToday: 1,
+      overdue: 2,
     });
-    expect(summary.counts.active).toBe(summary.commitments.length);
+    expect(summary.commitments.map(({ id }) => id)).toEqual([
+      ids.commitment1,
+      ids.commitment2,
+      ids.commitment3,
+    ]);
+    expect(summary.commitments[0]).toMatchObject({
+      calendar: {
+        attemptedAt: null,
+        checkedAt: null,
+        kind: "not_needed",
+        label: "Calendar check not needed",
+      },
+      deliveries: [
+        {
+          label: "Delivery uncertain",
+          state: "delivery_unknown",
+        },
+      ],
+      expectedDurationMinutes: null,
+      next: {
+        at: null,
+        kind: "none",
+        label: "No next action scheduled",
+      },
+    });
+    expect(summary.commitments[1]).toMatchObject({
+      calendar: {
+        checkedAt: null,
+        kind: "unverified",
+        label: "Saved without a Calendar check",
+      },
+      expectedDurationMinutes: 60,
+      next: {
+        at: "2026-07-24T10:00:00.000Z",
+        kind: "session_end",
+        label: "Work session ends",
+      },
+    });
     expect(fetchFromSupabase).toHaveBeenCalledWith(
-      "http://127.0.0.1:54321/rest/v1/commitments?select=id,status,target_at&status=eq.active&order=target_at.asc",
+      "http://127.0.0.1:54321/rest/v1/rpc/read_dashboard_summary",
       expect.objectContaining({
+        body: JSON.stringify({ p_owner_id: "998877" }),
         headers: {
           Accept: "application/json",
+          "Content-Type": "application/json",
           apikey: "sb_secret_opaque-server-key",
         },
+        method: "POST",
       }),
     );
   });
 
+  it("maps bounded history and event facts without reconstructing product state", async () => {
+    const repository = new SupabaseDashboardRepository({
+      fetch: (async () =>
+        Response.json({
+          activeCommitments: [],
+          events: [
+            {
+              actor: "owner",
+              commitmentId: ids.commitment1,
+              definitionOfDone: "Send the proposal",
+              eventType: "commitment.done",
+              id: ids.event1,
+              occurredAt: "2026-07-24T11:00:00.000Z",
+            },
+          ],
+          sessionHistoryRows: [
+            {
+              commitmentId: ids.commitment2,
+              definitionOfDone: "Finish the live-state read model",
+              durationMinutes: 60,
+              endAt: "2026-07-24T10:00:00.000Z",
+              id: ids.session2,
+              isRecovery: true,
+              outcomeAt: "2026-07-24T10:05:00.000Z",
+              sequenceNumber: 6,
+              startAt: "2026-07-24T09:00:00.000Z",
+              status: "done",
+              totalForCommitment: 6,
+            },
+          ],
+          terminalCommitments: [
+            {
+              definitionOfDone: "Send the proposal",
+              id: ids.commitment1,
+              status: "done",
+              targetAt: "2026-07-24T10:00:00.000Z",
+              terminalAt: "2026-07-24T11:00:00.000Z",
+            },
+          ],
+        })) as typeof fetch,
+      now: () => new Date("2026-07-24T12:34:56.000Z"),
+      ownerId: 998877,
+      ownerTimeZone: "Asia/Singapore",
+      supabaseSecretKey: "server-only-test-key",
+      supabaseUrl: "http://127.0.0.1:54321",
+    });
+
+    const summary = await repository.readSummary();
+
+    expect(summary.sessionHistory).toEqual([
+      {
+        commitmentId: ids.commitment2,
+        definitionOfDone: "Finish the live-state read model",
+        sessions: [
+          expect.objectContaining({
+            id: ids.session2,
+            isRecovery: true,
+            label: "Done",
+            sequenceNumber: 6,
+            status: "done",
+          }),
+        ],
+        truncated: true,
+      },
+    ]);
+    expect(summary.terminalCommitments).toEqual([
+      expect.objectContaining({
+        id: ids.commitment1,
+        label: "Completed",
+        status: "done",
+      }),
+    ]);
+    expect(summary.events).toEqual([
+      expect.objectContaining({
+        actor: "owner",
+        eventType: "commitment.done",
+        label: "Promise completed",
+      }),
+    ]);
+  });
+
   it("adds Bearer authorization only for a JWT-shaped service credential", async () => {
     const jwtCredential = "header.payload.signature";
-    const fetchFromSupabase = vi.fn(async () => Response.json([]));
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json(emptyReadModel()),
+    );
     const repository = new SupabaseDashboardRepository({
       fetch: fetchFromSupabase as typeof fetch,
       now: () => new Date("2026-07-24T12:34:56.000Z"),
+      ownerId: 998877,
       ownerTimeZone: "Asia/Singapore",
       supabaseSecretKey: jwtCredential,
       supabaseUrl: "http://127.0.0.1:54321",
@@ -88,8 +259,9 @@ describe("SupabaseDashboardRepository", () => {
       expect.objectContaining({
         headers: {
           Accept: "application/json",
-          apikey: jwtCredential,
           Authorization: `Bearer ${jwtCredential}`,
+          "Content-Type": "application/json",
+          apikey: jwtCredential,
         },
       }),
     );
@@ -104,7 +276,7 @@ describe("SupabaseDashboardRepository", () => {
     const repository = new SupabaseDashboardRepository({
       fetch: (async () => {
         events.push("database-read");
-        return Response.json([]);
+        return Response.json(emptyReadModel());
       }) as typeof fetch,
       now: () => {
         events.push("timestamp");
@@ -114,6 +286,7 @@ describe("SupabaseDashboardRepository", () => {
         }
         return value;
       },
+      ownerId: 998877,
       ownerTimeZone: "Asia/Singapore",
       supabaseSecretKey: "sb_secret_opaque-server-key",
       supabaseUrl: "http://127.0.0.1:54321",
@@ -133,7 +306,9 @@ describe("SupabaseDashboardRepository", () => {
 
   it("rejects malformed persistence responses instead of inventing dashboard data", async () => {
     const repository = new SupabaseDashboardRepository({
-      fetch: (async () => Response.json([{ status: "active" }])) as typeof fetch,
+      fetch: (async () =>
+        Response.json([{ status: "active" }])) as typeof fetch,
+      ownerId: 998877,
       ownerTimeZone: "Asia/Singapore",
       supabaseSecretKey: "server-only-test-key",
       supabaseUrl: "http://127.0.0.1:54321",

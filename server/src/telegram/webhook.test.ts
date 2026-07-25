@@ -104,6 +104,9 @@ async function appWith(
       readSummary: vi.fn().mockResolvedValue({
         commitments: [],
         counts: { active: 0, dueToday: 0, overdue: 0 },
+        events: [],
+        sessionHistory: [],
+        terminalCommitments: [],
         updatedAt: "2026-07-24T12:00:00.000Z",
       }),
     },
