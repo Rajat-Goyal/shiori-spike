@@ -22,14 +22,16 @@
     "test": "npm run test:api && npm run build && npm run test:e2e:isolated",
     "test:db": "node --env-file=.env.local node_modules/vitest/vitest.mjs run --config vitest.db.config.ts",
     "tests": "npm test",
-    "test:api": "npm run test --workspace @shiori/server",
+    "test:api": "npm run test --workspace @shiori/server && npm run test:release-verifier",
     "test:e2e": "playwright test",
     "test:e2e:isolated": "playwright test --grep-invert @live",
+    "test:release-verifier": "node --test scripts/release-verifier.test.mjs",
     "typecheck": "npm run typecheck --workspace @shiori/server && npm run typecheck --workspace @shiori/web",
     "typecheck:server": "npm run typecheck --workspace @shiori/server",
     "typecheck:web": "npm run typecheck --workspace @shiori/web",
     "check": "npm run typecheck && npm run tests",
-    "ci": "npm run check"
+    "ci": "npm run check",
+    "verify:release": "node scripts/verify-release.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.1",
