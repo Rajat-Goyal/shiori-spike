@@ -309,7 +309,7 @@ describe("WorkSessionFlow", () => {
     expect(test.commit).not.toHaveBeenCalled();
   });
 
-  it("retains conflict consent and a final free observation in one injected commit request", async () => {
+  it("persists a final free observation factually while retaining prior conflict consent only in audit", async () => {
     const availability = checker(
       {
         alternatives: [OPTION_ONE, OPTION_TWO],
@@ -369,7 +369,7 @@ describe("WorkSessionFlow", () => {
           checkedAt: "2026-07-27T00:03:00.000Z",
           conflictConsent: true,
           finalObservation: "free",
-          status: "conflict_kept",
+          status: "free",
         },
         chatId: 42,
         expectedStage: "conflict_confirming",
@@ -381,7 +381,7 @@ describe("WorkSessionFlow", () => {
     expect(saved?.text).toContain("Start reminder:");
     expect(saved?.text).toContain("End check-in:");
     expect(saved?.text).toContain("Google Calendar was not changed.");
-    expect(saved?.text).toContain("You kept the conflicting time.");
+    expect(saved?.text).not.toMatch(/kept|conflict/i);
   });
 
   it("blocks a newly conflicting final recheck and requires a new keep confirmation", async () => {

@@ -992,10 +992,7 @@ export class WorkSessionFlow {
     });
     const attemptedAt = this.#now().toISOString();
     if (availability.status === "available" && availability.proposed) {
-      if (
-        availability.proposed.status === "free" ||
-        snapshot.conflictConsent
-      ) {
+      if (availability.proposed.status === "free") {
         return this.#prepareCommit(
           updateId,
           chatId,
@@ -1003,6 +1000,17 @@ export class WorkSessionFlow {
           snapshot,
           "confirm",
           availability.proposed.status,
+          availability.checkedAt,
+        );
+      }
+      if (snapshot.conflictConsent) {
+        return this.#prepareCommit(
+          updateId,
+          chatId,
+          draftReference,
+          snapshot,
+          "confirm",
+          "conflict",
           availability.checkedAt,
         );
       }
@@ -1084,7 +1092,7 @@ export class WorkSessionFlow {
         status:
           observation === "unavailable"
             ? "unverified"
-            : snapshot.conflictConsent
+            : observation === "conflict"
               ? "conflict_kept"
               : "free",
       },

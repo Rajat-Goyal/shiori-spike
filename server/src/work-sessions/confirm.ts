@@ -48,7 +48,7 @@ export class SupabaseWorkSessionCommitter
     request: WorkSessionCommitRequest,
   ): Promise<WorkSessionCommitResult> {
     const response = await this.#fetch(
-      `${this.#supabaseUrl}/rest/v1/rpc/confirm_work_session`,
+      `${this.#supabaseUrl}/rest/v1/rpc/confirm_work_session_final_state`,
       {
         body: JSON.stringify({
           p_action: request.action,

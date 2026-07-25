@@ -9,7 +9,7 @@ const request: WorkSessionCommitRequest = {
     checkedAt: "2026-07-27T00:03:01.000Z",
     conflictConsent: true,
     finalObservation: "free",
-    status: "conflict_kept",
+    status: "free",
   },
   chatId: 123456789,
   definitionOfDone: "Submit the synthetic note",
@@ -45,14 +45,14 @@ describe("SupabaseWorkSessionCommitter", () => {
     });
 
     expect(fetchFromSupabase).toHaveBeenCalledWith(
-      "http://127.0.0.1:54321/rest/v1/rpc/confirm_work_session",
+      "http://127.0.0.1:54321/rest/v1/rpc/confirm_work_session_final_state",
       expect.objectContaining({
         body: JSON.stringify({
           p_action: "confirm",
           p_calendar_attempted_at:
             request.calendar.attemptedAt,
           p_calendar_checked_at: request.calendar.checkedAt,
-          p_calendar_status: "conflict_kept",
+          p_calendar_status: "free",
           p_conflict_consent: true,
           p_draft_id: request.draft.id,
           p_expected_stage: "conflict_confirming",
