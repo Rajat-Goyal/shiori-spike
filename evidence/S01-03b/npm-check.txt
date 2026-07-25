@@ -1,10 +1,11 @@
-S01-03b independent QA gate
-Captured: 2026-07-24T17:24:47Z
+S01-03b independent story-level QA gate
+Captured: 2026-07-25T03:18:07Z
 Source commits:
 - 2ac8cda feat(S01-03b): persist bounded conversation state
 - afdace4 feat(S01-03b): orchestrate restart-safe draft turns
 - ad3f82f feat(S01-03b): route authorized Telegram turns
-Verified frozen tree: HEAD ad3f82f
+Verified tree: f2fe1934cd1f4af85c494543942cca38383f61a6
+Runtime: Node.js v24.18.0 / npm 11
 Result: PASS
 
 Provenance note
@@ -13,6 +14,13 @@ Provenance note
   of that same content.
 
 Execution results
+- Current conversation service verification: PASS, 39/39.
+- Current focused conversation database verification: PASS, 2/2.
+- Concurrent first-owner claim regression: PASS, 16/16 claims,
+  16 ledger rows, one owner-delivery row, zero conflict errors.
+- Current repository-wide `npm run check`: PASS, including 379/379 server
+  tests, 22/22 release-verifier tests, both production builds, and 50/50
+  isolated browser cases.
 - Conversation service and repository focused verification: PASS, 37/37.
 - Conversation repository contract verification: PASS, 12/12.
 - Telegram webhook boundary verification: PASS, 7/7.
@@ -29,11 +37,11 @@ Execution results
 
 Exact re-runnable story commands
 1. npm run test --workspace @shiori/server -- src/telegram/conversation.test.ts
-   PASS.
-2. npm run test:db
-   PASS against a clean isolated local Supabase reset.
-3. BASE_URL=http://127.0.0.1:4174 npm run check
-   PASS with 213 server tests, both production builds, and 46 browser tests.
+   PASS, 39/39.
+2. npm run test:db -- server/test/conversation-db.integration.ts
+   PASS, 2/2, against the approved disposable local Supabase.
+3. npm run check
+   PASS at the verified source SHA.
 
 Independent review
 - Architecture found no source blocker. The conversation relation remains
@@ -42,8 +50,8 @@ Independent review
 - QA inspected the migration, repository, orchestration, Telegram boundary,
   exact copy, database results, and sanitized artifacts independently of the
   implementer.
-- The implementation remained frozen at HEAD ad3f82f while these evidence
-  files were prepared.
+- Product implementation remained unchanged while current evidence was
+  prepared at the verified source SHA.
 - Sensitive-value and forbidden-retention scans passed.
 - Evidence JSON parsing and exact-evidence-file-count checks passed.
 

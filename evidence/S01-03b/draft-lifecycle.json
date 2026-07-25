@@ -1,6 +1,8 @@
 {
   "story_id": "S01-03b",
-  "captured_at": "2026-07-24T17:24:47Z",
+  "captured_at": "2026-07-25T03:18:07Z",
+  "verified_source_sha": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "runtime": "Node.js v24.18.0",
   "source_commits": [
     "2ac8cda",
     "afdace4",
@@ -98,6 +100,14 @@
     "second_state_mutation": false,
     "second_send": false,
     "version_increment_from_replay": 0
+  },
+  "concurrent_first_owner_claim": {
+    "parallel_claim_attempts": 16,
+    "claimed_results": 16,
+    "ledger_rows": 16,
+    "owner_delivery_rows": 1,
+    "conflict_errors": 0,
+    "result": "pass"
   },
   "collisions": {
     "active_draft_overwritten": false,
