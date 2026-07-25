@@ -16,6 +16,7 @@ import {
   JOURNEY_IDS,
   parseEnvFile,
   parseMigrationList,
+  parseRailwayVariableInventory,
   readIntegrityJson,
   redactText,
   RELEASE_TARGET,
@@ -25,6 +26,7 @@ import {
   unexpectedGitChanges,
   validateMigrationLedger,
   validateRailwayStatus,
+  validateRailwayVariableInventory,
   validateReleaseEnvironment,
   validateRollbackBaseline,
   validateScenarioArtifact,
@@ -288,6 +290,8 @@ function railwayStatus(environment) {
       RELEASE_TARGET.projectId,
       "--environment",
       RELEASE_TARGET.environmentId,
+      "--service",
+      RELEASE_TARGET.serviceId,
       "--json",
     ],
     {
@@ -295,7 +299,31 @@ function railwayStatus(environment) {
       label: "Railway identity check",
     },
   );
-  return validateRailwayStatus(status);
+  const identity = validateRailwayStatus(status);
+  const variables = parseRailwayVariableInventory(
+    run(
+      "railway",
+      [
+        "variable",
+        "list",
+        "--project",
+        RELEASE_TARGET.projectId,
+        "--environment",
+        RELEASE_TARGET.environmentId,
+        "--service",
+        RELEASE_TARGET.serviceId,
+        "--json",
+      ],
+      {
+        env: releaseEnvironment(environment),
+        label: "Railway runtime variable inventory check",
+      },
+    ),
+  );
+  return {
+    ...identity,
+    ...validateRailwayVariableInventory(variables, environment),
+  };
 }
 
 function migrationLedger(environment, manifest) {
@@ -627,7 +655,20 @@ async function deployPhase(options, environment, secrets) {
       "Hosted migration ledger is not exact after approved migration application",
     );
   }
-  if (!railwayBefore.deploymentId || !railwayBefore.imageDigest) {
+  const railwayImmediatelyBeforeDeploy = railwayStatus(environment);
+  if (
+    canonicalJson(railwayImmediatelyBeforeDeploy) !==
+    canonicalJson(railwayBefore)
+  ) {
+    throw new ReleaseVerificationError(
+      "railway_predeploy_drift",
+      "Railway identity or runtime configuration changed before deployment",
+    );
+  }
+  if (
+    !railwayImmediatelyBeforeDeploy.deploymentId ||
+    !railwayImmediatelyBeforeDeploy.imageDigest
+  ) {
     throw new ReleaseVerificationError(
       "rollback_unavailable",
       "Existing dedicated deployment lacks an immutable rollback baseline",
@@ -637,7 +678,7 @@ async function deployPhase(options, environment, secrets) {
   const deployed = deployRailway(
     environment,
     sourceBefore,
-    railwayBefore.deploymentId,
+    railwayImmediatelyBeforeDeploy.deploymentId,
   );
   const railwayAfter = railwayStatus(environment);
   if (
@@ -683,9 +724,9 @@ async function deployPhase(options, environment, secrets) {
   writeImmutableJson(
     path.join(options.evidenceDir, "rollback-baseline.json"),
     {
-      deploymentId: railwayBefore.deploymentId,
+      deploymentId: railwayImmediatelyBeforeDeploy.deploymentId,
       environmentId: RELEASE_TARGET.environmentId,
-      imageDigest: railwayBefore.imageDigest,
+      imageDigest: railwayImmediatelyBeforeDeploy.imageDigest,
       releaseManifestHash: manifestHash,
       schemaVersion: 1,
       serviceId: RELEASE_TARGET.serviceId,

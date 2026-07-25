@@ -20,6 +20,32 @@ export const BOUNDARY_IDS = Object.freeze(
   Array.from({ length: 10 }, (_, index) => `S${index + 19}`),
 );
 
+export const APPLICATION_RUNTIME_KEYS = Object.freeze([
+  "DASHBOARD_PASSWORD_HASH",
+  "DASHBOARD_SESSION_SECRET",
+  "GOOGLE_OAUTH_CLIENT_ID",
+  "GOOGLE_OAUTH_CLIENT_SECRET",
+  "GOOGLE_OWNER_EMAIL",
+  "GOOGLE_TOKEN_ENCRYPTION_KEY",
+  "GOOGLE_TOKEN_KEY_VERSION",
+  "OPENAI_API_KEY",
+  "OPENAI_MODEL",
+  "OPENAI_PROMPT_VERSION",
+  "OWNER_TIME_ZONE",
+  "PUBLIC_APP_BASE_URL",
+  "SUPABASE_SECRET_KEY",
+  "SUPABASE_URL",
+  "TELEGRAM_BOT_TOKEN",
+  "TELEGRAM_OWNER_USER_ID",
+  "TELEGRAM_WEBHOOK_SECRET",
+]);
+
+const RELEASE_ONLY_KEYS = Object.freeze([
+  "RAILWAY_ENVIRONMENT_ID",
+  "RAILWAY_PROJECT_ID",
+  "RAILWAY_SERVICE_ID",
+  "SUPABASE_DATABASE_POOLER_URL",
+]);
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
@@ -265,29 +291,7 @@ export function assertRedactedEvidence(value, secrets = [], label = "evidence") 
 }
 
 export function validateReleaseEnvironment(environment) {
-  const required = [
-    "DASHBOARD_PASSWORD_HASH",
-    "DASHBOARD_SESSION_SECRET",
-    "GOOGLE_OAUTH_CLIENT_ID",
-    "GOOGLE_OAUTH_CLIENT_SECRET",
-    "GOOGLE_OWNER_EMAIL",
-    "GOOGLE_TOKEN_ENCRYPTION_KEY",
-    "GOOGLE_TOKEN_KEY_VERSION",
-    "OPENAI_API_KEY",
-    "OPENAI_MODEL",
-    "OPENAI_PROMPT_VERSION",
-    "OWNER_TIME_ZONE",
-    "PUBLIC_APP_BASE_URL",
-    "RAILWAY_ENVIRONMENT_ID",
-    "RAILWAY_PROJECT_ID",
-    "RAILWAY_SERVICE_ID",
-    "SUPABASE_DATABASE_POOLER_URL",
-    "SUPABASE_SECRET_KEY",
-    "SUPABASE_URL",
-    "TELEGRAM_BOT_TOKEN",
-    "TELEGRAM_OWNER_USER_ID",
-    "TELEGRAM_WEBHOOK_SECRET",
-  ];
+  const required = [...APPLICATION_RUNTIME_KEYS, ...RELEASE_ONLY_KEYS];
   const missing = required.filter(
     (key) =>
       !environment[key]?.trim() ||
@@ -366,6 +370,149 @@ export function validateReleaseEnvironment(environment) {
     supabaseTargetHash: sha256(
       `${projectReference}|${supabaseUrl.origin}|${poolerUrl.hostname}:${poolerUrl.port}`,
     ),
+  };
+}
+
+export function parseRailwayVariableInventory(output) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(output));
+  } catch {
+    throw new ReleaseVerificationError(
+      "invalid_railway_variables",
+      "Railway variable inventory returned invalid structured output",
+    );
+  }
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    Object.keys(parsed).length === 0 ||
+    Object.entries(parsed).some(
+      ([key, value]) =>
+        !/^[A-Z][A-Z0-9_]*$/.test(key) || typeof value !== "string",
+    )
+  ) {
+    throw new ReleaseVerificationError(
+      "invalid_railway_variables",
+      "Railway variable inventory has an invalid schema",
+    );
+  }
+  return parsed;
+}
+
+export function validateRailwayVariableInventory(
+  variables,
+  releaseEnvironment,
+) {
+  if (
+    variables === null ||
+    typeof variables !== "object" ||
+    Array.isArray(variables) ||
+    Object.keys(variables).length === 0 ||
+    Object.entries(variables).some(
+      ([key, value]) =>
+        !/^[A-Z][A-Z0-9_]*$/.test(key) || typeof value !== "string",
+    )
+  ) {
+    throw new ReleaseVerificationError(
+      "invalid_railway_variables",
+      "Railway variable inventory has an invalid schema",
+    );
+  }
+  if (
+    variables.RAILWAY_SERVICE_ID === RELEASE_TARGET.legacyServiceId ||
+    releaseEnvironment.RAILWAY_SERVICE_ID === RELEASE_TARGET.legacyServiceId
+  ) {
+    throw new ReleaseVerificationError(
+      "legacy_service_refused",
+      "The legacy Railway service is permanently refused",
+    );
+  }
+  const targetVariables = [
+    ["RAILWAY_PROJECT_ID", RELEASE_TARGET.projectId, "project"],
+    ["RAILWAY_ENVIRONMENT_ID", RELEASE_TARGET.environmentId, "environment"],
+    ["RAILWAY_SERVICE_ID", RELEASE_TARGET.serviceId, "service"],
+  ];
+  for (const [key, expected, label] of targetVariables) {
+    if (variables[key] !== expected) {
+      throw new ReleaseVerificationError(
+        `railway_variable_${label}_mismatch`,
+        `Railway variable inventory belongs to the wrong ${label}`,
+      );
+    }
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(
+      variables,
+      "SUPABASE_DATABASE_POOLER_URL",
+    )
+  ) {
+    throw new ReleaseVerificationError(
+      "railway_pooler_forbidden",
+      "The release-only Supabase pooler URL must not be deployed",
+    );
+  }
+  const deployedApplicationKeys = Object.keys(variables)
+    .filter((key) => !key.startsWith("RAILWAY_"))
+    .sort();
+  if (
+    canonicalJson(deployedApplicationKeys) !==
+    canonicalJson([...APPLICATION_RUNTIME_KEYS].sort())
+  ) {
+    throw new ReleaseVerificationError(
+      "railway_runtime_inventory_mismatch",
+      "Railway application runtime keys are missing or unexpected",
+    );
+  }
+  let deployedSupabaseUrl;
+  let expectedSupabaseUrl;
+  try {
+    deployedSupabaseUrl = new URL(variables.SUPABASE_URL);
+    expectedSupabaseUrl = new URL(releaseEnvironment.SUPABASE_URL);
+  } catch {
+    throw new ReleaseVerificationError(
+      "railway_supabase_target_invalid",
+      "Railway Supabase runtime target is invalid",
+    );
+  }
+  if (
+    deployedSupabaseUrl.protocol !== "https:" ||
+    !deployedSupabaseUrl.hostname.endsWith(".supabase.co") ||
+    deployedSupabaseUrl.pathname !== "/" ||
+    deployedSupabaseUrl.search ||
+    deployedSupabaseUrl.hash ||
+    deployedSupabaseUrl.hostname.split(".")[0] !==
+      expectedSupabaseUrl.hostname.split(".")[0]
+  ) {
+    throw new ReleaseVerificationError(
+      "railway_supabase_target_invalid",
+      "Railway Supabase runtime target is not the approved hosted project",
+    );
+  }
+  for (const key of APPLICATION_RUNTIME_KEYS) {
+    if (
+      typeof releaseEnvironment[key] !== "string" ||
+      variables[key] !== releaseEnvironment[key]
+    ) {
+      throw new ReleaseVerificationError(
+        "railway_runtime_value_mismatch",
+        "Railway application runtime values differ from the release target",
+      );
+    }
+  }
+  const runtimeConfiguration = Object.fromEntries(
+    APPLICATION_RUNTIME_KEYS.map((key) => [key, variables[key]]),
+  );
+  return {
+    hostedSupabase: true,
+    legacyServiceExcluded: true,
+    poolerExcluded: true,
+    runtimeConfigHash: sha256(canonicalJson(runtimeConfiguration)),
+    runtimeKeysExact: true,
+    targetEnvironmentExact: true,
+    targetProjectExact: true,
+    targetServiceExact: true,
   };
 }
 

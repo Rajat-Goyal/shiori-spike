@@ -9,16 +9,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  APPLICATION_RUNTIME_KEYS,
   assertRedactedEvidence,
   BOUNDARY_IDS,
   canonicalJson,
   JOURNEY_IDS,
   parseEnvFile,
   parseMigrationList,
+  parseRailwayVariableInventory,
   redactText,
   RELEASE_TARGET,
   validateMigrationLedger,
   validateRailwayStatus,
+  validateRailwayVariableInventory,
   validateReleaseEnvironment,
   validateRollbackBaseline,
   validateScenarioArtifact,
@@ -116,6 +119,24 @@ function releaseEnvironment(overrides = {}) {
     TELEGRAM_BOT_TOKEN: "123456:safe-bot-token",
     TELEGRAM_OWNER_USER_ID: "123456789",
     TELEGRAM_WEBHOOK_SECRET: "safe-webhook",
+    ...overrides,
+  };
+}
+
+function railwayVariableFixture(overrides = {}) {
+  const environment = releaseEnvironment();
+  return {
+    ...Object.fromEntries(
+      APPLICATION_RUNTIME_KEYS.map((key) => [key, environment[key]]),
+    ),
+    RAILWAY_ENVIRONMENT: "production",
+    RAILWAY_ENVIRONMENT_ID: RELEASE_TARGET.environmentId,
+    RAILWAY_ENVIRONMENT_NAME: "production",
+    RAILWAY_PROJECT_ID: RELEASE_TARGET.projectId,
+    RAILWAY_PROJECT_NAME: "shiori-slice-01",
+    RAILWAY_PUBLIC_DOMAIN: RELEASE_TARGET.domain,
+    RAILWAY_SERVICE_ID: RELEASE_TARGET.serviceId,
+    RAILWAY_SERVICE_NAME: "shiori-slice-01",
     ...overrides,
   };
 }
@@ -223,6 +244,141 @@ test("Railway identity accepts only the exact domain and one replica", () => {
       ),
     (error) => error.code === "railway_domain_mismatch",
   );
+});
+
+test("runtime key contract stays exact with server configuration", () => {
+  const source = readFileSync("server/src/config.ts", "utf8");
+  const requiredKeys = [
+    ...source.matchAll(
+      /required\(\s*environment,\s*"([A-Z][A-Z0-9_]*)"\s*,?\s*\)/gs,
+    ),
+  ].map((match) => match[1]).sort();
+  assert.deepEqual(
+    [...new Set(requiredKeys)],
+    [...APPLICATION_RUNTIME_KEYS].sort(),
+  );
+});
+
+test("Railway variable inventory is exact, value-bound, and one-way", () => {
+  const environment = releaseEnvironment();
+  const variables = railwayVariableFixture();
+  assert.deepEqual(
+    parseRailwayVariableInventory(JSON.stringify(variables)),
+    variables,
+  );
+  const result = validateRailwayVariableInventory(variables, environment);
+  assert.deepEqual(result, {
+    hostedSupabase: true,
+    legacyServiceExcluded: true,
+    poolerExcluded: true,
+    runtimeConfigHash: result.runtimeConfigHash,
+    runtimeKeysExact: true,
+    targetEnvironmentExact: true,
+    targetProjectExact: true,
+    targetServiceExact: true,
+  });
+  assert.match(result.runtimeConfigHash, /^[0-9a-f]{64}$/);
+  assert.equal(
+    Object.values(result).some((value) =>
+      APPLICATION_RUNTIME_KEYS.some(
+        (key) => value === environment[key],
+      )
+    ),
+    false,
+  );
+});
+
+test("Railway variable inventory fails closed on malformed command output", () => {
+  for (const output of [
+    "",
+    "not-json",
+    "[]",
+    '{"SUPABASE_URL":1}',
+    `${JSON.stringify(railwayVariableFixture())}\ncommand noise`,
+  ]) {
+    assert.throws(
+      () => parseRailwayVariableInventory(output),
+      (error) => error.code === "invalid_railway_variables",
+    );
+  }
+});
+
+test("Railway variable inventory refuses missing, extra, pooler, and mismatched values", () => {
+  const environment = releaseEnvironment();
+  const missing = railwayVariableFixture();
+  delete missing.OPENAI_MODEL;
+  const fixtures = [
+    [missing, "railway_runtime_inventory_mismatch"],
+    [
+      railwayVariableFixture({ UNEXPECTED_RUNTIME_KEY: "unexpected" }),
+      "railway_runtime_inventory_mismatch",
+    ],
+    [
+      railwayVariableFixture({
+        SUPABASE_DATABASE_POOLER_URL:
+          environment.SUPABASE_DATABASE_POOLER_URL,
+      }),
+      "railway_pooler_forbidden",
+    ],
+    [
+      railwayVariableFixture({ OPENAI_API_KEY: "different-secret" }),
+      "railway_runtime_value_mismatch",
+    ],
+  ];
+  for (const [variables, code] of fixtures) {
+    assert.throws(
+      () => validateRailwayVariableInventory(variables, environment),
+      (error) => error.code === code,
+    );
+  }
+});
+
+test("Railway variable inventory refuses wrong targets, legacy, and prior loopback Supabase", () => {
+  const environment = releaseEnvironment();
+  const fixtures = [
+    [
+      railwayVariableFixture({
+        RAILWAY_PROJECT_ID: "99999999-9999-4999-8999-999999999999",
+      }),
+      "railway_variable_project_mismatch",
+    ],
+    [
+      railwayVariableFixture({
+        RAILWAY_ENVIRONMENT_ID: "99999999-9999-4999-8999-999999999999",
+      }),
+      "railway_variable_environment_mismatch",
+    ],
+    [
+      railwayVariableFixture({
+        RAILWAY_SERVICE_ID: "99999999-9999-4999-8999-999999999999",
+      }),
+      "railway_variable_service_mismatch",
+    ],
+    [
+      railwayVariableFixture({
+        RAILWAY_SERVICE_ID: RELEASE_TARGET.legacyServiceId,
+      }),
+      "legacy_service_refused",
+    ],
+    [
+      railwayVariableFixture({
+        SUPABASE_URL: "http://127.0.0.1:54321",
+      }),
+      "railway_supabase_target_invalid",
+    ],
+    [
+      railwayVariableFixture({
+        SUPABASE_URL: "https://zyxwvutsrqponmlkjihg.supabase.co",
+      }),
+      "railway_supabase_target_invalid",
+    ],
+  ];
+  for (const [variables, code] of fixtures) {
+    assert.throws(
+      () => validateRailwayVariableInventory(variables, environment),
+      (error) => error.code === code,
+    );
+  }
 });
 
 test("migration parser accepts the pinned CLI JSON exact ledger", () => {
