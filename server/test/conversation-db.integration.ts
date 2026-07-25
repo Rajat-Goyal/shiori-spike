@@ -72,6 +72,51 @@ function audit(
 }
 
 describe("local Supabase conversation state", () => {
+  it("claims distinct concurrent owner updates with one delivery identity", async () => {
+    const config = localConfig();
+    const telegram = new SupabaseTelegramRepository({
+      supabaseSecretKey: config.supabaseSecretKey,
+      supabaseUrl: config.supabaseUrl,
+    });
+    const baseUpdateId = 8_800_000_000 + randomInt(100_000_000);
+    const updateIds = Array.from(
+      { length: 16 },
+      (_, index) => baseUpdateId + index,
+    );
+
+    await expect(
+      Promise.all(
+        updateIds.map((updateId) =>
+          telegram.claimUpdate(
+            updateId,
+            config.telegramOwnerUserId,
+          ),
+        ),
+      ),
+    ).resolves.toEqual(updateIds.map(() => true));
+
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "telegram_updates",
+        `&update_id=in.(${updateIds.join(",")})`,
+      ),
+    ).toHaveLength(updateIds.length);
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "telegram_owner_delivery",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        private_chat_id: config.telegramOwnerUserId,
+        singleton: true,
+      }),
+    ]);
+  });
+
   it("serializes initial creation, creates one draft, and CAS-updates once", async () => {
     const config = localConfig();
     const conversation = new SupabaseConversationRepository({
