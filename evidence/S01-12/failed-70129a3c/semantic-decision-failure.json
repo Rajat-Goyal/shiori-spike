@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "candidate": {
+    "deploymentDigest": "04bfd665232205c469d9e66b2d7791133cab91f0586744f354eb9e99a17e7844",
+    "sourceDigest": "c86ba3a6f46c1c76b2bc620ca9dd4792b24bd19e5c593a9ed95e4c2d1b49a2df",
+    "manifestLabelDigest": "b0e2ea63ac1fe80a4d14b2f74c17d0076b04a5d481994d9c8b56637dc56ab3c3",
+    "manifestFileSha256": "5f15d6b88baed6445f7b0fa445dd03acb2f5382bc1f1b9f36de82f37476fcd34",
+    "model": "gpt-5.6-terra",
+    "replicas": 1,
+    "deploymentStatus": "SUCCESS",
+    "identityUnchangedThroughFailure": true
+  },
+  "scenario": "S6",
+  "productionAttempts": [
+    {
+      "attempt": 1,
+      "cleanInputSha256": "4a456fc3766323c693d4c520e9111128821343f026b4fdec8b6ed0f03153c036",
+      "httpStatus": 200,
+      "requestDurationMs": 3137,
+      "processingDurationMs": 2268,
+      "processingStatus": "failed",
+      "processingResult": "conversation_failed",
+      "failureClass": "semantic",
+      "callbackAttempted": false,
+      "stateDeltas": {
+        "commitmentEvents": 0,
+        "commitments": 0,
+        "activeDrafts": 0,
+        "permissionCandidates": 0,
+        "googleCalendarConnection": 0,
+        "modelDecisions": 0,
+        "scheduledMessages": 0,
+        "telegramUpdates": 1,
+        "workSessions": 0
+      },
+      "zeroConsequentialState": true
+    },
+    {
+      "attempt": 2,
+      "cleanInputSha256": "a9751f5ad11f584159f2f79a393f807c9fd51c02d531bf9fe597a57f88015c28",
+      "httpStatus": 200,
+      "requestDurationMs": 4054,
+      "processingStatus": "failed",
+      "processingResult": "conversation_failed",
+      "failureClass": "semantic",
+      "callbackAttempted": false,
+      "stateDeltas": {
+        "commitmentEvents": 0,
+        "commitments": 0,
+        "activeDrafts": 0,
+        "permissionCandidates": 0,
+        "googleCalendarConnection": 0,
+        "modelDecisions": 0,
+        "scheduledMessages": 0,
+        "telegramUpdates": 1,
+        "workSessions": 0
+      },
+      "zeroConsequentialState": true
+    }
+  ],
+  "diagnosticLogSurface": {
+    "classification": "semantic",
+    "safeFieldsOnly": [
+      "failure class",
+      "processing status",
+      "processing result",
+      "HTTP status",
+      "bounded duration"
+    ],
+    "providerMaterialRetained": false,
+    "ownerMaterialRetained": false
+  },
+  "isolatedDiagnostic": {
+    "executionMode": "provider-only isolated",
+    "environment": "non-production",
+    "exactInputContract": true,
+    "durationMs": 3101,
+    "result": "pass",
+    "signoffEligible": false,
+    "overridesProductionFailures": false,
+    "assessment": "Provider variance was observed, but an isolated pass cannot erase either production S6 failure."
+  },
+  "handoffIntegrity": {
+    "coreCompletionSha256": "8ca152396e6872dc25fa40a64b947197d8d0ea4daa1d36296ca6188670240ec0",
+    "cleanRetrySha256": "58f42df8b77750013c62bf2d3faa56d3c3a36e05b88caae4dfb5a88e8ec35727",
+    "bothVerifiedFromBytes": true
+  },
+  "stopRule": {
+    "firstInvariantFailureStoppedCoreBatch": true,
+    "singleCleanRetryAlsoFailed": true,
+    "additionalRetryPermitted": false,
+    "candidateShippable": false,
+    "verdict": "release_blocked",
+    "reason": "Two production executions failed the S6 semantic decision invariant without consequential state; a non-production provider-only pass is diagnostic and cannot qualify this candidate."
+  },
+  "privacy": {
+    "inputEvidence": "hash only",
+    "providerRequestOrResponseRetained": false,
+    "identifiersRetained": false,
+    "credentialsRetained": false,
+    "calendarOrOwnerDataRetained": false
+  }
+}
