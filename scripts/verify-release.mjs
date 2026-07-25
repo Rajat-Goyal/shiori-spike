@@ -290,8 +290,6 @@ function railwayStatus(environment) {
       RELEASE_TARGET.projectId,
       "--environment",
       RELEASE_TARGET.environmentId,
-      "--service",
-      RELEASE_TARGET.serviceId,
       "--json",
     ],
     {
