@@ -32,6 +32,22 @@ import {
 const deploymentId = "11111111-1111-4111-8111-111111111111";
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const releaseManifestHash = "b".repeat(64);
+const migrationVersions = ["20260725010000", "20260725020000"];
+
+function migrationManifest() {
+  return migrationVersions.map((version) => ({
+    file: `${version}_migration.sql`,
+    sha256: "d".repeat(64),
+    version,
+  }));
+}
+
+function migrationJson(rows) {
+  return JSON.stringify({
+    migrations: rows,
+    message: "Migrations listed",
+  });
+}
 
 function railwayFixture({
   domain = RELEASE_TARGET.domain,
@@ -209,34 +225,145 @@ test("Railway identity accepts only the exact domain and one replica", () => {
   );
 });
 
-test("migration ledger permits only an exact source prefix", () => {
-  const manifest = ["20260725010000", "20260725020000"].map(
-    (version) => ({
-      file: `${version}_migration.sql`,
-      sha256: "d".repeat(64),
-      version,
-    }),
+test("migration parser accepts the pinned CLI JSON exact ledger", () => {
+  const parsed = parseMigrationList(
+    migrationJson(
+      migrationVersions.map((version) => ({
+        local: version,
+        remote: version,
+        time: version,
+      })),
+    ),
   );
+  assert.deepEqual(parsed, {
+    local: migrationVersions,
+    remote: migrationVersions,
+  });
+  assert.deepEqual(validateMigrationLedger(migrationManifest(), parsed), {
+    applied: migrationVersions,
+    pending: [],
+  });
+});
+
+test("migration parser preserves a pending remote prefix", () => {
+  const parsed = parseMigrationList(
+    migrationJson([
+      {
+        local: migrationVersions[0],
+        remote: migrationVersions[0],
+        time: "2026-07-25 01:00:00",
+      },
+      {
+        local: migrationVersions[1],
+        remote: "",
+        time: "2026-07-25 02:00:00",
+      },
+    ]),
+  );
+  assert.deepEqual(validateMigrationLedger(migrationManifest(), parsed), {
+    applied: [migrationVersions[0]],
+    pending: [migrationVersions[1]],
+  });
+});
+
+test("migration parser retains the legacy ASCII pipe table", () => {
   const parsed = parseMigrationList(`
       LOCAL          | REMOTE         | TIME
+      ----------------|----------------|----------
       20260725010000 | 20260725010000 | 2026-07-25
       20260725020000 |                | 2026-07-25
   `);
-  assert.deepEqual(validateMigrationLedger(manifest, parsed), {
+  assert.deepEqual(validateMigrationLedger(migrationManifest(), parsed), {
     applied: ["20260725010000"],
     pending: ["20260725020000"],
   });
+});
+
+test("migration parser rejects malformed or mixed JSON", () => {
+  for (const output of [
+    '{"migrations":[',
+    `${migrationJson([])}\nLOCAL | REMOTE | TIME`,
+  ]) {
+    assert.throws(
+      () => parseMigrationList(output),
+      (error) => error.code === "invalid_migration_output",
+    );
+  }
+});
+
+test("migration parser rejects rows with missing or malformed fields", () => {
+  for (const row of [
+    {
+      local: migrationVersions[0],
+      remote: migrationVersions[0],
+    },
+    {
+      local: "2026072501000",
+      remote: migrationVersions[0],
+      time: "2026-07-25",
+    },
+    {
+      local: migrationVersions[0],
+      remote: migrationVersions[1],
+      time: "2026-07-25",
+    },
+    {
+      local: migrationVersions[0],
+      remote: migrationVersions[0],
+      time: "2026-07-25",
+      unexpected: true,
+    },
+  ]) {
+    assert.throws(
+      () => parseMigrationList(migrationJson([row])),
+      (error) => error.code === "invalid_migration_output",
+    );
+  }
+});
+
+test("migration parser rejects duplicate and out-of-order rows", () => {
+  const row = (version) => ({
+    local: version,
+    remote: version,
+    time: version,
+  });
+  for (const rows of [
+    [row(migrationVersions[0]), row(migrationVersions[0])],
+    [row(migrationVersions[1]), row(migrationVersions[0])],
+  ]) {
+    assert.throws(
+      () => parseMigrationList(migrationJson(rows)),
+      (error) => error.code === "invalid_migration_output",
+    );
+  }
+});
+
+test("migration parser rejects unrelated JSON and ledger drift", () => {
+  for (const output of [
+    JSON.stringify({ status: "ok" }),
+    JSON.stringify([]),
+    JSON.stringify({
+      migrations: [],
+      message: "Migrations listed",
+      status: "ok",
+    }),
+  ]) {
+    assert.throws(
+      () => parseMigrationList(output),
+      (error) => error.code === "invalid_migration_output",
+    );
+  }
   assert.throws(
     () =>
-      validateMigrationLedger(manifest, {
-        local: manifest.map((item) => item.version),
+      validateMigrationLedger(migrationManifest(), {
+        local: migrationVersions,
         remote: ["20260725020000"],
       }),
     (error) => error.code === "migration_ledger_drift",
   );
   assert.throws(
     () =>
-      validateMigrationLedger(manifest, {
+      validateMigrationLedger(migrationManifest(), {
         local: ["20260725010000"],
         remote: ["20260725010000"],
       }),
