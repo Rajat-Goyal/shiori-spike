@@ -461,28 +461,147 @@ export function validateRailwayStatus(status) {
   };
 }
 
-export function parseMigrationList(output) {
+function isStrictlyIncreasing(values) {
+  return values.every(
+    (value, index) => index === 0 || values[index - 1] < value,
+  );
+}
+
+function invalidMigrationOutput() {
+  throw new ReleaseVerificationError(
+    "invalid_migration_output",
+    "Supabase CLI migration output is malformed or unrecognized",
+  );
+}
+
+function migrationLedgerFromRows(rows) {
+  if (!Array.isArray(rows)) {
+    invalidMigrationOutput();
+  }
   const local = [];
   const remote = [];
-  for (const line of String(output).split(/\r?\n/)) {
-    const match = /^\s*(\d{14})\s*\|\s*(\d{14})?\s*\|/.exec(line);
-    if (!match) {
-      continue;
+  let priorRowVersion = null;
+  for (const row of rows) {
+    if (
+      row === null ||
+      typeof row !== "object" ||
+      Array.isArray(row) ||
+      canonicalJson(Object.keys(row).sort()) !==
+        canonicalJson(["local", "remote", "time"])
+    ) {
+      invalidMigrationOutput();
     }
-    local.push(match[1]);
-    if (match[2]) {
-      remote.push(match[2]);
+    const { local: localVersion, remote: remoteVersion, time } = row;
+    if (
+      typeof localVersion !== "string" ||
+      typeof remoteVersion !== "string" ||
+      typeof time !== "string" ||
+      !/^(?:\d{14})?$/.test(localVersion) ||
+      !/^(?:\d{14})?$/.test(remoteVersion) ||
+      !/^(?:\d{14}|\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2}:\d{2})?)$/.test(
+        time,
+      ) ||
+      (!localVersion && !remoteVersion) ||
+      (localVersion && remoteVersion && localVersion !== remoteVersion)
+    ) {
+      invalidMigrationOutput();
     }
+    const rowVersion = localVersion || remoteVersion;
+    if (priorRowVersion !== null && priorRowVersion >= rowVersion) {
+      invalidMigrationOutput();
+    }
+    priorRowVersion = rowVersion;
+    if (localVersion) {
+      local.push(localVersion);
+    }
+    if (remoteVersion) {
+      remote.push(remoteVersion);
+    }
+  }
+  if (!isStrictlyIncreasing(local) || !isStrictlyIncreasing(remote)) {
+    invalidMigrationOutput();
   }
   return { local, remote };
 }
 
+function parseLegacyMigrationTable(output) {
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const cells = (line) => {
+    const normalized = line.replace(/^\|/, "").replace(/\|$/, "");
+    return normalized.split("|").map((cell) => cell.trim());
+  };
+  if (lines.length < 1) {
+    invalidMigrationOutput();
+  }
+  const header = cells(lines[0]);
+  if (
+    header.length !== 3 ||
+    header[0].toLowerCase() !== "local" ||
+    header[1].toLowerCase() !== "remote" ||
+    !/^time(?: \(utc\))?$/i.test(header[2])
+  ) {
+    invalidMigrationOutput();
+  }
+  let index = 1;
+  if (
+    lines[index] &&
+    cells(lines[index]).length === 3 &&
+    cells(lines[index]).every((cell) => /^-+$/.test(cell))
+  ) {
+    index += 1;
+  }
+  const rows = lines.slice(index).map((line) => {
+    const row = cells(line);
+    if (row.length !== 3) {
+      invalidMigrationOutput();
+    }
+    return { local: row[0], remote: row[1], time: row[2] };
+  });
+  return migrationLedgerFromRows(rows);
+}
+
+export function parseMigrationList(output) {
+  const normalized = String(output).trim();
+  if (!normalized) {
+    invalidMigrationOutput();
+  }
+  if (normalized.startsWith("{") || normalized.startsWith("[")) {
+    let parsed;
+    try {
+      parsed = JSON.parse(normalized);
+    } catch {
+      invalidMigrationOutput();
+    }
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
+      canonicalJson(Object.keys(parsed).sort()) !==
+        canonicalJson(["message", "migrations"]) ||
+      parsed.message !== "Migrations listed"
+    ) {
+      invalidMigrationOutput();
+    }
+    return migrationLedgerFromRows(parsed.migrations);
+  }
+  return parseLegacyMigrationTable(normalized);
+}
+
 export function validateMigrationLedger(manifest, ledger) {
-  const local = manifest.map((migration) => migration.version);
+  const local = Array.isArray(manifest)
+    ? manifest.map((migration) => migration?.version)
+    : [];
   if (
     local.length === 0 ||
     new Set(local).size !== local.length ||
-    !local.every((version) => /^\d{14}$/.test(version))
+    !local.every(
+      (version) =>
+        typeof version === "string" && /^\d{14}$/.test(version),
+    ) ||
+    !isStrictlyIncreasing(local)
   ) {
     throw new ReleaseVerificationError(
       "invalid_migration_manifest",
@@ -490,7 +609,26 @@ export function validateMigrationLedger(manifest, ledger) {
     );
   }
   if (
-    ledger.local.length > 0 &&
+    ledger === null ||
+    typeof ledger !== "object" ||
+    !Array.isArray(ledger.local) ||
+    !Array.isArray(ledger.remote) ||
+    ![ledger.local, ledger.remote].every(
+      (versions) =>
+        new Set(versions).size === versions.length &&
+        versions.every(
+          (version) =>
+            typeof version === "string" && /^\d{14}$/.test(version),
+        ) &&
+        isStrictlyIncreasing(versions),
+    )
+  ) {
+    throw new ReleaseVerificationError(
+      "invalid_migration_output",
+      "Supabase CLI migration output is malformed or unrecognized",
+    );
+  }
+  if (
     canonicalJson(ledger.local) !== canonicalJson(local)
   ) {
     throw new ReleaseVerificationError(

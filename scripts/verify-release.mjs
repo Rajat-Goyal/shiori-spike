@@ -308,6 +308,8 @@ function migrationLedger(environment, manifest) {
       "list",
       "--db-url",
       environment.SUPABASE_DATABASE_POOLER_URL,
+      "--output-format",
+      "json",
     ],
     {
       env: releaseEnvironment(environment),
