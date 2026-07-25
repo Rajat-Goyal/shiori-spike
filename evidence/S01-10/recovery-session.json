@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-10",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC6", "AC7"],
+  "observations": {
+    "precondition": "conclusive_pre_target_no_fit",
+    "automatic_recovery_creation": false,
+    "explicit_confirmation_required": true,
+    "recovery_sessions_created": 1,
+    "recovery_start_strictly_after_target": true,
+    "recovery_end_within_days_after_target": 7,
+    "original_target_unchanged": true,
+    "overdue_derived_from_time": true,
+    "second_recovery_allowed": false
+  },
+  "tests": [
+    "server/src/work-sessions/continuation.test.ts: offers one target-relative recovery only after a conclusive pre-target no-fit",
+    "server/test/work-session-confirmation-db.integration.ts: offers and confirms one recovery only inside the immutable target-relative cap"
+  ]
+}

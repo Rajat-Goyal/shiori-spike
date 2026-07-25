@@ -1,0 +1,38 @@
+S01-10 independent story-level QA
+Generated: 2026-07-25T03:21:39Z
+Product source: f2fe1934cd1f4af85c494543942cca38383f61a6
+Behavior result: PASS
+Verification metadata result: FAIL (declared DB filenames are absent)
+
+Runtime: Node.js v24.18.0; npm 11.17.0
+
+Declared unit command:
+  npm run test --workspace @shiori/server -- src/work-sessions/notifications.test.ts src/work-sessions/outcomes.test.ts src/work-sessions/continuation.test.ts
+Result: 3 files passed; 18 tests passed; 0 failed.
+
+Literal declared database command:
+  npm run test:db -- server/test/work-session-outcomes-db.integration.ts server/test/work-session-continuation-db.integration.ts
+Result: FAIL before execution — Vitest reported "No test files found" because
+both named files are absent.
+
+Actual consolidated database location:
+  npm run test:db -- server/test/work-session-confirmation-db.integration.ts
+Result: 1 file passed; 11 tests passed; 0 failed. Five database cases in that
+file cover work-session claim/delivery, Done suppression, partial continuation,
+conflict/unavailable continuation, and bounded recovery.
+
+Clean aggregate DB:
+  npm run test:db
+Result: 9 files passed; 27 tests passed; 0 failed.
+
+Exact Node 24 repository gate:
+  npm run check
+Result: PASS — typechecks; 379 server tests; 22 verifier tests; both builds;
+50 isolated Playwright tests.
+
+This is a verification-metadata defect only; no acceptance behavior failed.
+The Project Lead owns correcting the story command without changing an AC.
+No Calendar write, external request, secret, identity, private provider
+material, or raw conversation was retained.
+
+AC1 PASS; AC2 PASS; AC3 PASS; AC4 PASS; AC5 PASS; AC6 PASS; AC7 PASS.

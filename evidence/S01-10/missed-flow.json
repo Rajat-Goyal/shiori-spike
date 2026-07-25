@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-10",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC4", "AC5", "AC7"],
+  "observations": {
+    "source_session_state": "missed",
+    "work_recorded": false,
+    "commitment_state": "active",
+    "explicit_actions": ["Find a time", "Not now"],
+    "future_session_created_before_opt_in": false,
+    "decline_calendar_calls": 0,
+    "decline_sessions_created": 0
+  },
+  "tests": ["server/src/work-sessions/outcomes.test.ts", "server/src/work-sessions/continuation.test.ts"]
+}

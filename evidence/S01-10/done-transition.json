@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-10",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC2", "AC7"],
+  "observations": {
+    "commitment_done_transitions": 1,
+    "completion_time_recorded": true,
+    "pre_start_session_state": "cancelled",
+    "eligible_unsent_messages_cancelled": 2,
+    "replay_result": "replay",
+    "duplicate_outcomes": 0,
+    "target_mutations": 0
+  },
+  "database_test_case": "Done before a planned session closes once and suppresses both unsent messages"
+}

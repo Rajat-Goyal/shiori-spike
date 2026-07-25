@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-10",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC5", "AC7"],
+  "observations": {
+    "separate_owner_opt_in_required": true,
+    "selected_window_version_bound": true,
+    "final_calendar_recheck_required": true,
+    "sessions_after_confirmation": 2,
+    "sequence_numbers": [1, 2],
+    "future_planned_session_maximum": 1,
+    "next_session_messages": 2,
+    "past_result_preserved": true,
+    "replay_additional_sessions": 0,
+    "continuation_expiry_hours": 24,
+    "expired_action_calendar_calls": 0,
+    "expired_action_consequences": 0,
+    "target_unchanged": true
+  },
+  "database_test_case": "records partial work first, then appends exactly one confirmed next session"
+}

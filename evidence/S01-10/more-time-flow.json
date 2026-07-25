@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "story_id": "S01-10",
+  "source_commit": "f2fe1934cd1f4af85c494543942cca38383f61a6",
+  "result": "pass",
+  "acceptance_criteria": ["AC3", "AC5", "AC7"],
+  "observations": {
+    "source_session_state": "more_work_needed",
+    "commitment_state": "active",
+    "percentage_recorded": false,
+    "remaining_duration_requested": true,
+    "duration_choices_minutes": [30, 60, 90, 120],
+    "calendar_search_on_duration_selection": false,
+    "separate_actions_after_duration": ["Find a time", "Not now"],
+    "future_session_created_before_opt_in": false
+  },
+  "tests": ["server/src/work-sessions/outcomes.test.ts", "server/src/work-sessions/continuation.test.ts", "server/test/work-session-confirmation-db.integration.ts"]
+}
