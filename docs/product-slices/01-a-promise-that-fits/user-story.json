@@ -451,7 +451,7 @@
           "server/package.json"
         ]
       },
-      "status": "todo",
+      "status": "in_progress",
       "open_questions": [
         "Owner decision required: should a structurally valid but semantically invalid provider decision receive exactly one bounded internal retry within the existing 30-second total decision budget, while both attempts remain non-authorizing until one passes strict validation?"
       ]
