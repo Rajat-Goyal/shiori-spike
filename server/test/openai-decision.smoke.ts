@@ -1,6 +1,6 @@
 import { readServerConfig } from "../src/config.js";
 import { OpenAIDecisionEngine } from "../src/decision/engine.js";
-import type { DecisionContextFields } from "../src/decision/schema.js";
+import type { DecisionCandidateFields } from "../src/decision/schema.js";
 import { isExpectedSmokeDecision } from "../src/decision/smoke-shape.js";
 
 function tomorrowAtTenSingapore(now: Date): string {
@@ -23,12 +23,11 @@ function tomorrowAtTenSingapore(now: Date): string {
 
 const config = readServerConfig();
 const target = tomorrowAtTenSingapore(new Date());
-const candidate: DecisionContextFields = {
+const candidate: DecisionCandidateFields = {
+  commitmentMode: "simple_action",
   definitionOfDone: "Submit the synthetic test note",
   durationMinutes: null,
   offerWorkWindowHelp: false,
-  possibleWorkSession: false,
-  simpleAction: true,
   targetAt: target,
   targetTimeZone: "Asia/Singapore",
   timingConstraints: [],

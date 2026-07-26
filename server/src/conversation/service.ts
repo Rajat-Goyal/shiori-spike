@@ -4,6 +4,7 @@ import type {
   DecisionOutcome,
 } from "../decision/engine.js";
 import type {
+  DecisionCandidateFields,
   DecisionContextFields,
   DecisionInput,
   DecisionResult,
@@ -60,11 +61,30 @@ function candidateFields(decision: DecisionResult): DecisionContextFields {
     definitionOfDone: decision.definitionOfDone,
     durationMinutes: decision.durationMinutes,
     offerWorkWindowHelp: decision.offerWorkWindowHelp,
-    possibleWorkSession: decision.possibleWorkSession,
-    simpleAction: decision.simpleAction,
+    possibleWorkSession:
+      decision.commitmentMode === "possible_work_session",
+    simpleAction: decision.commitmentMode === "simple_action",
     targetAt: decision.targetAt,
     targetTimeZone: decision.targetTimeZone,
     timingConstraints: decision.timingConstraints,
+  };
+}
+
+function decisionCandidateFields(
+  fields: DecisionContextFields,
+): DecisionCandidateFields {
+  return {
+    commitmentMode: fields.simpleAction
+      ? "simple_action"
+      : fields.possibleWorkSession
+        ? "possible_work_session"
+        : "unresolved",
+    definitionOfDone: fields.definitionOfDone,
+    durationMinutes: fields.durationMinutes,
+    offerWorkWindowHelp: fields.offerWorkWindowHelp,
+    targetAt: fields.targetAt,
+    targetTimeZone: fields.targetTimeZone,
+    timingConstraints: fields.timingConstraints,
   };
 }
 
@@ -132,7 +152,7 @@ function decisionInput(
     case "draft":
       return {
         context: {
-          fields: snapshot.fields,
+          fields: decisionCandidateFields(snapshot.fields),
           phase: snapshot.phase,
         },
         ownerText,
@@ -140,7 +160,7 @@ function decisionInput(
     case "permission":
       return {
         context: {
-          fields: snapshot.fields,
+          fields: decisionCandidateFields(snapshot.fields),
           phase: "awaiting_permission",
         },
         ownerText,

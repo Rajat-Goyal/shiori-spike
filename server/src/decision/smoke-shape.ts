@@ -1,11 +1,11 @@
 import type {
-  DecisionContextFields,
+  DecisionCandidateFields,
   DecisionResult,
 } from "./schema.js";
 
 export function isExpectedSmokeDecision(
   decision: DecisionResult,
-  expectedFields: DecisionContextFields,
+  expectedFields: DecisionCandidateFields,
 ): boolean {
   return (
     decision.inputClass === "explicit_commitment" &&
@@ -15,8 +15,7 @@ export function isExpectedSmokeDecision(
     decision.definitionOfDone === expectedFields.definitionOfDone &&
     decision.durationMinutes === expectedFields.durationMinutes &&
     decision.offerWorkWindowHelp === expectedFields.offerWorkWindowHelp &&
-    decision.possibleWorkSession === expectedFields.possibleWorkSession &&
-    decision.simpleAction === expectedFields.simpleAction &&
+    decision.commitmentMode === expectedFields.commitmentMode &&
     decision.targetAt === expectedFields.targetAt &&
     decision.targetTimeZone === expectedFields.targetTimeZone &&
     decision.timingConstraints.length ===

@@ -78,11 +78,9 @@ const candidateFieldSpecs = {
   offerWorkWindowHelp: {
     kind: "boolean",
   },
-  possibleWorkSession: {
-    kind: "boolean",
-  },
-  simpleAction: {
-    kind: "boolean",
+  commitmentMode: {
+    enum: ["unresolved", "simple_action", "possible_work_session"],
+    kind: "string",
   },
   targetAt: {
     kind: "string",
@@ -193,7 +191,18 @@ export const decisionSpec = {
 
 export type DecisionInput = InferSpec<typeof decisionInputSpec>;
 export type DecisionContext = DecisionInput["context"];
-export type DecisionContextFields = NonNullable<DecisionContext["fields"]>;
+export type DecisionCandidateFields = NonNullable<DecisionContext["fields"]>;
+/**
+ * Application/persistence compatibility shape. The provider-facing decision
+ * contract uses DecisionCandidateFields.commitmentMode exclusively.
+ */
+export type DecisionContextFields = Omit<
+  DecisionCandidateFields,
+  "commitmentMode"
+> & {
+  possibleWorkSession: boolean;
+  simpleAction: boolean;
+};
 export type DecisionResult = InferSpec<typeof decisionSpec>;
 export type TurnRelation = DecisionResult["turnRelation"];
 

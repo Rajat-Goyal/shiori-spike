@@ -165,7 +165,7 @@ function instructions(promptVersion: string): string {
     "Classify exactly one input as explicit_commitment, implied_intention, or ordinary_question.",
     "Extract only bounded decision fields. Never authorize, confirm, persist, schedule, call tools, or claim an action occurred.",
     "Use an absolute RFC3339 target with +08:00 and targetTimeZone Asia/Singapore, or null for both.",
-    "simpleAction and possibleWorkSession must not both be true. Use only the schema's next actions.",
+    "Use commitmentMode unresolved while definitionOfDone or targetAt is missing; resolve it to simple_action or possible_work_session only when both are present. Use only the schema's next actions.",
     "For explicit commitments, missingFields must exactly list absent definition_of_done then target.",
     "For implied intentions and ordinary questions, missingFields must be empty.",
     "Every successful decision must include a non-empty response.",
@@ -174,7 +174,7 @@ function instructions(promptVersion: string): string {
     "With awaiting_permission, use permission_accepted for a clear yes, permission_declined for a clear no, clarification_continuation for an unclear on-topic response, separate_request for a separate explicit or implied request, and none only for an unrelated ordinary question.",
     "With awaiting_definition or awaiting_target, use clarification_continuation only when filling missing candidate fields without changing populated fields, correction only when changing or clearing at least one populated field, separate_request for a separate explicit or implied request, and none for an unrelated ordinary question.",
     "With complete, use correction only when changing or clearing at least one populated field, separate_request for a separate explicit or implied request, and none for an unrelated ordinary question.",
-    "For permission_accepted, use inputClass explicit_commitment and copy exactly these eight context candidate fields: definitionOfDone, targetAt, targetTimeZone, simpleAction, possibleWorkSession, durationMinutes, offerWorkWindowHelp, and timingConstraints, including every null and timingConstraints item order; do not fill, change, clear, normalize, reorder, or infer candidate fields.",
+    "For permission_accepted, use inputClass explicit_commitment and copy exactly these seven context candidate fields: definitionOfDone, targetAt, targetTimeZone, commitmentMode, durationMinutes, offerWorkWindowHelp, and timingConstraints, including every null and timingConstraints item order; do not fill, change, clear, normalize, reorder, or infer candidate fields.",
     "For permission_accepted, derive missingFields from the unchanged candidate in definition_of_done then target order, and use nextAction ask_definition when definition is missing, otherwise ask_target when target is missing, otherwise ready for a complete simple action, otherwise offer_work_window for a complete valid work candidate.",
   ].join(" ");
 }

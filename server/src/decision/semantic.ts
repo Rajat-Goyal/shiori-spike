@@ -1,5 +1,5 @@
 import type {
-  DecisionContextFields,
+  DecisionCandidateFields,
   DecisionInput,
   DecisionResult,
 } from "./schema.js";
@@ -64,7 +64,7 @@ function sameItems(left: readonly string[], right: readonly string[]): boolean {
 }
 
 function validCandidateFields(
-  fields: DecisionContextFields | DecisionResult,
+  fields: DecisionCandidateFields | DecisionResult,
   now: Date,
 ): boolean {
   if (
@@ -93,11 +93,26 @@ function validCandidateFields(
   ) {
     return false;
   }
+  const coreIsIncomplete =
+    fields.definitionOfDone === null || fields.targetAt === null;
+  if (coreIsIncomplete && fields.commitmentMode !== "unresolved") {
+    return false;
+  }
+  if (
+    fields.commitmentMode === "unresolved" &&
+    (fields.offerWorkWindowHelp || fields.durationMinutes !== null)
+  ) {
+    return false;
+  }
+  if (
+    fields.commitmentMode === "simple_action" &&
+    (fields.offerWorkWindowHelp || fields.durationMinutes !== null)
+  ) {
+    return false;
+  }
   return !(
-    (fields.simpleAction && fields.possibleWorkSession) ||
-    (fields.simpleAction && fields.durationMinutes !== null) ||
-    (!fields.possibleWorkSession && fields.offerWorkWindowHelp) ||
-    (!fields.possibleWorkSession && fields.durationMinutes !== null)
+    fields.commitmentMode !== "possible_work_session" &&
+    (fields.offerWorkWindowHelp || fields.durationMinutes !== null)
   );
 }
 
@@ -124,8 +139,7 @@ export function validateDecisionInputSemantics(
       ) {
         return false;
       }
-      const modeIsUnresolved =
-        !fields.simpleAction && !fields.possibleWorkSession;
+      const modeIsUnresolved = fields.commitmentMode === "unresolved";
       const coreIsIncomplete =
         fields.definitionOfDone === null || fields.targetAt === null;
       return !modeIsUnresolved || coreIsIncomplete;
@@ -143,18 +157,17 @@ export function validateDecisionInputSemantics(
         fields.definitionOfDone !== null &&
         fields.targetAt !== null &&
         fields.targetTimeZone !== null &&
-        fields.simpleAction !== fields.possibleWorkSession
+        fields.commitmentMode !== "unresolved"
       );
   }
 }
 
-function candidateFields(decision: DecisionResult): DecisionContextFields {
+function candidateFields(decision: DecisionResult): DecisionCandidateFields {
   return {
+    commitmentMode: decision.commitmentMode,
     definitionOfDone: decision.definitionOfDone,
     durationMinutes: decision.durationMinutes,
     offerWorkWindowHelp: decision.offerWorkWindowHelp,
-    possibleWorkSession: decision.possibleWorkSession,
-    simpleAction: decision.simpleAction,
     targetAt: decision.targetAt,
     targetTimeZone: decision.targetTimeZone,
     timingConstraints: decision.timingConstraints,
@@ -168,59 +181,62 @@ function sameCandidateValue(left: unknown, right: unknown): boolean {
 }
 
 function sameCandidateFields(
-  left: DecisionContextFields,
-  right: DecisionContextFields,
+  left: DecisionCandidateFields,
+  right: DecisionCandidateFields,
 ): boolean {
   return Object.entries(left).every(([key, value]) =>
     sameCandidateValue(
       value,
-      right[key as keyof DecisionContextFields],
+      right[key as keyof DecisionCandidateFields],
     ),
   );
 }
 
 function preservesPopulatedFields(
-  context: DecisionContextFields,
-  decision: DecisionContextFields,
+  context: DecisionCandidateFields,
+  decision: DecisionCandidateFields,
 ): boolean {
-  const unresolvedContextMode =
-    !context.simpleAction && !context.possibleWorkSession;
-  const resolvedDecisionMode =
-    decision.simpleAction !== decision.possibleWorkSession;
+  const unresolvedContextMode = context.commitmentMode === "unresolved";
+  const resolvedDecisionMode = decision.commitmentMode !== "unresolved";
   return Object.entries(context).every(
     ([key, value]) =>
       value === null ||
       (unresolvedContextMode &&
         resolvedDecisionMode &&
-        (key === "simpleAction" || key === "possibleWorkSession")) ||
+        key === "commitmentMode") ||
       sameCandidateValue(
         value,
-        decision[key as keyof DecisionContextFields],
+        decision[key as keyof DecisionCandidateFields],
       ),
   );
 }
 
 function fillsNullField(
-  context: DecisionContextFields,
-  decision: DecisionContextFields,
+  context: DecisionCandidateFields,
+  decision: DecisionCandidateFields,
 ): boolean {
   return Object.entries(context).some(
     ([key, value]) =>
       value === null &&
-      decision[key as keyof DecisionContextFields] !== null,
+      decision[key as keyof DecisionCandidateFields] !== null,
   );
 }
 
 function changesPopulatedField(
-  context: DecisionContextFields,
-  decision: DecisionContextFields,
+  context: DecisionCandidateFields,
+  decision: DecisionCandidateFields,
 ): boolean {
   return Object.entries(context).some(
     ([key, value]) =>
       value !== null &&
+      !(
+        key === "commitmentMode" &&
+        value === "unresolved" &&
+        decision.commitmentMode !== "unresolved"
+      ) &&
       !sameCandidateValue(
         value,
-        decision[key as keyof DecisionContextFields],
+        decision[key as keyof DecisionCandidateFields],
       ),
   );
 }
@@ -286,8 +302,7 @@ function relationFieldsAreValid(
         fillsNullField(contextFields, outputFields) &&
         (outputFields.definitionOfDone === null ||
           outputFields.targetAt === null ||
-          outputFields.simpleAction !==
-            outputFields.possibleWorkSession)
+          outputFields.commitmentMode !== "unresolved")
       );
     case "correction":
       return changesPopulatedField(contextFields, outputFields);
@@ -316,24 +331,11 @@ export function validateDecisionSemantics(
   if (!validCandidateFields(decision, now)) {
     return false;
   }
-  const incompletePermissionAcceptance =
-    input.context.phase === "awaiting_permission" &&
-    decision.turnRelation === "permission_accepted" &&
-    (decision.definitionOfDone === null || decision.targetAt === null) &&
-    !decision.simpleAction &&
-    !decision.possibleWorkSession;
-  const incompleteClarification =
-    (input.context.phase === "awaiting_definition" ||
-      input.context.phase === "awaiting_target") &&
-    decision.turnRelation === "clarification_continuation" &&
-    (decision.definitionOfDone === null || decision.targetAt === null) &&
-    !decision.simpleAction &&
-    !decision.possibleWorkSession;
   if (
     (decision.inputClass === "explicit_commitment" &&
-      decision.simpleAction === decision.possibleWorkSession &&
-      !incompletePermissionAcceptance &&
-      !incompleteClarification) ||
+      decision.commitmentMode === "unresolved" &&
+      decision.definitionOfDone !== null &&
+      decision.targetAt !== null) ||
     !allowedRelationTuple(input, decision) ||
     !relationFieldsAreValid(input, decision)
   ) {
@@ -356,8 +358,7 @@ export function validateDecisionSemantics(
         decision.durationMinutes === null &&
         decision.missingFields.length === 0 &&
         !decision.offerWorkWindowHelp &&
-        !decision.possibleWorkSession &&
-        !decision.simpleAction &&
+        decision.commitmentMode === "unresolved" &&
         decision.timingConstraints.length === 0 &&
         decision.nextAction === "answer" &&
         decision.response !== null
@@ -366,8 +367,7 @@ export function validateDecisionSemantics(
       return (
         decision.durationMinutes === null &&
         !decision.offerWorkWindowHelp &&
-        (decision.simpleAction ||
-          decision.possibleWorkSession ||
+        (decision.commitmentMode !== "unresolved" ||
           decision.definitionOfDone === null ||
           decision.targetAt === null) &&
         decision.nextAction === "ask_permission" &&
@@ -387,7 +387,7 @@ export function validateDecisionSemantics(
           decision.response !== null
         );
       }
-      if (decision.simpleAction) {
+      if (decision.commitmentMode === "simple_action") {
         return (
           decision.nextAction === "ready" &&
           !decision.offerWorkWindowHelp &&

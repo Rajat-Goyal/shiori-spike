@@ -79,11 +79,21 @@ function decision(
           ? "offer_work_window"
           : "ready";
   return {
-    ...fields,
+    commitmentMode: fields.simpleAction
+      ? "simple_action"
+      : fields.possibleWorkSession
+        ? "possible_work_session"
+        : "unresolved",
+    definitionOfDone: fields.definitionOfDone,
+    durationMinutes: fields.durationMinutes,
     inputClass: "explicit_commitment",
     missingFields,
     nextAction,
+    offerWorkWindowHelp: fields.offerWorkWindowHelp,
     response: "Provider response that application copy does not trust.",
+    targetAt: fields.targetAt,
+    targetTimeZone: fields.targetTimeZone,
+    timingConstraints: fields.timingConstraints,
     turnRelation: "new_request",
     ...options,
   };
@@ -100,9 +110,8 @@ function ordinary(
     missingFields: [],
     nextAction: "answer",
     offerWorkWindowHelp: false,
-    possibleWorkSession: false,
+    commitmentMode: "unresolved",
     response,
-    simpleAction: false,
     targetAt: null,
     targetTimeZone: null,
     timingConstraints: [],
@@ -114,8 +123,9 @@ function implied(
   fields: DecisionContextFields = incompleteFields,
 ): DecisionResult {
   return {
-    ...fields,
-    inputClass: "implied_intention",
+    ...decision(fields, {
+      inputClass: "implied_intention",
+    }),
     missingFields: [],
     nextAction: "ask_permission",
     response: "Provider permission wording is not used.",
@@ -285,6 +295,59 @@ describe("ConversationService", () => {
     },
   );
 
+  it("continues a work-shaped definition-only request against the same awaiting-target draft", async () => {
+    const first = controlled(
+      { kind: "none" },
+      success(decision(targetMissingFields)),
+    );
+
+    await expect(
+      first.service.handle(7020, "Create and submit the video"),
+    ).resolves.toBe(conversationCopy.missingTarget);
+    expect(first.repository.commands[0]).toMatchObject({
+      action: "create_draft",
+      fields: targetMissingFields,
+      phase: "awaiting_target",
+    });
+
+    const draft = activeDraft("awaiting_target", targetMissingFields, 1);
+    const second = controlled(
+      draft,
+      success(
+        decision(workFields, {
+          turnRelation: "clarification_continuation",
+        }),
+      ),
+    );
+
+    await second.service.handle(7021, "Tomorrow at 5pm");
+    expect(second.decide).toHaveBeenCalledWith({
+      context: {
+        fields: {
+          commitmentMode: "unresolved",
+          definitionOfDone: targetMissingFields.definitionOfDone,
+          durationMinutes: null,
+          offerWorkWindowHelp: false,
+          targetAt: null,
+          targetTimeZone: null,
+          timingConstraints: targetMissingFields.timingConstraints,
+        },
+        phase: "awaiting_target",
+      },
+      ownerText: "Tomorrow at 5pm",
+    });
+    expect(second.repository.commands[0]).toMatchObject({
+      action: "update_draft",
+      expected: {
+        id: draft.id,
+        kind: "draft",
+        version: draft.version,
+      },
+      fields: workFields,
+      phase: "complete",
+    });
+  });
+
   it("stores one bounded permission candidate and uses approved permission copy", async () => {
     const test = controlled({ kind: "none" }, success(implied()));
 
@@ -322,13 +385,12 @@ describe("ConversationService", () => {
         inputClass: "ordinary_question",
         modelId: "gpt-test-model",
         payload: {
+          commitmentMode: "unresolved",
           definitionOfDone: null,
           durationMinutes: null,
           missingFields: [],
           nextAction: "answer",
           offerWorkWindowHelp: false,
-          possibleWorkSession: false,
-          simpleAction: false,
           targetAt: null,
           targetTimeZone: null,
           timingConstraints: [],

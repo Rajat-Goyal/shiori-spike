@@ -4,7 +4,7 @@ import {
   OpenAIDecisionEngine,
 } from "./engine.js";
 import {
-  type DecisionContextFields,
+  type DecisionCandidateFields,
   type DecisionInput,
   decisionJsonSchema,
   decisionInputSpec,
@@ -36,20 +36,18 @@ const explicitDecision: DecisionResult = {
   missingFields: [],
   nextAction: "ready",
   offerWorkWindowHelp: false,
-  possibleWorkSession: false,
+  commitmentMode: "simple_action",
   response: "I have the details.",
-  simpleAction: true,
   targetAt: "2026-07-25T10:00:00+08:00",
   targetTimeZone: "Asia/Singapore",
   timingConstraints: [],
   turnRelation: "new_request",
 };
-const completeFields: DecisionContextFields = {
+const completeFields: DecisionCandidateFields = {
+  commitmentMode: explicitDecision.commitmentMode,
   definitionOfDone: explicitDecision.definitionOfDone,
   durationMinutes: explicitDecision.durationMinutes,
   offerWorkWindowHelp: explicitDecision.offerWorkWindowHelp,
-  possibleWorkSession: explicitDecision.possibleWorkSession,
-  simpleAction: explicitDecision.simpleAction,
   targetAt: explicitDecision.targetAt,
   targetTimeZone: explicitDecision.targetTimeZone,
   timingConstraints: explicitDecision.timingConstraints,
@@ -63,6 +61,7 @@ const permissionInput: DecisionInput = {
 };
 const impliedDecision: DecisionResult = {
   ...explicitDecision,
+  commitmentMode: "unresolved",
   definitionOfDone: "Renew the library book",
   inputClass: "implied_intention",
   missingFields: [],
@@ -78,9 +77,8 @@ const ordinaryDecision: DecisionResult = {
   inputClass: "ordinary_question",
   missingFields: [],
   nextAction: "answer",
-  possibleWorkSession: false,
+  commitmentMode: "unresolved",
   response: "Singapore is eight hours ahead of UTC.",
-  simpleAction: false,
   targetAt: null,
   targetTimeZone: null,
   turnRelation: "none",
@@ -88,7 +86,7 @@ const ordinaryDecision: DecisionResult = {
 
 function contextInput(
   phase: DecisionInput["context"]["phase"],
-  fields: DecisionContextFields | null,
+  fields: DecisionCandidateFields | null,
 ): DecisionInput {
   return {
     context: { fields, phase },
@@ -137,6 +135,7 @@ describe("DecisionEngine contract", () => {
     {
       decision: {
         ...explicitDecision,
+        commitmentMode: "unresolved",
         definitionOfDone: "Renew the library book",
         inputClass: "implied_intention",
         missingFields: [],
@@ -155,9 +154,8 @@ describe("DecisionEngine contract", () => {
         inputClass: "ordinary_question",
         missingFields: [],
         nextAction: "answer",
-        possibleWorkSession: false,
+        commitmentMode: "unresolved",
         response: "Singapore is eight hours ahead of UTC.",
-        simpleAction: false,
         targetAt: null,
         targetTimeZone: null,
         turnRelation: "none",
@@ -274,7 +272,7 @@ describe("DecisionEngine contract", () => {
       "For permission_accepted, use inputClass explicit_commitment",
     );
     expect(body.instructions).toContain(
-      "definitionOfDone, targetAt, targetTimeZone, simpleAction, possibleWorkSession, durationMinutes, offerWorkWindowHelp, and timingConstraints",
+      "definitionOfDone, targetAt, targetTimeZone, commitmentMode, durationMinutes, offerWorkWindowHelp, and timingConstraints",
     );
     expect(body.instructions).toContain(
       "derive missingFields from the unchanged candidate in definition_of_done then target order",
@@ -301,9 +299,8 @@ describe("DecisionEngine contract", () => {
         missingFields: ["definition_of_done", "target"],
         nextAction: "ask_definition",
         offerWorkWindowHelp: false,
-        possibleWorkSession: false,
+        commitmentMode: "unresolved",
         response: "What would count as done?",
-        simpleAction: false,
         targetAt: null,
         targetTimeZone: null,
         timingConstraints: [],
@@ -315,8 +312,7 @@ describe("DecisionEngine contract", () => {
             definitionOfDone: null,
             durationMinutes: null,
             offerWorkWindowHelp: false,
-            possibleWorkSession: false,
-            simpleAction: false,
+            commitmentMode: "unresolved",
             targetAt: null,
             targetTimeZone: null,
             timingConstraints: [],
@@ -336,9 +332,8 @@ describe("DecisionEngine contract", () => {
         missingFields: ["target"],
         nextAction: "ask_target",
         offerWorkWindowHelp: false,
-        possibleWorkSession: false,
+        commitmentMode: "unresolved",
         response: "When should it be done?",
-        simpleAction: false,
         targetAt: null,
         targetTimeZone: null,
         timingConstraints: [],
@@ -350,8 +345,7 @@ describe("DecisionEngine contract", () => {
             definitionOfDone: "Submit the synthetic test note",
             durationMinutes: null,
             offerWorkWindowHelp: false,
-            possibleWorkSession: false,
-            simpleAction: false,
+            commitmentMode: "unresolved",
             targetAt: null,
             targetTimeZone: null,
             timingConstraints: [],
@@ -371,9 +365,8 @@ describe("DecisionEngine contract", () => {
         missingFields: [],
         nextAction: "ready",
         offerWorkWindowHelp: false,
-        possibleWorkSession: false,
+        commitmentMode: "simple_action",
         response: "I have the details.",
-        simpleAction: true,
         targetAt: "2026-07-25T10:00:00+08:00",
         targetTimeZone: "Asia/Singapore",
         timingConstraints: [],
@@ -385,8 +378,7 @@ describe("DecisionEngine contract", () => {
             definitionOfDone: "Submit the synthetic test note",
             durationMinutes: null,
             offerWorkWindowHelp: false,
-            possibleWorkSession: false,
-            simpleAction: true,
+            commitmentMode: "simple_action",
             targetAt: "2026-07-25T10:00:00+08:00",
             targetTimeZone: "Asia/Singapore",
             timingConstraints: [],
@@ -406,9 +398,8 @@ describe("DecisionEngine contract", () => {
         missingFields: [],
         nextAction: "offer_work_window",
         offerWorkWindowHelp: false,
-        possibleWorkSession: true,
+        commitmentMode: "possible_work_session",
         response: "Would you like help finding a work window?",
-        simpleAction: false,
         targetAt: "2026-07-25T10:00:00+08:00",
         targetTimeZone: "Asia/Singapore",
         timingConstraints: ["Avoid the morning commute", "Before lunch"],
@@ -420,8 +411,7 @@ describe("DecisionEngine contract", () => {
             definitionOfDone: "Draft the synthetic test note",
             durationMinutes: null,
             offerWorkWindowHelp: false,
-            possibleWorkSession: true,
-            simpleAction: false,
+            commitmentMode: "possible_work_session",
             targetAt: "2026-07-25T10:00:00+08:00",
             targetTimeZone: "Asia/Singapore",
             timingConstraints: [
@@ -496,10 +486,10 @@ describe("DecisionEngine contract", () => {
       }),
     },
     {
-      label: "simultaneous simple-action and work-session modes",
+      label: "a work-session mode with a simple-action next action",
       mutate: (decision: DecisionResult) => ({
         ...decision,
-        possibleWorkSession: true,
+        commitmentMode: "possible_work_session",
       }),
     },
     {
@@ -536,6 +526,7 @@ describe("DecisionEngine contract", () => {
   it("requires definition before target in canonical missing-field order", () => {
     const missingBoth: DecisionResult = {
       ...explicitDecision,
+      commitmentMode: "unresolved",
       definitionOfDone: null,
       missingFields: ["definition_of_done", "target"],
       nextAction: "ask_definition",
@@ -544,6 +535,7 @@ describe("DecisionEngine contract", () => {
     };
     const missingTarget: DecisionResult = {
       ...explicitDecision,
+      commitmentMode: "unresolved",
       missingFields: ["target"],
       nextAction: "ask_target",
       targetAt: null,
@@ -569,16 +561,18 @@ describe("DecisionEngine contract", () => {
   });
 
   describe("bounded context and turn-relation semantics", () => {
-    const awaitingDefinitionFields: DecisionContextFields = {
+    const awaitingDefinitionFields: DecisionCandidateFields = {
       ...completeFields,
+      commitmentMode: "unresolved",
       definitionOfDone: null,
     };
-    const awaitingTargetFields: DecisionContextFields = {
+    const awaitingTargetFields: DecisionCandidateFields = {
       ...completeFields,
+      commitmentMode: "unresolved",
       targetAt: null,
       targetTimeZone: null,
     };
-    const changedTargetFields: DecisionContextFields = {
+    const changedTargetFields: DecisionCandidateFields = {
       ...awaitingDefinitionFields,
       targetAt: "2026-07-26T10:00:00+08:00",
     };
@@ -605,8 +599,7 @@ describe("DecisionEngine contract", () => {
         "definitionOfDone",
         "durationMinutes",
         "offerWorkWindowHelp",
-        "possibleWorkSession",
-        "simpleAction",
+        "commitmentMode",
         "targetAt",
         "targetTimeZone",
         "timingConstraints",
@@ -661,8 +654,7 @@ describe("DecisionEngine contract", () => {
       {
         input: contextInput("complete", {
           ...completeFields,
-          possibleWorkSession: false,
-          simpleAction: false,
+          commitmentMode: "unresolved",
         }),
         label: "invalid complete mode",
       },
@@ -733,7 +725,7 @@ describe("DecisionEngine contract", () => {
     });
 
     it("accepts bounded candidate maxima and rejects overlength before fetch", async () => {
-      const boundedFields: DecisionContextFields = {
+      const boundedFields: DecisionCandidateFields = {
         ...completeFields,
         definitionOfDone: "d".repeat(500),
         timingConstraints: Array.from(
@@ -1014,12 +1006,10 @@ describe("DecisionEngine contract", () => {
     });
 
     it("rejects clarification mutation of every populated candidate field", () => {
-      const workFields: DecisionContextFields = {
+      const workFields: DecisionCandidateFields = {
         ...completeFields,
         definitionOfDone: null,
-        durationMinutes: 60,
-        possibleWorkSession: true,
-        simpleAction: false,
+        commitmentMode: "unresolved",
         timingConstraints: ["first", "second"],
       };
       const input = contextInput(
@@ -1028,9 +1018,8 @@ describe("DecisionEngine contract", () => {
       );
       const clarification: DecisionResult = {
         ...explicitDecision,
-        durationMinutes: 60,
-        possibleWorkSession: true,
-        simpleAction: false,
+        commitmentMode: "possible_work_session",
+        nextAction: "offer_work_window",
         timingConstraints: ["first", "second"],
         turnRelation: "clarification_continuation",
       };
@@ -1045,30 +1034,9 @@ describe("DecisionEngine contract", () => {
         {
           decision: {
             ...clarification,
-            durationMinutes: 90,
-          },
-          label: "durationMinutes",
-        },
-        {
-          decision: {
-            ...clarification,
             offerWorkWindowHelp: true,
           },
           label: "offerWorkWindowHelp",
-        },
-        {
-          decision: {
-            ...clarification,
-            possibleWorkSession: false,
-          },
-          label: "possibleWorkSession",
-        },
-        {
-          decision: {
-            ...clarification,
-            simpleAction: true,
-          },
-          label: "simpleAction",
         },
         {
           decision: {
@@ -1150,8 +1118,7 @@ describe("DecisionEngine contract", () => {
         {
           ...accepted,
           nextAction: "offer_work_window",
-          possibleWorkSession: true,
-          simpleAction: false,
+          commitmentMode: "possible_work_session",
         },
       ];
       for (const mismatch of mismatches) {
@@ -1160,7 +1127,7 @@ describe("DecisionEngine contract", () => {
         ).toBe(false);
       }
 
-      const orderedFields: DecisionContextFields = {
+      const orderedFields: DecisionCandidateFields = {
         ...completeFields,
         timingConstraints: ["first", "second"],
       };
@@ -1175,18 +1142,16 @@ describe("DecisionEngine contract", () => {
         ),
       ).toBe(false);
 
-      const possibleWorkFields: DecisionContextFields = {
+      const possibleWorkFields: DecisionCandidateFields = {
         ...completeFields,
         offerWorkWindowHelp: false,
-        possibleWorkSession: true,
-        simpleAction: false,
+        commitmentMode: "possible_work_session",
       };
       const acceptedPossibleWork: DecisionResult = {
         ...explicitDecision,
         nextAction: "offer_work_window",
         offerWorkWindowHelp: false,
-        possibleWorkSession: true,
-        simpleAction: false,
+        commitmentMode: "possible_work_session",
         turnRelation: "permission_accepted",
       };
       const possibleWorkInput = contextInput(
@@ -1225,14 +1190,16 @@ describe("DecisionEngine contract", () => {
     });
 
     it("preserves nulls and derives canonical action on permission acceptance", () => {
-      const incompleteFields: DecisionContextFields = {
+      const incompleteFields: DecisionCandidateFields = {
         ...completeFields,
+        commitmentMode: "unresolved",
         definitionOfDone: null,
         targetAt: null,
         targetTimeZone: null,
       };
       const acceptedIncomplete: DecisionResult = {
         ...explicitDecision,
+        commitmentMode: "unresolved",
         definitionOfDone: null,
         missingFields: ["definition_of_done", "target"],
         nextAction: "ask_definition",
@@ -1264,11 +1231,10 @@ describe("DecisionEngine contract", () => {
 
     it.each(
       (() => {
-        const incompleteFields: DecisionContextFields = {
+        const incompleteFields: DecisionCandidateFields = {
           ...completeFields,
           definitionOfDone: null,
-          possibleWorkSession: false,
-          simpleAction: false,
+          commitmentMode: "unresolved",
           targetAt: null,
           targetTimeZone: null,
         };
@@ -1277,25 +1243,22 @@ describe("DecisionEngine contract", () => {
           definitionOfDone: null,
           missingFields: ["definition_of_done", "target"],
           nextAction: "ask_definition",
-          possibleWorkSession: false,
-          simpleAction: false,
+          commitmentMode: "unresolved",
           targetAt: null,
           targetTimeZone: null,
           turnRelation: "permission_accepted",
         };
-        const possibleWorkFields: DecisionContextFields = {
+        const possibleWorkFields: DecisionCandidateFields = {
           ...completeFields,
-          possibleWorkSession: true,
-          simpleAction: false,
+          commitmentMode: "possible_work_session",
         };
         const possibleWorkAccepted: DecisionResult = {
           ...explicitDecision,
           nextAction: "offer_work_window",
-          possibleWorkSession: true,
-          simpleAction: false,
+          commitmentMode: "possible_work_session",
           turnRelation: "permission_accepted",
         };
-        const orderedFields: DecisionContextFields = {
+        const orderedFields: DecisionCandidateFields = {
           ...completeFields,
           timingConstraints: ["first", "second"],
         };
@@ -1340,24 +1303,24 @@ describe("DecisionEngine contract", () => {
           {
             decision: {
               ...incompleteAccepted,
-              possibleWorkSession: true,
+              commitmentMode: "possible_work_session",
             },
             input: contextInput(
               "awaiting_permission",
               incompleteFields,
             ),
-            label: "possibleWorkSession change",
+            label: "commitmentMode work-session change",
           },
           {
             decision: {
               ...incompleteAccepted,
-              simpleAction: true,
+              commitmentMode: "simple_action",
             },
             input: contextInput(
               "awaiting_permission",
               incompleteFields,
             ),
-            label: "simpleAction change",
+            label: "commitmentMode simple-action change",
           },
           {
             decision: {
@@ -1398,19 +1361,17 @@ describe("DecisionEngine contract", () => {
     });
 
     it("allows unresolved permission mode only while core fields are incomplete", () => {
-      const unresolvedFields: DecisionContextFields = {
+      const unresolvedFields: DecisionCandidateFields = {
         ...completeFields,
         definitionOfDone: null,
-        possibleWorkSession: false,
-        simpleAction: false,
+        commitmentMode: "unresolved",
         targetAt: null,
         targetTimeZone: null,
       };
       const unresolvedImplied: DecisionResult = {
         ...impliedDecision,
         definitionOfDone: null,
-        possibleWorkSession: false,
-        simpleAction: false,
+        commitmentMode: "unresolved",
       };
       expect(
         validateDecisionSemantics(
@@ -1423,8 +1384,7 @@ describe("DecisionEngine contract", () => {
         validateDecisionSemantics(
           {
             ...impliedDecision,
-            possibleWorkSession: false,
-            simpleAction: false,
+            commitmentMode: "unresolved",
             targetAt: explicitDecision.targetAt,
             targetTimeZone: explicitDecision.targetTimeZone,
           },
@@ -1434,9 +1394,10 @@ describe("DecisionEngine contract", () => {
       ).toBe(false);
 
       const possibleWorkImplied: DecisionResult = {
-        ...impliedDecision,
-        possibleWorkSession: true,
-        simpleAction: false,
+        ...explicitDecision,
+        inputClass: "implied_intention",
+        commitmentMode: "possible_work_session",
+        nextAction: "ask_permission",
       };
       expect(
         validateDecisionSemantics(
@@ -1450,8 +1411,7 @@ describe("DecisionEngine contract", () => {
           contextInput("awaiting_permission", {
             ...completeFields,
             offerWorkWindowHelp: false,
-            possibleWorkSession: true,
-            simpleAction: false,
+            commitmentMode: "possible_work_session",
           }),
           now,
         ),
@@ -1466,8 +1426,7 @@ describe("DecisionEngine contract", () => {
         definitionOfDone: null,
         missingFields: ["definition_of_done", "target"],
         nextAction: "ask_definition",
-        possibleWorkSession: false,
-        simpleAction: false,
+        commitmentMode: "unresolved",
         targetAt: null,
         targetTimeZone: null,
         turnRelation: "permission_accepted",
@@ -1478,8 +1437,7 @@ describe("DecisionEngine contract", () => {
         validateDecisionInputSemantics(
           contextInput("awaiting_permission", {
             ...completeFields,
-            possibleWorkSession: false,
-            simpleAction: false,
+            commitmentMode: "unresolved",
           }),
           now,
         ),
@@ -1487,11 +1445,10 @@ describe("DecisionEngine contract", () => {
     });
 
     it("requires a clarification that completes core fields to resolve mode", () => {
-      const unresolvedFields: DecisionContextFields = {
+      const unresolvedFields: DecisionCandidateFields = {
         ...completeFields,
         definitionOfDone: null,
-        possibleWorkSession: false,
-        simpleAction: false,
+        commitmentMode: "unresolved",
         targetAt: null,
         targetTimeZone: null,
       };
@@ -1503,8 +1460,7 @@ describe("DecisionEngine contract", () => {
         ...explicitDecision,
         missingFields: ["target"],
         nextAction: "ask_target",
-        possibleWorkSession: false,
-        simpleAction: false,
+        commitmentMode: "unresolved",
         targetAt: null,
         targetTimeZone: null,
         turnRelation: "clarification_continuation",
@@ -1516,8 +1472,7 @@ describe("DecisionEngine contract", () => {
       const completesWithoutMode: DecisionResult = {
         ...explicitDecision,
         nextAction: "offer_work_window",
-        possibleWorkSession: false,
-        simpleAction: false,
+        commitmentMode: "unresolved",
         turnRelation: "clarification_continuation",
       };
       expect(
@@ -1535,7 +1490,7 @@ describe("DecisionEngine contract", () => {
       ).toBe(true);
     });
 
-    it("does not let clarification change an already resolved mode", () => {
+    it("rejects an invalid work action when clarification completes core fields", () => {
       const input = contextInput(
         "awaiting_target",
         awaitingTargetFields,
@@ -1545,8 +1500,8 @@ describe("DecisionEngine contract", () => {
           {
             ...explicitDecision,
             durationMinutes: 30,
-            possibleWorkSession: true,
-            simpleAction: false,
+            commitmentMode: "possible_work_session",
+            nextAction: "offer_work_window",
             turnRelation: "clarification_continuation",
           },
           input,
@@ -1556,8 +1511,9 @@ describe("DecisionEngine contract", () => {
     });
 
     it("accepts awaiting-definition context with no extracted target", () => {
-      const fields: DecisionContextFields = {
+      const fields: DecisionCandidateFields = {
         ...completeFields,
+        commitmentMode: "unresolved",
         definitionOfDone: null,
         targetAt: null,
         targetTimeZone: null,
@@ -1565,6 +1521,7 @@ describe("DecisionEngine contract", () => {
       const input = contextInput("awaiting_definition", fields);
       const decision: DecisionResult = {
         ...explicitDecision,
+        commitmentMode: "unresolved",
         missingFields: ["target"],
         nextAction: "ask_target",
         targetAt: null,
@@ -1580,6 +1537,7 @@ describe("DecisionEngine contract", () => {
         validateDecisionSemantics(
           {
             ...explicitDecision,
+            commitmentMode: "unresolved",
             definitionOfDone: null,
             missingFields: ["definition_of_done"],
             nextAction: "ask_definition",
@@ -1910,7 +1868,7 @@ describe("OpenAI smoke decision shape", () => {
       expected: {
         ...completeFields,
         timingConstraints: ["first", "second"],
-      } satisfies DecisionContextFields,
+      } satisfies DecisionCandidateFields,
     },
     {
       label: "a non-explicit class",
