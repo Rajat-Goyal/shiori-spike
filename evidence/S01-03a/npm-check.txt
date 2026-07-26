@@ -1,65 +1,56 @@
-S01-03a independent QA gate
-Captured: 2026-07-24T13:48:09Z
-Final commit: d80c3eb8f15418128c6e16130f07d5f2e995851b
-Provider-smoke commit: 6697b6cc32d57ea38e8cb8ca16ed1accfe74bc27
-Runtime: Node v24.18.0; npm 11.17.0; Vitest 3.2.7; Playwright 1.61.1
+S01-03a independent QA — commitment mode repair
+Captured: 2026-07-26T18:15:16Z
+Implementation commit: b7252c5ba83e10f2d851b891e345059b605993bf
+Runtime: Node v26.5.0; npm 11.17.0; Vitest 3.2.7; Playwright 1.61.1
 
-Execution provenance
-- QA directly ran the exact final engine command and independently reviewed the
-  schema, inferred type, runtime parser, semantic boundary, request adapter,
-  corrected completion handling, failure mapping, smoke predicate, dependencies,
-  and retention boundary.
-- The project-lead context ran the final full repository gate because the QA
-  sandbox denied its local test-server binding.
-- The one and only real-provider smoke ran at the earlier immutable smoke commit.
-  It launched one request, succeeded, and was not retried or substituted.
-- The two review corrections did not change the outbound provider request or
-  synthetic smoke input. Final deterministic tests cover completed envelopes,
-  body-read timeouts, and both semantically valid smoke extraction shapes.
-- No second provider request was made after review.
-
-Exact final verification commands
+Exact focused verification
 1. npm run test --workspace @shiori/server -- src/decision/engine.test.ts
-   PASS — 1 file, 46 tests. Directly reproduced by QA at the final commit.
-2. npm run check
-   PASS — server and web typechecks; 71 server tests; both production builds;
-   20 isolated browser tests across desktop and mobile Chromium.
-   Execution result supplied by the project-lead context at the final commit.
+   PASS — 1 file, 103 tests.
+2. npm run test --workspace @shiori/server -- src/telegram/conversation.test.ts
+   PASS — 1 file, 42 tests.
 
-Required real-provider smoke
-Command: npm run test:openai:smoke
-Result: PASS — one invocation, one provider request, zero retries, zero key or
-model substitutions. Only bounded aggregate metadata was emitted.
-Execution occurred at the immutable provider-smoke commit before review fixes.
+Full repository gate
+3. npm run check
+   PASS — server and web typechecks; 24 server files / 382 tests;
+   22 release-verifier tests; server and web production builds; 50 isolated
+   Playwright tests across desktop and mobile Chromium.
 
-Acceptance-criterion sign-off
-- AC1 PASS: deterministic fixtures prove explicit commitment, implied intention,
-  and ordinary question classes with bounded fields, missing fields, and actions.
-- AC2 PASS: captured requests prove configured server-only authentication,
-  configured model and prompt version, strict text-format schema, no tools,
-  store false, stateless operation, and a bounded timeout.
-- AC3 PASS: structural success is followed by application semantic validation;
-  nine invalid semantic cases are rejected.
-- AC4 PASS: twenty-five deterministic failure scenarios map to nine closed
-  failure classes with completed-envelope enforcement and body-read timeouts.
-- AC5 PASS: deterministic final coverage and one sanitized real-provider request
-  prove the contract without product mutation or retained provider material.
+The first sandboxed full-gate attempt reached Playwright after typechecks,
+server tests, release-verifier tests, and builds passed, but macOS denied the
+isolated local server bind with EPERM. The exact command was rerun with local
+binding permission and passed completely.
 
-Independent audit summary
-- One specification drives API schema, TypeScript result, and runtime parser.
-- New runtime dependencies: 0.
-- Decision-boundary imports of product mutation surfaces: 0.
-- Production decision logging or trace-retention call sites: 0.
-- Decision and smoke persistence writes: 0.
-- Actual credential and personal-value categories checked in tracked files: 11.
-- Actual credential or personal-value matches in tracked files: 0.
-- Architecture review after the second and final correction: PASS.
-- Source and state files changed by QA: 0.
+Independent repair checks
+- The provider input and output contract contains one commitmentMode enum with
+  exactly unresolved, simple_action, and possible_work_session.
+- The provider-facing schema contains neither simpleAction nor
+  possibleWorkSession. Existing application/persistence booleans remain behind
+  an explicit conversation-boundary compatibility mapping.
+- Incomplete definition/target candidates require unresolved; complete
+  candidates require simple_action or possible_work_session.
+- A definition-only first turn creates an awaiting_target draft. A target-only
+  continuation receives that same versioned draft as bounded provider context
+  and can update it to complete.
+- Complete simple-action and possible-work-session routes remain covered.
+- Invalid mode/action/core-field combinations fail semantic validation.
+- The repaired path writes only a draft before presenting confirmation; it
+  creates no commitment, session, reminder, event, or scheduled message.
+- The implementation commit adds no provider retry, migration, database schema
+  change, deployment, or external-system mutation.
+- No live OpenAI smoke was run for this repair, as explicitly instructed.
+
+Acceptance criteria
+- AC1 PASS — all three classes and repaired mode/continuation fixtures pass.
+- AC2 PASS — the strict stateless request contract remains configured,
+  tool-free, store false, and bounded to one 30-second provider request.
+- AC3 PASS — repaired enum, phase, action, and core-field invariants fail closed.
+- AC4 PASS — all bounded failure classes remain non-authorizing and preserve
+  the current conversation snapshot.
+- AC5 PASS — deterministic repair verification retained no raw provider input,
+  output, trace, credential, or chain of thought and performed no product
+  mutation. The previously recorded single-provider smoke was not repeated.
 
 Deviations
-- Full-check execution provenance is split because QA execution policy denied the
-  local port binding. QA does not claim direct execution of that blocked command.
-- The single real-provider smoke predates two review corrections. The outbound
-  request and smoke input remained unchanged, and final controlled regressions
-  cover all corrected response handling and smoke acceptance behavior.
-  No acceptance criterion was weakened.
+- QA ran on Node v26.5.0, which is inside the package manifest's supported
+  >=24 <27 range but differs from the repository guidance's preferred Node 24.
+- The live provider smoke was intentionally not rerun for this repair.

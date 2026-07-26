@@ -1,47 +1,34 @@
 {
   "story_id": "S01-03a",
-  "captured_at": "2026-07-24T13:48:09Z",
-  "final_commit": "d80c3eb8f15418128c6e16130f07d5f2e995851b",
-  "provider_smoke_commit": "6697b6cc32d57ea38e8cb8ca16ed1accfe74bc27",
+  "captured_at": "2026-07-26T18:15:16Z",
+  "implementation_commit": "b7252c5ba83e10f2d851b891e345059b605993bf",
   "result": "pass",
-  "configured_categories": {
-    "server_credential_present": true,
-    "model_identifier_present": true,
-    "prompt_version_present": true,
-    "credential_value_recorded": false,
-    "model_value_recorded": false,
-    "prompt_value_recorded": false
-  },
-  "captured_request": {
-    "request_count": 1,
+  "request": {
     "responses_endpoint": true,
-    "post_method": true,
-    "authorization_matches_config_in_memory": true,
-    "model_matches_config_in_memory": true,
-    "prompt_version_matches_config_in_memory": true,
+    "method": "POST",
+    "configured_server_credential": true,
+    "configured_model": true,
+    "configured_prompt_version": true,
+    "strict_json_schema": true,
     "store": false,
     "tool_count": 0,
-    "previous_response_state_present": false,
-    "provider_conversation_state_present": false,
-    "bounded_timeout_milliseconds": 5000
+    "provider_state_reference_present": false,
+    "timeout_milliseconds": 30000,
+    "provider_requests_per_decide": 1,
+    "semantic_retry_added": false
   },
-  "structured_output": {
-    "location": "text_format",
-    "type": "json_schema",
-    "strict": true,
-    "all_object_fields_required": true,
-    "additional_properties_allowed": false,
-    "same_schema_as_runtime_parser": true
-  },
-  "cross_commit_review": {
-    "outbound_request_changed_after_smoke": false,
-    "synthetic_smoke_input_changed_after_smoke": false,
-    "response_handling_regressions_run_at_final_commit": true,
-    "second_provider_request_made": false
+  "structured_contract": {
+    "mode_field_count": 1,
+    "mode_field": "commitmentMode",
+    "mode_value_count": 3,
+    "provider_boolean_mode_fields": 0,
+    "input_uses_bounded_structured_draft_context": true,
+    "raw_conversation_transcript_sent": false
   },
   "retention": {
     "request_body_recorded": false,
     "request_headers_recorded": false,
+    "credential_value_recorded": false,
     "raw_response_recorded": false,
     "provider_trace_recorded": false,
     "chain_of_thought_recorded": false

@@ -1,78 +1,36 @@
 {
   "story_id": "S01-03a",
-  "captured_at": "2026-07-24T13:48:09Z",
-  "final_commit": "d80c3eb8f15418128c6e16130f07d5f2e995851b",
-  "provider_smoke_commit": "6697b6cc32d57ea38e8cb8ca16ed1accfe74bc27",
+  "captured_at": "2026-07-26T18:15:16Z",
+  "implementation_commit": "b7252c5ba83e10f2d851b891e345059b605993bf",
   "result": "pass",
-  "deterministic_failure_boundary": {
-    "fixture_count": 25,
+  "focused_verification": {
+    "engine_test_files_passed": 1,
+    "engine_tests_passed": 103,
+    "conversation_test_files_passed": 1,
+    "conversation_tests_passed": 42,
+    "live_provider_smoke_run": false,
+    "live_provider_smoke_reason": "Explicitly excluded from this repair QA"
+  },
+  "failure_boundary": {
     "bounded_failure_class_count": 9,
-    "classes": {
-      "http": {
-        "fixture_count": 2,
-        "mapped": true
-      },
-      "provider_error": {
-        "fixture_count": 7,
-        "mapped": true
-      },
-      "incomplete": {
-        "fixture_count": 7,
-        "mapped": true
-      },
-      "refusal": {
-        "fixture_count": 1,
-        "mapped": true
-      },
-      "missing_output": {
-        "fixture_count": 1,
-        "mapped": true
-      },
-      "non_json": {
-        "fixture_count": 1,
-        "mapped": true
-      },
-      "schema": {
-        "fixture_count": 1,
-        "mapped": true
-      },
-      "semantic": {
-        "fixture_count": 1,
-        "mapped": true
-      },
-      "timeout": {
-        "fixture_count": 4,
-        "mapped": true
-      }
-    },
     "authorized_application_actions": 0,
+    "current_snapshot_preserved": true,
+    "semantic_retry_present": false,
     "raw_provider_details_returned": false
   },
-  "corrected_regressions": {
-    "top_level_completion_cases": 5,
-    "message_completion_cases": 5,
-    "body_read_timeout_cases": 2,
-    "accepted_smoke_shapes": 2,
-    "rejected_smoke_shapes": 6,
-    "result": "pass"
+  "pre_confirmation_boundary": {
+    "draft_create_or_update_only": true,
+    "confirmation_actions_present_when_complete": true,
+    "commitment_created": false,
+    "work_session_created": false,
+    "reminder_created": false,
+    "calendar_event_created": false,
+    "scheduled_message_created": false
   },
-  "real_provider_smoke": {
-    "invocations": 1,
-    "provider_requests": 1,
-    "retries": 0,
-    "credential_substitutions": 0,
-    "model_substitutions": 0,
-    "synthetic_non_personal_input": true,
-    "ok": true,
-    "input_class": "explicit_commitment",
-    "next_action": "ask_definition",
-    "missing_field_count": 1,
-    "target_present": true,
-    "definition_present": false,
-    "structural_validation": "pass",
-    "semantic_validation": "pass",
-    "final_smoke_shape_predicate": "pass",
-    "tools_configured": 0
+  "external_effects": {
+    "database_migration_added": false,
+    "deployment_performed": false,
+    "provider_request_performed": false
   },
   "retention": {
     "raw_input_recorded": false,
