@@ -1,8 +1,8 @@
 {
   "slice": "01-a-promise-that-fits",
-  "updated_at": "2026-07-26T18:06:40Z",
-  "current_story": "S01-03a",
-  "summary": "16/18 done",
+  "updated_at": "2026-07-26T18:17:07Z",
+  "current_story": null,
+  "summary": "17/18 done",
   "log": [
     {
       "story_id": "S01-00",
@@ -1501,6 +1501,61 @@
         "After an approved S01-03a repair and independent QA, deploy a fresh immutable candidate and rerun S1-S28 from the beginning."
       ],
       "context_for_next": "Slice 01 is blocked at 16/18 done; S01-03a is reopened todo and S01-12 is blocked.\nCandidate 4 is deployment 70129a3c from source 357fc90 with model gpt-5.6-terra and 17/17 migrations.\nThe 30-second timeout and safe failure-class logging work as designed.\nTwo clean production S6 requests failed semantic validation in about 3-4 seconds and created zero consequential state.\nOne isolated exact-input provider diagnostic passed, proving stochastic model variance rather than a deterministic validator mismatch.\nRetained redacted failure evidence is under evidence/S01-12/failed-70129a3c/.\nDo not resume production journeys or reuse prior scenario evidence.\nOwner must choose the S01-03a reliability repair before implementation."
+    },
+    {
+      "story_id": "S01-03a",
+      "started_at": "2026-07-26T18:06:40Z",
+      "finished_at": "2026-07-26T18:17:07Z",
+      "squad": "decision-contract-repair",
+      "outcome": "done",
+      "commits": [
+        "cd73c14 chore(S01-03a): start commitment mode repair",
+        "b7252c5 fix(S01-03a): replace decision mode booleans",
+        "b560b3e test(S01-03a): verify commitment mode repair"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/decision-contract.json"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/responses-request-contract.json"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/decision-contract.json"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/provider-failure-and-smoke.json"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S01-03a/npm-check.txt"
+        }
+      ],
+      "decisions": [
+        "The provider-facing decision contract uses exactly one three-state commitmentMode enum: unresolved, simple_action, or possible_work_session.",
+        "Incomplete definition or target candidates must remain unresolved; the mode resolves only when both core fields are complete.",
+        "Existing Supabase simple_action and possible_work_session columns remain behind a deterministic service-boundary compatibility mapping, so this repair requires no migration.",
+        "The owner-approved repair retains one stateless provider call and adds no semantic retry; final commitment or work-session creation remains behind explicit confirmation."
+      ],
+      "deviations_from_plan": [
+        "The repair changed the provider contract without rewriting durable database columns, minimizing scope while removing the invalid model-facing boolean combination.",
+        "Independent QA ran on supported Node 26.5.0 rather than the repository guidance's preferred Node 24.",
+        "The first sandboxed full gate reached Playwright but could not bind the local test port; the identical approved local-bind rerun passed all 50 browser tests."
+      ],
+      "follow_ups": [
+        "S01-12 must deploy a fresh immutable candidate and rerun production journeys from the beginning; prior candidate evidence cannot be reused.",
+        "If structurally valid decisions still fail semantic validation in production, return the defect to S01-03a and request a separate owner decision before adding any bounded retry."
+      ],
+      "context_for_next": "S01-03a is repaired and independently verified; Slice 01 is 17/18 done.\nThe OpenAI contract now exposes commitmentMode only: unresolved, simple_action, possible_work_session.\nIncomplete definition/target drafts stay unresolved and persist across turns.\nA target-only reply receives the same versioned awaiting_target draft and may resolve its mode.\nPersistence still uses legacy booleans through a deterministic service-boundary mapper; no migration was added.\nThe request remains stateless, tool-free, store false, one call, and bounded to 30 seconds.\nNo retry, deployment, or live provider call was added in this repair.\nFocused tests passed 145/145 and the complete repository gate passed.\nS01-12 is todo and must create a fresh immutable candidate."
     }
   ]
 }
