@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-27T13:58:52Z",
+  "candidate": {
+    "deploymentId": "85587835-3e7e-4039-a015-2621d167f22f",
+    "deploymentStatus": "SUCCESS",
+    "imageDigest": "sha256:6706c50cb2a443ad3fe005a97d98b8ce36cd72cccc04dd27f09118ae12ac45e6",
+    "projectId": "d8806797-6bb9-495b-8e10-b13122a6eff6",
+    "environmentId": "0a533591-3fce-4904-8fb3-84d0f52346e7",
+    "serviceId": "85bc7677-b070-43ce-8ae1-e2c65241a721",
+    "domain": "shiori-slice-01-production.up.railway.app",
+    "replicas": 1,
+    "legacyServiceExcluded": true
+  },
+  "exactSource": {
+    "commit": "adcb0ddf868b7747007be8b67aa7fc7010a4ac87",
+    "tree": "220ece6e1a4cbef96795319d6c8c08d260af0470",
+    "archiveSha256": "57fd1831798c5f5847f379cbc7be183e3655c6db769faf6dd4d5f70de99e70be",
+    "dockerfileSha256": "5c210e4aff74fd83650322fc619e2b912731c1dee48906d6a58e8681bfb326fc",
+    "lockfileSha256": "507131d7dc0b224e5b718b0df9c05b80d4403bfeb9f6df84163777796c51dd1c",
+    "cleanBeforeUpload": true
+  },
+  "preflight": {
+    "result": "pass",
+    "configuredKeyCount": 21,
+    "runtimeKeyCount": 17,
+    "runtimeKeysExact": true,
+    "runtimeConfigHash": "fe43a11d89136a8d587b3dff14cc0197b5e93adf4209843161eee064f7702cfa",
+    "supabaseTargetHash": "c9434470bf8701c12c1f846d5a3b5d5451f9dc59d22425ba3fa28ac5017c7dc4",
+    "migrationEntryCount": 17,
+    "migrationManifestSha256": "bc57a4954e5831618e7caf818279366b7d97d49a97e8dfc031fc9afd48654392",
+    "lastMigrationVersion": "20260725062000",
+    "hostedLedgerExact": true,
+    "pendingMigrations": 0,
+    "migrationMutationPerformed": false
+  },
+  "publicHealth": {
+    "status": 200,
+    "schemaValid": true,
+    "observedAt": "2026-07-27T13:54:30Z"
+  },
+  "runtime": {
+    "containerStarted": true,
+    "serverListening": true,
+    "boundedErrorObserved": false
+  },
+  "smokeGate": {
+    "status": "pending_owner_approval",
+    "productionRequestDispatched": false,
+    "precheckActiveDrafts": 0,
+    "precheckPermissionCandidates": 0,
+    "precheckActiveCommitments": 0,
+    "finalConfirmPressed": false,
+    "commitmentCreated": false,
+    "reason": "Separate authorization is required because the two-turn production smoke would create one temporary durable draft and send two bot replies."
+  }
+}
