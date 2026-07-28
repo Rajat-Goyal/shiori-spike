@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-28T18:00:12Z",
+  "candidate": {
+    "deploymentId": "0f25109b-acce-479d-9c5f-fd98c32720e2",
+    "deploymentStatus": "SUCCESS",
+    "imageDigest": "sha256:f49b37371c14a55a85979c42f12684c5a3b46a167e32bda961953d180d2c2f03",
+    "projectId": "d8806797-6bb9-495b-8e10-b13122a6eff6",
+    "environmentId": "0a533591-3fce-4904-8fb3-84d0f52346e7",
+    "serviceId": "85bc7677-b070-43ce-8ae1-e2c65241a721",
+    "serviceName": "shiori-slice-01",
+    "domain": "shiori-slice-01-production.up.railway.app",
+    "activeDeploymentCount": 1,
+    "replicas": 1,
+    "instanceStatus": "RUNNING"
+  },
+  "exactSource": {
+    "commit": "abbeacbbcc424b5bd48a13b6c03214c96deec2db",
+    "tree": "5739ffae14e06cf32279eef5028abe784617ec9b",
+    "archiveSha256": "2605fc1d72afd46c399efc74b3cae67e9c6cf3cf9f6a0c4b55782e89c3c61d01",
+    "dockerfileSha256": "5c210e4aff74fd83650322fc619e2b912731c1dee48906d6a58e8681bfb326fc",
+    "lockfileSha256": "507131d7dc0b224e5b718b0df9c05b80d4403bfeb9f6df84163777796c51dd1c",
+    "cleanBeforeUpload": true,
+    "uploadType": "cli_archive",
+    "auditLabelPinnedFullCommit": true,
+    "railwayCommitMetadataAvailable": false
+  },
+  "publicHealth": {
+    "status": 200,
+    "schemaValid": true,
+    "observedAt": "2026-07-28T18:00:12Z"
+  },
+  "isolation": {
+    "legacyServiceId": "15ab9853-c3ea-4387-8486-254e60204693",
+    "legacyServiceMutation": false,
+    "legacyLatestDeploymentUnchanged": "9b84a803-d165-4680-8f02-ea7a5896cbe2",
+    "prohibitedActionsPerformed": []
+  },
+  "variance": [
+    "Railway CLI archive uploads do not expose a native Git commit field; the clean local archive identity and deployment audit label pin the requested commit."
+  ]
+}
