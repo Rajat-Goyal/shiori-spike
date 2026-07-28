@@ -1,0 +1,109 @@
+{
+  "story_id": "S01-03a",
+  "captured_at": "2026-07-28T05:48:58Z",
+  "implementation_commit": "ab715b2ee23d51f1857a8e36054c1f6f92e8c7db",
+  "result": "requirements_pass_environment_blocked",
+  "requirements": [
+    {
+      "id": "strict_non_null_response",
+      "result": "pass",
+      "verified": [
+        "response is a required non-null string with minimum length 1 and maximum length 1000",
+        "null, missing, and empty response values fail schema validation",
+        "schema failures do not trigger a provider retry"
+      ]
+    },
+    {
+      "id": "contextual_semantic_validation",
+      "result": "pass",
+      "verified": [
+        "semantic validation remains after structural parsing on both attempts",
+        "both attempts use the same immutable bounded input",
+        "both attempts use one captured validation time",
+        "phase, cross-field, permission, and time invariants remain fail-closed"
+      ]
+    },
+    {
+      "id": "privacy_safe_observability",
+      "result": "pass",
+      "verified": [
+        "failure events contain only fixed bounded enum and counter fields",
+        "recovered retry emits decision_retry_recovered at output_semantic with semantic and attempt count 2",
+        "first-attempt success emits no retry-recovered event",
+        "logging failure cannot alter a failed or recovered decision"
+      ]
+    },
+    {
+      "id": "single_semantic_retry_with_shared_deadline",
+      "result": "pass",
+      "verified": [
+        "only structurally valid output-semantic failure is retried",
+        "HTTP, provider, incomplete, refusal, missing-output, non-JSON, schema, and timeout failures are not retried",
+        "one 30000 millisecond abort deadline is shared across both attempts",
+        "a second semantic failure fails closed after exactly two attempts",
+        "a recovered second attempt applies and audits state exactly once",
+        "no repository mutation occurs between attempts"
+      ]
+    }
+  ],
+  "verification": {
+    "focused": {
+      "command": "npm run test --workspace @shiori/server -- --run src/decision/engine.test.ts src/telegram/conversation.test.ts",
+      "result": "pass",
+      "test_files_passed": 2,
+      "tests_passed": 153
+    },
+    "server": {
+      "command": "npm run test --workspace @shiori/server",
+      "result": "pass",
+      "test_files_passed": 24,
+      "tests_passed": 390
+    },
+    "typecheck": {
+      "command": "npm run typecheck:server",
+      "result": "pass"
+    },
+    "build": {
+      "command": "npm run build",
+      "result": "pass",
+      "workspaces_passed": [
+        "@shiori/web",
+        "@shiori/server"
+      ]
+    },
+    "diff": {
+      "command": "git diff ab715b2ee23d51f1857a8e36054c1f6f92e8c7db^ ab715b2ee23d51f1857a8e36054c1f6f92e8c7db --check",
+      "result": "pass",
+      "worktree_clean_before_artifact": true
+    },
+    "playwright": {
+      "command": "npm run test:e2e:isolated",
+      "result": "environment_blocked",
+      "assertions_executed": false,
+      "reason_class": "chromium_launch_environment",
+      "reason": "Chromium terminated before product assertions because the macOS MachPort bootstrap returned error 141.",
+      "pass_claimed": false
+    }
+  },
+  "privacy_assertions": {
+    "raw_owner_content_recorded": false,
+    "raw_provider_content_recorded": false,
+    "raw_logs_recorded": false,
+    "secrets_recorded": false,
+    "credentials_recorded": false,
+    "provider_response_identifiers_recorded": false,
+    "chain_of_thought_recorded": false,
+    "event_fields_allowlisted": true
+  },
+  "deployment_consumer": {
+    "deployment_id": "c738676a-dab0-4faa-bf45-38bb4755c6dd",
+    "terminal_status": "SUCCESS",
+    "deployment_action_performed_by_qa": false
+  },
+  "qa_actions": {
+    "source_edited": false,
+    "state_files_edited": false,
+    "commit_created": false,
+    "deployment_performed": false
+  }
+}
