@@ -55,7 +55,13 @@ type CandidateAction = {
 export type DecisionAudit = {
   inputClass: DecisionResult["inputClass"];
   modelId: string;
-  payload: Omit<DecisionResult, "inputClass" | "response">;
+  payload: Omit<
+    DecisionResult,
+    "commitmentMode" | "inputClass" | "response"
+  > & {
+    possibleWorkSession: boolean;
+    simpleAction: boolean;
+  };
   promptVersion: string;
 };
 

@@ -5,6 +5,7 @@ import type {
   DecisionFailureClass,
   DecisionFailureStage,
   DecisionOutcome,
+  DecisionTelemetryReason,
 } from "../decision/engine.js";
 import { OpenAIDecisionEngine } from "../decision/engine.js";
 import type {
@@ -247,11 +248,13 @@ const failureStage = {
 function failureOutcome(
   failure: DecisionFailureClass,
   attemptCount: DecisionAttemptCount = 1,
+  reason: DecisionTelemetryReason = failure,
 ): DecisionOutcome {
   return {
     attemptCount,
     failure,
     ok: false,
+    reason,
     stage: failureStage[failure],
   };
 }
@@ -284,7 +287,7 @@ describe("ConversationService", () => {
         expect(repository.commands).toHaveLength(0);
         return providerResponse({
           ...validDecision,
-          targetTimeZone: "UTC",
+          targetAt: "2026-02-30T10:00:00+08:00",
         });
       })
       .mockImplementationOnce(async () => {
@@ -325,20 +328,18 @@ describe("ConversationService", () => {
     expect(decisionRetryRecoveredEvents).toHaveBeenCalledWith({
       attemptCount: 2,
       event: "decision_retry_recovered",
-      failureClass: "semantic",
-      stage: "output_semantic",
+      reason: "target_invalid",
     });
     expect(
       Object.keys(decisionRetryRecoveredEvents.mock.calls[0][0]),
     ).toEqual([
       "event",
-      "stage",
-      "failureClass",
       "attemptCount",
+      "reason",
     ]);
     expect(
       JSON.stringify(decisionRetryRecoveredEvents.mock.calls),
-    ).not.toMatch(/private|unit-test|UTC|Submit/);
+    ).not.toMatch(/private|unit-test|2026-02-30|Submit/);
   });
 
   it.each([
@@ -411,9 +412,17 @@ describe("ConversationService", () => {
   );
 
   it("continues a work-shaped definition-only request against the same awaiting-target draft", async () => {
+    const definitionOnlyWorkFields: DecisionContextFields = {
+      ...targetMissingFields,
+      durationMinutes: 30,
+    };
+    const completedWorkFields: DecisionContextFields = {
+      ...workFields,
+      durationMinutes: 30,
+    };
     const first = controlled(
       { kind: "none" },
-      success(decision(targetMissingFields)),
+      success(decision(definitionOnlyWorkFields)),
     );
 
     await expect(
@@ -421,15 +430,19 @@ describe("ConversationService", () => {
     ).resolves.toBe(conversationCopy.missingTarget);
     expect(first.repository.commands[0]).toMatchObject({
       action: "create_draft",
-      fields: targetMissingFields,
+      fields: definitionOnlyWorkFields,
       phase: "awaiting_target",
     });
 
-    const draft = activeDraft("awaiting_target", targetMissingFields, 1);
+    const draft = activeDraft(
+      "awaiting_target",
+      definitionOnlyWorkFields,
+      1,
+    );
     const second = controlled(
       draft,
       success(
-        decision(workFields, {
+        decision(completedWorkFields, {
           turnRelation: "clarification_continuation",
         }),
       ),
@@ -440,12 +453,14 @@ describe("ConversationService", () => {
       context: {
         fields: {
           commitmentMode: "unresolved",
-          definitionOfDone: targetMissingFields.definitionOfDone,
-          durationMinutes: null,
+          definitionOfDone:
+            definitionOnlyWorkFields.definitionOfDone,
+          durationMinutes: 30,
           offerWorkWindowHelp: false,
           targetAt: null,
           targetTimeZone: null,
-          timingConstraints: targetMissingFields.timingConstraints,
+          timingConstraints:
+            definitionOnlyWorkFields.timingConstraints,
         },
         phase: "awaiting_target",
       },
@@ -458,7 +473,7 @@ describe("ConversationService", () => {
         kind: "draft",
         version: draft.version,
       },
-      fields: workFields,
+      fields: completedWorkFields,
       phase: "complete",
     });
   });
@@ -500,12 +515,13 @@ describe("ConversationService", () => {
         inputClass: "ordinary_question",
         modelId: "gpt-test-model",
         payload: {
-          commitmentMode: "unresolved",
           definitionOfDone: null,
           durationMinutes: null,
           missingFields: [],
           nextAction: "answer",
           offerWorkWindowHelp: false,
+          possibleWorkSession: false,
+          simpleAction: false,
           targetAt: null,
           targetTimeZone: null,
           timingConstraints: [],
@@ -519,6 +535,24 @@ describe("ConversationService", () => {
     );
     expect(JSON.stringify(test.repository.audits)).not.toContain(
       "A direct bounded answer.",
+    );
+    expect(
+      Object.keys(test.repository.audits[0]!.payload).sort(),
+    ).toEqual([
+      "definitionOfDone",
+      "durationMinutes",
+      "missingFields",
+      "nextAction",
+      "offerWorkWindowHelp",
+      "possibleWorkSession",
+      "simpleAction",
+      "targetAt",
+      "targetTimeZone",
+      "timingConstraints",
+      "turnRelation",
+    ]);
+    expect(test.repository.audits[0]!.payload).not.toHaveProperty(
+      "commitmentMode",
     );
   });
 
@@ -985,8 +1019,7 @@ describe("ConversationService", () => {
       expect(test.decisionFailureEvents).toHaveBeenCalledWith({
         attemptCount: 1,
         event: "decision_failure",
-        failureClass: failure,
-        stage: failureStage[failure],
+        reason: failure,
       });
       const serializedEvent = JSON.stringify(
         test.decisionFailureEvents.mock.calls,
@@ -995,9 +1028,8 @@ describe("ConversationService", () => {
       expect(serializedEvent).not.toContain("unit-test");
       expect(Object.keys(test.decisionFailureEvents.mock.calls[0][0])).toEqual([
         "event",
-        "stage",
-        "failureClass",
         "attemptCount",
+        "reason",
       ]);
     },
   );
@@ -1036,8 +1068,7 @@ describe("ConversationService", () => {
           ok: true,
           recovery: {
             attemptCount: 2,
-            failureClass: "semantic",
-            stage: "output_semantic",
+            reason: "target_invalid",
           },
         })),
       },
@@ -1083,8 +1114,7 @@ describe("ConversationService", () => {
     expect(decisionFailureEvents).toHaveBeenCalledWith({
       attemptCount: 0,
       event: "decision_failure",
-      failureClass: "http",
-      stage: "request",
+      reason: "http",
     });
     expect(JSON.stringify(decisionFailureEvents.mock.calls)).not.toMatch(
       /private|credential|trace/,

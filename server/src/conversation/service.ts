@@ -1,10 +1,8 @@
 import type {
   DecisionAttemptCount,
   DecisionEngine,
-  DecisionFailureClass,
-  DecisionFailureStage,
   DecisionOutcome,
-  DecisionRetryRecovery,
+  DecisionTelemetryReason,
 } from "../decision/engine.js";
 import type {
   DecisionCandidateFields,
@@ -51,12 +49,13 @@ type ConversationServiceOptions = {
 export type DecisionFailureEvent = {
   attemptCount: DecisionAttemptCount;
   event: "decision_failure";
-  failureClass: DecisionFailureClass;
-  stage: DecisionFailureStage;
+  reason: DecisionTelemetryReason;
 };
 
-export type DecisionRetryRecoveredEvent = DecisionRetryRecovery & {
+export type DecisionRetryRecoveredEvent = {
+  attemptCount: 2;
   event: "decision_retry_recovered";
+  reason: DecisionTelemetryReason;
 };
 
 type CompleteReply = {
@@ -120,8 +119,7 @@ function draftable(fields: DecisionContextFields): boolean {
   if (phase !== "complete") {
     return (
       !fields.simpleAction &&
-      !fields.possibleWorkSession &&
-      fields.durationMinutes === null
+      !fields.possibleWorkSession
     );
   }
   return fields.simpleAction
@@ -258,6 +256,7 @@ export class ConversationService {
         attemptCount: 0,
         failure: "http",
         ok: false,
+        reason: "http",
         stage: "request",
       };
     }
@@ -266,9 +265,8 @@ export class ConversationService {
       try {
         this.#onDecisionFailure?.({
           event: "decision_failure",
-          stage: outcome.stage,
-          failureClass: outcome.failure,
           attemptCount: outcome.attemptCount,
+          reason: outcome.reason,
         });
       } catch {
         // Operational logging must never change the fail-closed response.
@@ -289,9 +287,8 @@ export class ConversationService {
       try {
         this.#onDecisionRetryRecovered?.({
           event: "decision_retry_recovered",
-          stage: outcome.recovery.stage,
-          failureClass: outcome.recovery.failureClass,
           attemptCount: outcome.recovery.attemptCount,
+          reason: outcome.recovery.reason,
         });
       } catch {
         // Operational logging must never change the recovered decision.
@@ -695,11 +692,21 @@ export class ConversationService {
   }
 
   #audit(decision: DecisionResult): DecisionAudit {
-    const { inputClass, response: _response, ...payload } = decision;
+    const {
+      commitmentMode,
+      inputClass,
+      response: _response,
+      ...fields
+    } = decision;
     return {
       inputClass,
       modelId: this.#modelId,
-      payload,
+      payload: {
+        ...fields,
+        possibleWorkSession:
+          commitmentMode === "possible_work_session",
+        simpleAction: commitmentMode === "simple_action",
+      },
       promptVersion: this.#promptVersion,
     };
   }

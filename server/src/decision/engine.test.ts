@@ -3,6 +3,7 @@ import {
   type DecisionAttemptCount,
   type DecisionFailureClass,
   type DecisionFailureStage,
+  type DecisionTelemetryReason,
   OpenAIDecisionEngine,
 } from "./engine.js";
 import {
@@ -16,6 +17,8 @@ import {
   parseDecisionStructure,
 } from "./schema.js";
 import {
+  canonicalizeDecision,
+  evaluateDecisionSemantics,
   validateDecisionInputSemantics,
   validateDecisionSemantics,
 } from "./semantic.js";
@@ -139,11 +142,13 @@ const failureStage = {
 function failureOutcome(
   failure: DecisionFailureClass,
   attemptCount: DecisionAttemptCount = 1,
+  reason: DecisionTelemetryReason = failure,
 ) {
   return {
     attemptCount,
     failure,
     ok: false,
+    reason,
     stage: failureStage[failure],
   } as const;
 }
@@ -499,13 +504,6 @@ describe("DecisionEngine contract", () => {
 
   it.each([
     {
-      label: "a wrong time zone",
-      mutate: (decision: DecisionResult) => ({
-        ...decision,
-        targetTimeZone: "UTC",
-      }),
-    },
-    {
       label: "a non-existent calendar date",
       mutate: (decision: DecisionResult) => ({
         ...decision,
@@ -527,31 +525,10 @@ describe("DecisionEngine contract", () => {
       }),
     },
     {
-      label: "a work-session mode with a simple-action next action",
-      mutate: (decision: DecisionResult) => ({
-        ...decision,
-        commitmentMode: "possible_work_session",
-      }),
-    },
-    {
       label: "a duration on a simple action",
       mutate: (decision: DecisionResult) => ({
         ...decision,
         durationMinutes: 30,
-      }),
-    },
-    {
-      label: "a false missing-field claim",
-      mutate: (decision: DecisionResult) => ({
-        ...decision,
-        missingFields: ["target"] as DecisionResult["missingFields"],
-      }),
-    },
-    {
-      label: "an unauthorized class/action combination",
-      mutate: (decision: DecisionResult) => ({
-        ...decision,
-        nextAction: "ask_permission" as DecisionResult["nextAction"],
       }),
     },
   ])("semantically rejects $label", ({ mutate }) => {
@@ -564,41 +541,127 @@ describe("DecisionEngine contract", () => {
     ).toBe(false);
   });
 
+  it("canonicalizes deterministic non-authorizing projections idempotently", () => {
+    const missingBoth: DecisionResult = {
+      ...explicitDecision,
+      commitmentMode: "possible_work_session",
+      definitionOfDone: null,
+      durationMinutes: 30,
+      missingFields: ["target", "definition_of_done"],
+      nextAction: "ask_permission",
+      offerWorkWindowHelp: true,
+      targetAt: null,
+      targetTimeZone: null,
+      turnRelation: "correction",
+    };
+    const canonical = canonicalizeDecision(
+      missingBoth,
+      privateDecisionInput,
+    );
+
+    expect(canonical).toMatchObject({
+      commitmentMode: "unresolved",
+      durationMinutes: 30,
+      missingFields: ["definition_of_done", "target"],
+      nextAction: "ask_definition",
+      offerWorkWindowHelp: false,
+      turnRelation: "new_request",
+    });
+    expect(canonicalizeDecision(canonical, privateDecisionInput)).toEqual(
+      canonical,
+    );
+    expect(
+      evaluateDecisionSemantics(
+        canonical,
+        privateDecisionInput,
+        now,
+        missingBoth,
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("derives canonical target zone, action, and phase-none relation", () => {
+    const projected = canonicalizeDecision(
+      {
+        ...explicitDecision,
+        commitmentMode: "possible_work_session",
+        missingFields: ["target"],
+        nextAction: "ask_permission",
+        targetTimeZone: "UTC",
+        turnRelation: "permission_accepted",
+      },
+      privateDecisionInput,
+    );
+
+    expect(projected).toMatchObject({
+      commitmentMode: "possible_work_session",
+      missingFields: [],
+      nextAction: "offer_work_window",
+      targetTimeZone: "Asia/Singapore",
+      turnRelation: "new_request",
+    });
+    expect(
+      validateDecisionSemantics(
+        {
+          ...explicitDecision,
+          targetTimeZone: "UTC",
+        },
+        privateDecisionInput,
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      canonicalizeDecision(
+        {
+          ...ordinaryDecision,
+          turnRelation: "correction",
+        },
+        privateDecisionInput,
+      ).turnRelation,
+    ).toBe("none");
+  });
+
+  it("keeps invalid, past, and wrong-offset targets fail-closed", () => {
+    for (const targetAt of [
+      "2026-02-30T10:00:00+08:00",
+      "2026-07-24T10:00:00+08:00",
+      "2026-07-25T10:00:00+07:00",
+    ]) {
+      expect(
+        validateDecisionSemantics(
+          {
+            ...explicitDecision,
+            targetAt,
+            targetTimeZone: "UTC",
+          },
+          privateDecisionInput,
+          now,
+        ),
+        targetAt,
+      ).toBe(false);
+    }
+  });
+
   it("requires definition before target in canonical missing-field order", () => {
     const missingBoth: DecisionResult = {
       ...explicitDecision,
       commitmentMode: "unresolved",
       definitionOfDone: null,
-      missingFields: ["definition_of_done", "target"],
-      nextAction: "ask_definition",
-      targetAt: null,
-      targetTimeZone: null,
-    };
-    const missingTarget: DecisionResult = {
-      ...explicitDecision,
-      commitmentMode: "unresolved",
-      missingFields: ["target"],
+      missingFields: ["target", "definition_of_done"],
       nextAction: "ask_target",
       targetAt: null,
       targetTimeZone: null,
     };
 
+    expect(canonicalizeDecision(missingBoth, privateDecisionInput)).toMatchObject(
+      {
+        missingFields: ["definition_of_done", "target"],
+        nextAction: "ask_definition",
+      },
+    );
     expect(
       validateDecisionSemantics(missingBoth, privateDecisionInput, now),
     ).toBe(true);
-    expect(
-      validateDecisionSemantics(missingTarget, privateDecisionInput, now),
-    ).toBe(true);
-    expect(
-      validateDecisionSemantics(
-        {
-          ...missingBoth,
-          missingFields: ["target", "definition_of_done"],
-        },
-        privateDecisionInput,
-        now,
-      ),
-    ).toBe(false);
   });
 
   describe("bounded context and turn-relation semantics", () => {
@@ -711,7 +774,7 @@ describe("DecisionEngine contract", () => {
         providerResponse(explicitDecision),
       );
       await expect(engineWith(fetchFromOpenAI).decide(input)).resolves.toEqual({
-        ...failureOutcome("semantic", 0),
+        ...failureOutcome("semantic", 0, "input_invalid"),
       });
       expect(fetchFromOpenAI).not.toHaveBeenCalled();
     });
@@ -728,7 +791,7 @@ describe("DecisionEngine contract", () => {
       await expect(
         engineWith(fetchFromOpenAI).decide(malformed),
       ).resolves.toEqual({
-        ...failureOutcome("semantic", 0),
+        ...failureOutcome("semantic", 0, "input_invalid"),
       });
       expect(fetchFromOpenAI).not.toHaveBeenCalled();
     });
@@ -757,7 +820,7 @@ describe("DecisionEngine contract", () => {
           ownerText: "x".repeat(4_097),
         }),
       ).resolves.toEqual({
-        ...failureOutcome("semantic", 0),
+        ...failureOutcome("semantic", 0, "input_invalid"),
       });
       expect(fetchOverMaximum).not.toHaveBeenCalled();
     });
@@ -817,7 +880,7 @@ describe("DecisionEngine contract", () => {
             contextInput("awaiting_permission", fields),
           ),
         ).resolves.toEqual({
-          ...failureOutcome("semantic", 0),
+          ...failureOutcome("semantic", 0, "input_invalid"),
         });
         expect(fetchOverMaximum).not.toHaveBeenCalled();
       }
@@ -992,6 +1055,9 @@ describe("DecisionEngine contract", () => {
       } as const;
 
       for (const [phase, input] of Object.entries(phaseInputs)) {
+        if (phase === "none") {
+          continue;
+        }
         for (const relation of relations) {
           for (const inputClass of classes) {
             const key = `${phase}:${relation}:${inputClass}`;
@@ -1527,7 +1593,7 @@ describe("DecisionEngine contract", () => {
       ).toBe(true);
     });
 
-    it("rejects an invalid work action when clarification completes core fields", () => {
+    it("derives the ready action when clarification completes a bounded work candidate", () => {
       const input = contextInput(
         "awaiting_target",
         awaitingTargetFields,
@@ -1544,7 +1610,7 @@ describe("DecisionEngine contract", () => {
           input,
           now,
         ),
-      ).toBe(false);
+      ).toBe(true);
     });
 
     it("accepts awaiting-definition context with no extracted target", () => {
@@ -1739,7 +1805,7 @@ describe("OpenAI decision failure boundary", () => {
       .mockReturnValueOnce(new Date("2026-07-26T12:00:00.000Z"));
     const firstDecision = {
       ...explicitDecision,
-      targetTimeZone: "UTC",
+      targetAt: "2026-02-30T10:00:00+08:00",
     };
     const fetchFromOpenAI = vi
       .fn<typeof fetch>()
@@ -1759,8 +1825,7 @@ describe("OpenAI decision failure boundary", () => {
       ok: true,
       recovery: {
         attemptCount: 2,
-        failureClass: "semantic",
-        stage: "output_semantic",
+        reason: "target_invalid",
       },
     });
 
@@ -1771,14 +1836,34 @@ describe("OpenAI decision failure boundary", () => {
     const requests = fetchFromOpenAI.mock.calls.map(([, request]) => request);
     expect(requests[0]?.signal).toBe(signal);
     expect(requests[1]?.signal).toBe(signal);
-    expect(requests[1]?.body).toBe(requests[0]?.body);
+    const firstBody = JSON.parse(String(requests[0]?.body)) as Record<
+      string,
+      unknown
+    >;
+    const secondBody = JSON.parse(String(requests[1]?.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(secondBody).toMatchObject({
+      input: firstBody.input,
+      model: firstBody.model,
+      store: false,
+      text: firstBody.text,
+      tools: [],
+    });
+    expect(secondBody.instructions).toBe(
+      `${String(firstBody.instructions)} Retry correction: Use a real future target with the exact +08:00 offset.`,
+    );
+    expect(String(secondBody.instructions)).not.toMatch(
+      /synthetic private|2026-02-30|providerResponse|output_text/,
+    );
     expect(input).toEqual(privateDecisionInput);
   });
 
   it("returns the second semantic failure after exactly two attempts", async () => {
     const invalidDecision = {
       ...explicitDecision,
-      targetTimeZone: "UTC",
+      targetAt: "2026-02-30T10:00:00+08:00",
     };
     const fetchFromOpenAI = vi.fn(async () =>
       providerResponse(invalidDecision),
@@ -1786,14 +1871,16 @@ describe("OpenAI decision failure boundary", () => {
 
     await expect(
       engineWith(fetchFromOpenAI).decide(privateDecisionInput),
-    ).resolves.toEqual(failureOutcome("semantic", 2));
+    ).resolves.toEqual(
+      failureOutcome("semantic", 2, "target_invalid"),
+    );
     expect(fetchFromOpenAI).toHaveBeenCalledTimes(2);
   });
 
   it("returns a second-attempt timeout without a third request", async () => {
     const firstDecision = {
       ...explicitDecision,
-      targetTimeZone: "UTC",
+      targetAt: "2026-02-30T10:00:00+08:00",
     };
     const fetchFromOpenAI = vi
       .fn<typeof fetch>()
@@ -1919,7 +2006,7 @@ describe("OpenAI decision failure boundary", () => {
       fetch: async () =>
         providerResponse({
           ...explicitDecision,
-          targetTimeZone: "UTC",
+          targetAt: "2026-02-30T10:00:00+08:00",
         }),
       label: "semantically invalid output",
     },
@@ -1930,7 +2017,13 @@ describe("OpenAI decision failure boundary", () => {
     );
 
     const attemptCount = expected === "semantic" ? 2 : 1;
-    expect(outcome).toEqual(failureOutcome(expected, attemptCount));
+    expect(outcome).toEqual(
+      failureOutcome(
+        expected,
+        attemptCount,
+        expected === "semantic" ? "target_invalid" : expected,
+      ),
+    );
     expect(fetchFromOpenAI).toHaveBeenCalledTimes(attemptCount);
     expect(JSON.stringify(outcome)).not.toContain(privateInput);
     expect(JSON.stringify(outcome)).not.toContain(apiKey);

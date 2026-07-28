@@ -7,6 +7,31 @@ import type {
 const TARGET_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\+08:00$/;
 
+export type DecisionSemanticFailureReason =
+  | "clarification_context_mutation"
+  | "clarification_filled_nothing"
+  | "complete_mode_unresolved"
+  | "correction_changed_nothing"
+  | "definition_blank"
+  | "implied_payload_conflict"
+  | "incomplete_mode_resolved"
+  | "input_invalid"
+  | "missing_fields_invalid"
+  | "next_action_invalid"
+  | "ordinary_payload_conflict"
+  | "permission_candidate_mismatch"
+  | "response_blank"
+  | "simple_work_fields"
+  | "target_invalid"
+  | "target_pair_invalid"
+  | "timing_constraint_invalid"
+  | "unsafe_relation"
+  | "unresolved_work_help";
+
+export type DecisionSemanticResult =
+  | { ok: true }
+  | { ok: false; reason: DecisionSemanticFailureReason };
+
 function validFutureSingaporeTarget(value: string, now: Date): boolean {
   const match = TARGET_PATTERN.exec(value);
   if (!match) {
@@ -56,6 +81,64 @@ function expectedMissingFields(
   return fields;
 }
 
+function canonicalNextAction(
+  decision: DecisionResult,
+): DecisionResult["nextAction"] {
+  switch (decision.inputClass) {
+    case "ordinary_question":
+      return "answer";
+    case "implied_intention":
+      return "ask_permission";
+    case "explicit_commitment":
+      if (decision.definitionOfDone === null) {
+        return "ask_definition";
+      }
+      if (decision.targetAt === null) {
+        return "ask_target";
+      }
+      if (
+        decision.commitmentMode === "possible_work_session" &&
+        decision.durationMinutes === null
+      ) {
+        return "offer_work_window";
+      }
+      return "ready";
+  }
+}
+
+export function canonicalizeDecision(
+  decision: DecisionResult,
+  input: DecisionInput,
+): DecisionResult {
+  const coreIsIncomplete =
+    decision.definitionOfDone === null || decision.targetAt === null;
+  const commitmentMode = coreIsIncomplete
+    ? "unresolved"
+    : decision.commitmentMode;
+  const targetTimeZone =
+    decision.targetAt !== null && TARGET_PATTERN.test(decision.targetAt)
+      ? "Asia/Singapore"
+      : decision.targetTimeZone;
+  const turnRelation =
+    input.context.phase === "none"
+      ? decision.inputClass === "ordinary_question"
+        ? "none"
+        : "new_request"
+      : decision.turnRelation;
+  const projected = {
+    ...decision,
+    commitmentMode,
+    offerWorkWindowHelp: false,
+    targetTimeZone,
+    turnRelation,
+  };
+  return {
+    ...projected,
+    missingFields: expectedMissingFields(projected),
+    nextAction: canonicalNextAction(projected),
+  };
+}
+
 function sameItems(left: readonly string[], right: readonly string[]): boolean {
   return (
     left.length === right.length &&
@@ -63,57 +146,63 @@ function sameItems(left: readonly string[], right: readonly string[]): boolean {
   );
 }
 
-function validCandidateFields(
+function candidateFailureReason(
   fields: DecisionCandidateFields | DecisionResult,
   now: Date,
-): boolean {
+): DecisionSemanticFailureReason | undefined {
   if (
     fields.definitionOfDone !== null &&
     fields.definitionOfDone.trim().length === 0
   ) {
-    return false;
+    return "definition_blank";
   }
   if (
     fields.timingConstraints.some(
       (constraint) => constraint.trim().length === 0,
     )
   ) {
-    return false;
+    return "timing_constraint_invalid";
   }
   if (
     (fields.targetAt === null) !==
     (fields.targetTimeZone === null)
   ) {
-    return false;
+    return "target_pair_invalid";
   }
   if (
     fields.targetAt !== null &&
     (fields.targetTimeZone !== "Asia/Singapore" ||
       !validFutureSingaporeTarget(fields.targetAt, now))
   ) {
-    return false;
+    return "target_invalid";
   }
   const coreIsIncomplete =
     fields.definitionOfDone === null || fields.targetAt === null;
   if (coreIsIncomplete && fields.commitmentMode !== "unresolved") {
-    return false;
+    return "incomplete_mode_resolved";
   }
   if (
     fields.commitmentMode === "unresolved" &&
-    (fields.offerWorkWindowHelp || fields.durationMinutes !== null)
+    fields.offerWorkWindowHelp
   ) {
-    return false;
+    return "unresolved_work_help";
   }
   if (
     fields.commitmentMode === "simple_action" &&
     (fields.offerWorkWindowHelp || fields.durationMinutes !== null)
   ) {
-    return false;
+    return "simple_work_fields";
   }
-  return !(
+  if (
     fields.commitmentMode !== "possible_work_session" &&
-    (fields.offerWorkWindowHelp || fields.durationMinutes !== null)
-  );
+    fields.offerWorkWindowHelp
+  ) {
+    return "unresolved_work_help";
+  }
+  if (!coreIsIncomplete && fields.commitmentMode === "unresolved") {
+    return "complete_mode_unresolved";
+  }
+  return undefined;
 }
 
 export function validateDecisionInputSemantics(
@@ -127,7 +216,7 @@ export function validateDecisionInputSemantics(
   if (phase === "none") {
     return fields === null;
   }
-  if (fields === null || !validCandidateFields(fields, now)) {
+  if (fields === null || candidateFailureReason(fields, now)) {
     return false;
   }
 
@@ -281,69 +370,78 @@ function allowedRelationTuple(
   }
 }
 
-function relationFieldsAreValid(
+function relationFailureReason(
   input: DecisionInput,
   decision: DecisionResult,
-): boolean {
+): DecisionSemanticFailureReason | undefined {
   const contextFields = input.context.fields;
   if (contextFields === null) {
-    return true;
+    return undefined;
   }
   const outputFields = candidateFields(decision);
   switch (decision.turnRelation) {
     case "permission_accepted":
-      return sameCandidateFields(contextFields, outputFields);
+      return sameCandidateFields(contextFields, outputFields)
+        ? undefined
+        : "permission_candidate_mismatch";
     case "clarification_continuation":
       if (input.context.phase === "awaiting_permission") {
-        return true;
+        return undefined;
       }
-      return (
-        preservesPopulatedFields(contextFields, outputFields) &&
-        fillsNullField(contextFields, outputFields) &&
-        (outputFields.definitionOfDone === null ||
-          outputFields.targetAt === null ||
-          outputFields.commitmentMode !== "unresolved")
-      );
+      if (!preservesPopulatedFields(contextFields, outputFields)) {
+        return "clarification_context_mutation";
+      }
+      if (!fillsNullField(contextFields, outputFields)) {
+        return "clarification_filled_nothing";
+      }
+      return undefined;
     case "correction":
-      return changesPopulatedField(contextFields, outputFields);
+      return changesPopulatedField(contextFields, outputFields)
+        ? undefined
+        : "correction_changed_nothing";
     case "none":
     case "new_request":
     case "permission_declined":
     case "separate_request":
-      return true;
+      return undefined;
   }
 }
 
-export function validateDecisionSemantics(
+function failed(
+  reason: DecisionSemanticFailureReason,
+): DecisionSemanticResult {
+  return { ok: false, reason };
+}
+
+export function evaluateDecisionSemantics(
   decision: DecisionResult,
   input: DecisionInput,
   now: Date,
-): boolean {
+  sourceDecision: DecisionResult = decision,
+): DecisionSemanticResult {
   if (!validateDecisionInputSemantics(input, now)) {
-    return false;
+    return failed("input_invalid");
   }
   if (decision.response.trim().length === 0) {
-    return false;
+    return failed("response_blank");
   }
-  if (!validCandidateFields(decision, now)) {
-    return false;
+  const candidateReason = candidateFailureReason(decision, now);
+  if (candidateReason) {
+    return failed(candidateReason);
   }
-  if (
-    (decision.inputClass === "explicit_commitment" &&
-      decision.commitmentMode === "unresolved" &&
-      decision.definitionOfDone !== null &&
-      decision.targetAt !== null) ||
-    !allowedRelationTuple(input, decision) ||
-    !relationFieldsAreValid(input, decision)
-  ) {
-    return false;
+  if (!allowedRelationTuple(input, decision)) {
+    return failed("unsafe_relation");
+  }
+  const relationReason = relationFailureReason(input, sourceDecision);
+  if (relationReason) {
+    return failed(relationReason);
   }
   if (
     new Set(decision.missingFields).size !==
       decision.missingFields.length ||
     !sameItems(decision.missingFields, expectedMissingFields(decision))
   ) {
-    return false;
+    return failed("missing_fields_invalid");
   }
 
   switch (decision.inputClass) {
@@ -358,7 +456,9 @@ export function validateDecisionSemantics(
         decision.commitmentMode === "unresolved" &&
         decision.timingConstraints.length === 0 &&
         decision.nextAction === "answer"
-      );
+      )
+        ? { ok: true }
+        : failed("ordinary_payload_conflict");
     case "implied_intention":
       return (
         decision.durationMinutes === null &&
@@ -367,30 +467,51 @@ export function validateDecisionSemantics(
           decision.definitionOfDone === null ||
           decision.targetAt === null) &&
         decision.nextAction === "ask_permission"
-      );
+      )
+        ? { ok: true }
+        : failed("implied_payload_conflict");
     case "explicit_commitment": {
       const [firstMissing] = decision.missingFields;
       if (firstMissing === "definition_of_done") {
-        return decision.nextAction === "ask_definition";
+        return decision.nextAction === "ask_definition"
+          ? { ok: true }
+          : failed("next_action_invalid");
       }
       if (firstMissing === "target") {
-        return decision.nextAction === "ask_target";
+        return decision.nextAction === "ask_target"
+          ? { ok: true }
+          : failed("next_action_invalid");
       }
       if (decision.commitmentMode === "simple_action") {
         return (
           decision.nextAction === "ready" &&
           !decision.offerWorkWindowHelp
-        );
+        )
+          ? { ok: true }
+          : failed("next_action_invalid");
       }
       if (decision.durationMinutes === null) {
-        return (
-          decision.nextAction ===
-            (decision.offerWorkWindowHelp
-              ? "ask_duration"
-              : "offer_work_window")
-        );
+        return decision.nextAction === "offer_work_window"
+          ? { ok: true }
+          : failed("next_action_invalid");
       }
-      return decision.nextAction === "ready";
+      return decision.nextAction === "ready"
+        ? { ok: true }
+        : failed("next_action_invalid");
     }
   }
+}
+
+export function validateDecisionSemantics(
+  decision: DecisionResult,
+  input: DecisionInput,
+  now: Date,
+): boolean {
+  const canonical = canonicalizeDecision(decision, input);
+  return evaluateDecisionSemantics(
+    canonical,
+    input,
+    now,
+    decision,
+  ).ok;
 }
