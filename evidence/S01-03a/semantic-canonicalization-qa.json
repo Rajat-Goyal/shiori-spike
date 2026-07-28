@@ -1,0 +1,141 @@
+{
+  "story_id": "S01-03a",
+  "captured_at": "2026-07-28T17:56:52Z",
+  "implementation_commit": "b62aa0905a0138432704c7c32455606a3d04896d",
+  "result": "pass",
+  "runtime": {
+    "node": "v26.5.0",
+    "npm": "11.17.0"
+  },
+  "commands": [
+    {
+      "command": "npm run test --workspace @shiori/server -- src/decision/engine.test.ts src/telegram/conversation.test.ts src/conversation/repository.test.ts",
+      "result": "pass",
+      "test_files_passed": 3,
+      "tests_passed": 165
+    },
+    {
+      "command": "npm run check",
+      "result": "pass",
+      "server_test_files_passed": 24,
+      "server_tests_passed": 389,
+      "release_verifier_tests_passed": 22,
+      "server_build": "pass",
+      "web_build": "pass",
+      "browser_tests_passed": 50
+    }
+  ],
+  "canonicalization_boundary": {
+    "result": "pass",
+    "derived_fields": [
+      "commitmentMode when core fields are incomplete",
+      "missingFields",
+      "nextAction",
+      "offerWorkWindowHelp",
+      "targetTimeZone for an exact +08:00 target",
+      "turnRelation for phase none"
+    ],
+    "idempotent": true,
+    "invalid_target_canonicalized_to_valid": false,
+    "ambiguous_complete_mode_authorized": false,
+    "consequential_action_authorized": false,
+    "owner_confirmation_still_required": true
+  },
+  "incomplete_explicit_duration": {
+    "result": "pass",
+    "supported_values": [
+      30,
+      60,
+      90,
+      120
+    ],
+    "supported_duration_preserved_in_draft": true,
+    "unsupported_duration_rejected_structurally": true,
+    "mode_remains_unresolved": true,
+    "multi_turn_context_preserves_duration": true
+  },
+  "semantic_retry": {
+    "result": "pass",
+    "maximum_attempts": 2,
+    "shared_timeout_milliseconds": 30000,
+    "shared_abort_signal": true,
+    "shared_validation_time": true,
+    "same_bounded_input": true,
+    "second_attempt_addition": "one fixed reason-specific correction",
+    "first_provider_output_included": false,
+    "provider_error_included": false,
+    "dynamic_identifier_included": false,
+    "third_attempt_possible": false
+  },
+  "telemetry": {
+    "result": "pass",
+    "reason_is_closed_union": true,
+    "failure_event_keys": [
+      "event",
+      "attemptCount",
+      "reason"
+    ],
+    "recovery_event_keys": [
+      "event",
+      "attemptCount",
+      "reason"
+    ],
+    "raw_owner_text_present": false,
+    "raw_provider_output_present": false,
+    "provider_error_present": false,
+    "credential_present": false,
+    "telegram_identifier_present": false,
+    "observer_failure_changes_result": false
+  },
+  "legacy_audit_payload": {
+    "result": "pass",
+    "key_count": 11,
+    "keys": [
+      "definitionOfDone",
+      "durationMinutes",
+      "missingFields",
+      "nextAction",
+      "offerWorkWindowHelp",
+      "possibleWorkSession",
+      "simpleAction",
+      "targetAt",
+      "targetTimeZone",
+      "timingConstraints",
+      "turnRelation"
+    ],
+    "commitmentMode_present": false,
+    "simple_action_mapping_exact": true,
+    "possible_work_session_mapping_exact": true
+  },
+  "fail_closed_regressions": {
+    "result": "pass",
+    "invalid_calendar_date_rejected": true,
+    "past_target_rejected": true,
+    "wrong_offset_rejected": true,
+    "permission_candidate_mismatch_rejected": true,
+    "clarification_context_mutation_rejected": true,
+    "unsupported_duration_rejected": true,
+    "permission_copy_exactness_preserved": true
+  },
+  "mutation_boundary": {
+    "result": "pass",
+    "repository_commands_between_attempts": 0,
+    "repository_audits_between_attempts": 0,
+    "successful_recovery_repository_applications": 1,
+    "failed_recovery_preserves_snapshot": true,
+    "commitment_created_before_confirmation": false,
+    "scheduled_message_created_before_confirmation": false
+  },
+  "external_effects": {
+    "live_provider_request_performed": false,
+    "database_migration_added": false,
+    "deployment_performed": false
+  },
+  "retention": {
+    "raw_input_recorded": false,
+    "raw_output_recorded": false,
+    "provider_trace_recorded": false,
+    "credential_recorded": false,
+    "chain_of_thought_recorded": false
+  }
+}
