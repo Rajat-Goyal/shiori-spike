@@ -322,10 +322,7 @@ export function validateDecisionSemantics(
   if (!validateDecisionInputSemantics(input, now)) {
     return false;
   }
-  if (
-    decision.response !== null &&
-    decision.response.trim().length === 0
-  ) {
+  if (decision.response.trim().length === 0) {
     return false;
   }
   if (!validCandidateFields(decision, now)) {
@@ -360,8 +357,7 @@ export function validateDecisionSemantics(
         !decision.offerWorkWindowHelp &&
         decision.commitmentMode === "unresolved" &&
         decision.timingConstraints.length === 0 &&
-        decision.nextAction === "answer" &&
-        decision.response !== null
+        decision.nextAction === "answer"
       );
     case "implied_intention":
       return (
@@ -370,28 +366,20 @@ export function validateDecisionSemantics(
         (decision.commitmentMode !== "unresolved" ||
           decision.definitionOfDone === null ||
           decision.targetAt === null) &&
-        decision.nextAction === "ask_permission" &&
-        decision.response !== null
+        decision.nextAction === "ask_permission"
       );
     case "explicit_commitment": {
       const [firstMissing] = decision.missingFields;
       if (firstMissing === "definition_of_done") {
-        return (
-          decision.nextAction === "ask_definition" &&
-          decision.response !== null
-        );
+        return decision.nextAction === "ask_definition";
       }
       if (firstMissing === "target") {
-        return (
-          decision.nextAction === "ask_target" &&
-          decision.response !== null
-        );
+        return decision.nextAction === "ask_target";
       }
       if (decision.commitmentMode === "simple_action") {
         return (
           decision.nextAction === "ready" &&
-          !decision.offerWorkWindowHelp &&
-          decision.response !== null
+          !decision.offerWorkWindowHelp
         );
       }
       if (decision.durationMinutes === null) {
@@ -399,14 +387,10 @@ export function validateDecisionSemantics(
           decision.nextAction ===
             (decision.offerWorkWindowHelp
               ? "ask_duration"
-              : "offer_work_window") &&
-          decision.response !== null
+              : "offer_work_window")
         );
       }
-      return (
-        decision.nextAction === "ready" &&
-        decision.response !== null
-      );
+      return decision.nextAction === "ready";
     }
   }
 }

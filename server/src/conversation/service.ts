@@ -1,7 +1,10 @@
 import type {
+  DecisionAttemptCount,
   DecisionEngine,
   DecisionFailureClass,
+  DecisionFailureStage,
   DecisionOutcome,
+  DecisionRetryRecovery,
 } from "../decision/engine.js";
 import type {
   DecisionCandidateFields,
@@ -40,13 +43,20 @@ type ConversationServiceOptions = {
   decisionEngine: DecisionEngine;
   modelId: string;
   onDecisionFailure?: (event: DecisionFailureEvent) => void;
+  onDecisionRetryRecovered?: (event: DecisionRetryRecoveredEvent) => void;
   promptVersion: string;
   repository: ConversationRepository;
 };
 
 export type DecisionFailureEvent = {
+  attemptCount: DecisionAttemptCount;
   event: "decision_failure";
   failureClass: DecisionFailureClass;
+  stage: DecisionFailureStage;
+};
+
+export type DecisionRetryRecoveredEvent = DecisionRetryRecovery & {
+  event: "decision_retry_recovered";
 };
 
 type CompleteReply = {
@@ -175,8 +185,7 @@ function safeFailure(snapshot: ConversationSnapshot): string {
 }
 
 function responseText(decision: DecisionResult): string | undefined {
-  const response = decision.response?.trim();
-  return response ? decision.response! : undefined;
+  return decision.response.trim() ? decision.response : undefined;
 }
 
 function collectedReply(
@@ -208,6 +217,9 @@ export class ConversationService {
   readonly #onDecisionFailure:
     | ((event: DecisionFailureEvent) => void)
     | undefined;
+  readonly #onDecisionRetryRecovered:
+    | ((event: DecisionRetryRecoveredEvent) => void)
+    | undefined;
   readonly #promptVersion: string;
   readonly #repository: ConversationRepository;
 
@@ -215,6 +227,7 @@ export class ConversationService {
     this.#decisionEngine = options.decisionEngine;
     this.#modelId = options.modelId;
     this.#onDecisionFailure = options.onDecisionFailure;
+    this.#onDecisionRetryRecovered = options.onDecisionRetryRecovered;
     this.#promptVersion = options.promptVersion;
     this.#repository = options.repository;
   }
@@ -241,14 +254,21 @@ export class ConversationService {
         decisionInput(ownerText, snapshot),
       );
     } catch {
-      outcome = { failure: "http", ok: false };
+      outcome = {
+        attemptCount: 0,
+        failure: "http",
+        ok: false,
+        stage: "request",
+      };
     }
 
     if (!outcome.ok) {
       try {
         this.#onDecisionFailure?.({
           event: "decision_failure",
+          stage: outcome.stage,
           failureClass: outcome.failure,
+          attemptCount: outcome.attemptCount,
         });
       } catch {
         // Operational logging must never change the fail-closed response.
@@ -263,6 +283,19 @@ export class ConversationService {
         snapshot,
         safeFailure(snapshot),
       );
+    }
+
+    if (outcome.recovery) {
+      try {
+        this.#onDecisionRetryRecovered?.({
+          event: "decision_retry_recovered",
+          stage: outcome.recovery.stage,
+          failureClass: outcome.recovery.failureClass,
+          attemptCount: outcome.recovery.attemptCount,
+        });
+      } catch {
+        // Operational logging must never change the recovered decision.
+      }
     }
 
     switch (snapshot.kind) {

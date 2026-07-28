@@ -195,6 +195,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
         onDecisionFailure: (event) => {
           app.log.warn(event);
         },
+        onDecisionRetryRecovered: (event) => {
+          app.log.warn(event);
+        },
         promptVersion: options.config.openaiPromptVersion,
         repository: new SupabaseConversationRepository({
           supabaseSecretKey: options.config.supabaseSecretKey,

@@ -171,7 +171,6 @@ export const decisionSpec = {
       kind: "string",
       maxLength: 1_000,
       minLength: 1,
-      nullable: true,
     },
     turnRelation: {
       enum: [

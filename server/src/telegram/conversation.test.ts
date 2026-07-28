@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
+  DecisionAttemptCount,
   DecisionEngine,
   DecisionFailureClass,
+  DecisionFailureStage,
   DecisionOutcome,
 } from "../decision/engine.js";
+import { OpenAIDecisionEngine } from "../decision/engine.js";
 import type {
   DecisionContextFields,
   DecisionResult,
@@ -204,6 +207,7 @@ function controlled(
 ) {
   const repository = new ControlledRepository(snapshot);
   const decisionFailureEvents = vi.fn();
+  const decisionRetryRecoveredEvents = vi.fn();
   const decisionEngine: DecisionEngine = {
     decide: vi.fn(async () => outcome),
   };
@@ -211,12 +215,14 @@ function controlled(
     decisionEngine,
     modelId: "gpt-test-model",
     onDecisionFailure: decisionFailureEvents,
+    onDecisionRetryRecovered: decisionRetryRecoveredEvents,
     promptVersion: "shiori-test-v1",
     repository,
   });
   return {
     decide: vi.mocked(decisionEngine.decide),
     decisionFailureEvents,
+    decisionRetryRecoveredEvents,
     repository,
     service,
   };
@@ -226,7 +232,115 @@ function success(result: DecisionResult): DecisionOutcome {
   return { decision: result, ok: true };
 }
 
+const failureStage = {
+  http: "request",
+  provider_error: "provider",
+  incomplete: "completion",
+  refusal: "completion",
+  missing_output: "completion",
+  non_json: "schema",
+  schema: "schema",
+  semantic: "semantic",
+  timeout: "request",
+} as const satisfies Record<DecisionFailureClass, DecisionFailureStage>;
+
+function failureOutcome(
+  failure: DecisionFailureClass,
+  attemptCount: DecisionAttemptCount = 1,
+): DecisionOutcome {
+  return {
+    attemptCount,
+    failure,
+    ok: false,
+    stage: failureStage[failure],
+  };
+}
+
+function providerResponse(value: unknown): Response {
+  return Response.json({
+    output: [
+      {
+        content: [
+          {
+            text: JSON.stringify(value),
+            type: "output_text",
+          },
+        ],
+        status: "completed",
+        type: "message",
+      },
+    ],
+    status: "completed",
+  });
+}
+
 describe("ConversationService", () => {
+  it("applies repository state once only after a semantic retry succeeds", async () => {
+    const repository = new ControlledRepository({ kind: "none" });
+    const validDecision = decision(completeFields);
+    const fetchFromOpenAI = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () => {
+        expect(repository.commands).toHaveLength(0);
+        return providerResponse({
+          ...validDecision,
+          targetTimeZone: "UTC",
+        });
+      })
+      .mockImplementationOnce(async () => {
+        expect(repository.commands).toHaveLength(0);
+        return providerResponse(validDecision);
+      });
+    const decisionFailureEvents = vi.fn();
+    const decisionRetryRecoveredEvents = vi.fn();
+    const service = new ConversationService({
+      decisionEngine: new OpenAIDecisionEngine({
+        apiKey: "unit-test-api-key",
+        fetch: fetchFromOpenAI,
+        model: "gpt-test-model",
+        now: () => new Date("2026-07-26T00:00:00.000Z"),
+        promptVersion: "shiori-test-v1",
+      }),
+      modelId: "gpt-test-model",
+      onDecisionFailure: decisionFailureEvents,
+      onDecisionRetryRecovered: decisionRetryRecoveredEvents,
+      promptVersion: "shiori-test-v1",
+      repository,
+    });
+
+    await expect(
+      service.handle(7000, "private owner input"),
+    ).resolves.toEqual(
+      confirmationSummary(completeFields, {
+        id: "11111111-1111-4111-8111-111111111111",
+        version: 1,
+      }),
+    );
+
+    expect(fetchFromOpenAI).toHaveBeenCalledTimes(2);
+    expect(repository.commands).toHaveLength(1);
+    expect(repository.audits).toHaveLength(1);
+    expect(decisionFailureEvents).not.toHaveBeenCalled();
+    expect(decisionRetryRecoveredEvents).toHaveBeenCalledOnce();
+    expect(decisionRetryRecoveredEvents).toHaveBeenCalledWith({
+      attemptCount: 2,
+      event: "decision_retry_recovered",
+      failureClass: "semantic",
+      stage: "output_semantic",
+    });
+    expect(
+      Object.keys(decisionRetryRecoveredEvents.mock.calls[0][0]),
+    ).toEqual([
+      "event",
+      "stage",
+      "failureClass",
+      "attemptCount",
+    ]);
+    expect(
+      JSON.stringify(decisionRetryRecoveredEvents.mock.calls),
+    ).not.toMatch(/private|unit-test|UTC|Submit/);
+  });
+
   it.each([
     {
       copy: conversationCopy.missingDefinition,
@@ -275,6 +389,7 @@ describe("ConversationService", () => {
         "private raw owner sentinel",
       );
       expect(test.repository.audits).toHaveLength(1);
+      expect(test.decisionRetryRecoveredEvents).not.toHaveBeenCalled();
       expect(test.repository.audits[0]).toMatchObject({
         inputClass: "explicit_commitment",
         modelId: "gpt-test-model",
@@ -850,7 +965,7 @@ describe("ConversationService", () => {
     "preserves state for bounded decision failure %s",
     async (failure) => {
       const snapshot = activeDraft("complete", completeFields, 10);
-      const test = controlled(snapshot, { failure, ok: false });
+      const test = controlled(snapshot, failureOutcome(failure));
 
       await expect(test.service.handle(7015, "private sentinel")).resolves.toBe(
         conversationCopy.failureWithDraft,
@@ -868,8 +983,10 @@ describe("ConversationService", () => {
       expect(test.repository.audits).toHaveLength(0);
       expect(test.decisionFailureEvents).toHaveBeenCalledOnce();
       expect(test.decisionFailureEvents).toHaveBeenCalledWith({
+        attemptCount: 1,
         event: "decision_failure",
         failureClass: failure,
+        stage: failureStage[failure],
       });
       const serializedEvent = JSON.stringify(
         test.decisionFailureEvents.mock.calls,
@@ -878,7 +995,9 @@ describe("ConversationService", () => {
       expect(serializedEvent).not.toContain("unit-test");
       expect(Object.keys(test.decisionFailureEvents.mock.calls[0][0])).toEqual([
         "event",
+        "stage",
         "failureClass",
+        "attemptCount",
       ]);
     },
   );
@@ -888,7 +1007,7 @@ describe("ConversationService", () => {
     const repository = new ControlledRepository(snapshot);
     const service = new ConversationService({
       decisionEngine: {
-        decide: vi.fn(async () => ({ failure: "timeout", ok: false })),
+        decide: vi.fn(async () => failureOutcome("timeout")),
       },
       modelId: "gpt-test-model",
       onDecisionFailure: () => {
@@ -906,6 +1025,40 @@ describe("ConversationService", () => {
       processingResult: "conversation_failed",
       updateId: 7015,
     });
+  });
+
+  it("keeps a recovered decision when recovery logging fails", async () => {
+    const repository = new ControlledRepository({ kind: "none" });
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => ({
+          decision: decision(completeFields),
+          ok: true,
+          recovery: {
+            attemptCount: 2,
+            failureClass: "semantic",
+            stage: "output_semantic",
+          },
+        })),
+      },
+      modelId: "gpt-test-model",
+      onDecisionRetryRecovered: () => {
+        throw new Error("private recovery logging failure");
+      },
+      promptVersion: "shiori-test-v1",
+      repository,
+    });
+
+    await expect(
+      service.handle(7016, "private owner input"),
+    ).resolves.toEqual(
+      confirmationSummary(completeFields, {
+        id: "11111111-1111-4111-8111-111111111111",
+        version: 1,
+      }),
+    );
+    expect(repository.commands).toHaveLength(1);
+    expect(repository.audits).toHaveLength(1);
   });
 
   it("classifies an unexpected engine rejection as opaque HTTP failure", async () => {
@@ -928,8 +1081,10 @@ describe("ConversationService", () => {
       conversationCopy.failureWithDraft,
     );
     expect(decisionFailureEvents).toHaveBeenCalledWith({
+      attemptCount: 0,
       event: "decision_failure",
       failureClass: "http",
+      stage: "request",
     });
     expect(JSON.stringify(decisionFailureEvents.mock.calls)).not.toMatch(
       /private|credential|trace/,

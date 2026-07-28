@@ -21,14 +21,32 @@ export type DecisionFailureClass =
   | "semantic"
   | "timeout";
 
+export type DecisionFailureStage =
+  | "request"
+  | "provider"
+  | "completion"
+  | "schema"
+  | "semantic";
+
+export type DecisionAttemptCount = 0 | 1 | 2;
+
+export type DecisionRetryRecovery = {
+  attemptCount: 2;
+  failureClass: "semantic";
+  stage: "output_semantic";
+};
+
 export type DecisionOutcome =
   | {
       decision: DecisionResult;
       ok: true;
+      recovery?: DecisionRetryRecovery;
     }
   | {
       failure: DecisionFailureClass;
       ok: false;
+      attemptCount: DecisionAttemptCount;
+      stage: DecisionFailureStage;
     };
 
 export interface DecisionEngine {
@@ -46,8 +64,37 @@ type OpenAIDecisionEngineOptions = {
 const RESPONSES_URL = "https://api.openai.com/v1/responses";
 const DECISION_TIMEOUT_MS = 30_000;
 
-function failed(failure: DecisionFailureClass): DecisionOutcome {
-  return { failure, ok: false };
+function stageForFailure(
+  failure: DecisionFailureClass,
+): DecisionFailureStage {
+  switch (failure) {
+    case "http":
+    case "timeout":
+      return "request";
+    case "provider_error":
+      return "provider";
+    case "incomplete":
+    case "missing_output":
+    case "refusal":
+      return "completion";
+    case "non_json":
+    case "schema":
+      return "schema";
+    case "semantic":
+      return "semantic";
+  }
+}
+
+function failed(
+  failure: DecisionFailureClass,
+  attemptCount: DecisionAttemptCount,
+): DecisionOutcome {
+  return {
+    attemptCount,
+    failure,
+    ok: false,
+    stage: stageForFailure(failure),
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -195,14 +242,58 @@ export class OpenAIDecisionEngine implements DecisionEngine {
   }
 
   async decide(input: DecisionInput): Promise<DecisionOutcome> {
-    let response: Response;
     const structuredInput = parseDecisionInputStructure(input);
+    const validationNow = this.#now();
     if (
       !structuredInput ||
-      !validateDecisionInputSemantics(structuredInput, this.#now())
+      !validateDecisionInputSemantics(structuredInput, validationNow)
     ) {
-      return failed("semantic");
+      return failed("semantic", 0);
     }
+
+    const signal = AbortSignal.timeout(DECISION_TIMEOUT_MS);
+    const first = await this.#requestDecision(
+      structuredInput,
+      signal,
+      validationNow,
+      1,
+    );
+    if (
+      first.ok ||
+      first.failure !== "semantic"
+    ) {
+      return first;
+    }
+    if (signal.aborted) {
+      return failed("timeout", 1);
+    }
+    const second = await this.#requestDecision(
+      structuredInput,
+      signal,
+      validationNow,
+      2,
+    );
+    return second.ok
+      ? {
+          ...second,
+          recovery: {
+            attemptCount: 2,
+            failureClass: "semantic",
+            stage: "output_semantic",
+          },
+        }
+      : second;
+  }
+
+  async #requestDecision(
+    structuredInput: DecisionInput,
+    signal: AbortSignal,
+    validationNow: Date,
+    attemptCount: 1 | 2,
+  ): Promise<DecisionOutcome> {
+    let response: Response;
+    const fail = (failure: DecisionFailureClass) =>
+      failed(failure, attemptCount);
 
     try {
       response = await this.#fetch(RESPONSES_URL, {
@@ -227,21 +318,21 @@ export class OpenAIDecisionEngine implements DecisionEngine {
           "Content-Type": "application/json",
         },
         method: "POST",
-        signal: AbortSignal.timeout(DECISION_TIMEOUT_MS),
+        signal,
       });
     } catch (error) {
-      return failed(isTimeout(error) ? "timeout" : "http");
+      return fail(isTimeout(error) ? "timeout" : "http");
     }
 
     if (!response.ok) {
-      return failed("http");
+      return fail("http");
     }
 
     let body: unknown;
     try {
       body = await response.json();
     } catch (error) {
-      return failed(isTimeout(error) ? "timeout" : "provider_error");
+      return fail(isTimeout(error) ? "timeout" : "provider_error");
     }
 
     const record = asRecord(body);
@@ -249,40 +340,40 @@ export class OpenAIDecisionEngine implements DecisionEngine {
       !record ||
       (record.error !== undefined && record.error !== null)
     ) {
-      return failed("provider_error");
+      return fail("provider_error");
     }
     const completion = completionState(record);
     if ("failure" in completion) {
-      return failed(completion.failure);
+      return fail(completion.failure);
     }
     if (containsRefusal(record, completion.messages)) {
-      return failed("refusal");
+      return fail("refusal");
     }
 
     const outputText = readOutputText(record, completion.messages);
     if (outputText === undefined || outputText.length === 0) {
-      return failed("missing_output");
+      return fail("missing_output");
     }
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(outputText);
     } catch {
-      return failed("non_json");
+      return fail("non_json");
     }
 
     const decision = parseDecisionStructure(parsed);
     if (!decision) {
-      return failed("schema");
+      return fail("schema");
     }
     if (
       !validateDecisionSemantics(
         decision,
         structuredInput,
-        this.#now(),
+        validationNow,
       )
     ) {
-      return failed("semantic");
+      return fail("semantic");
     }
 
     return { decision, ok: true };

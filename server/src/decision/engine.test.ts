@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  type DecisionAttemptCount,
   type DecisionFailureClass,
+  type DecisionFailureStage,
   OpenAIDecisionEngine,
 } from "./engine.js";
 import {
@@ -122,6 +124,30 @@ function engineWith(fetchFromOpenAI: typeof fetch) {
   });
 }
 
+const failureStage = {
+  http: "request",
+  provider_error: "provider",
+  incomplete: "completion",
+  refusal: "completion",
+  missing_output: "completion",
+  non_json: "schema",
+  schema: "schema",
+  semantic: "semantic",
+  timeout: "request",
+} as const satisfies Record<DecisionFailureClass, DecisionFailureStage>;
+
+function failureOutcome(
+  failure: DecisionFailureClass,
+  attemptCount: DecisionAttemptCount = 1,
+) {
+  return {
+    attemptCount,
+    failure,
+    ok: false,
+    stage: failureStage[failure],
+  } as const;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -180,9 +206,24 @@ describe("DecisionEngine contract", () => {
   it("generates schema and runtime validation from the same field spec", () => {
     expect(decisionJsonSchema).toMatchObject({
       additionalProperties: false,
+      properties: {
+        response: {
+          maxLength: 1_000,
+          minLength: 1,
+          type: "string",
+        },
+      },
       required: Object.keys(decisionSpec.fields),
       type: "object",
     });
+    expect(
+      (
+        decisionJsonSchema.properties as Record<
+          string,
+          Record<string, unknown>
+        >
+      ).response,
+    ).not.toHaveProperty("anyOf");
     expect(parseDecisionStructure(explicitDecision)).toEqual(explicitDecision);
     expect(parseDecisionInputStructure(privateDecisionInput)).toEqual(
       privateDecisionInput,
@@ -670,8 +711,7 @@ describe("DecisionEngine contract", () => {
         providerResponse(explicitDecision),
       );
       await expect(engineWith(fetchFromOpenAI).decide(input)).resolves.toEqual({
-        failure: "semantic",
-        ok: false,
+        ...failureOutcome("semantic", 0),
       });
       expect(fetchFromOpenAI).not.toHaveBeenCalled();
     });
@@ -688,8 +728,7 @@ describe("DecisionEngine contract", () => {
       await expect(
         engineWith(fetchFromOpenAI).decide(malformed),
       ).resolves.toEqual({
-        failure: "semantic",
-        ok: false,
+        ...failureOutcome("semantic", 0),
       });
       expect(fetchFromOpenAI).not.toHaveBeenCalled();
     });
@@ -718,8 +757,7 @@ describe("DecisionEngine contract", () => {
           ownerText: "x".repeat(4_097),
         }),
       ).resolves.toEqual({
-        failure: "semantic",
-        ok: false,
+        ...failureOutcome("semantic", 0),
       });
       expect(fetchOverMaximum).not.toHaveBeenCalled();
     });
@@ -779,8 +817,7 @@ describe("DecisionEngine contract", () => {
             contextInput("awaiting_permission", fields),
           ),
         ).resolves.toEqual({
-          failure: "semantic",
-          ok: false,
+          ...failureOutcome("semantic", 0),
         });
         expect(fetchOverMaximum).not.toHaveBeenCalled();
       }
@@ -1635,7 +1672,7 @@ describe("DecisionEngine contract", () => {
 
       await expect(
         engineWith(fetchFromOpenAI).decide(privateDecisionInput),
-      ).resolves.toEqual({ failure: expected, ok: false });
+      ).resolves.toEqual(failureOutcome(expected));
     },
   );
 
@@ -1660,12 +1697,117 @@ describe("DecisionEngine contract", () => {
 
       await expect(
         engineWith(fetchFromOpenAI).decide(privateDecisionInput),
-      ).resolves.toEqual({ failure: expected, ok: false });
+      ).resolves.toEqual(failureOutcome(expected));
     },
   );
 });
 
 describe("OpenAI decision failure boundary", () => {
+  it.each([
+    {
+      label: "null",
+      value: { ...explicitDecision, response: null },
+    },
+    {
+      label: "missing",
+      value: Object.fromEntries(
+        Object.entries(explicitDecision).filter(([key]) => key !== "response"),
+      ),
+    },
+    {
+      label: "empty",
+      value: { ...explicitDecision, response: "" },
+    },
+  ])(
+    "classifies a $label response field as schema failure without retry",
+    async ({ value }) => {
+      const fetchFromOpenAI = vi.fn(async () => providerResponse(value));
+
+      await expect(
+        engineWith(fetchFromOpenAI).decide(privateDecisionInput),
+      ).resolves.toEqual(failureOutcome("schema"));
+      expect(fetchFromOpenAI).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("retries one semantic failure with the same bounded request, deadline, input, and validation time", async () => {
+    const signal = new AbortController().signal;
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(signal);
+    const nowFromEngine = vi
+      .fn<() => Date>()
+      .mockReturnValueOnce(now)
+      .mockReturnValueOnce(new Date("2026-07-26T12:00:00.000Z"));
+    const firstDecision = {
+      ...explicitDecision,
+      targetTimeZone: "UTC",
+    };
+    const fetchFromOpenAI = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(providerResponse(firstDecision))
+      .mockResolvedValueOnce(providerResponse(explicitDecision));
+    const input = structuredClone(privateDecisionInput);
+    const engine = new OpenAIDecisionEngine({
+      apiKey,
+      fetch: fetchFromOpenAI,
+      model: "gpt-test-model",
+      now: nowFromEngine,
+      promptVersion: "shiori-test-v1",
+    });
+
+    await expect(engine.decide(input)).resolves.toEqual({
+      decision: explicitDecision,
+      ok: true,
+      recovery: {
+        attemptCount: 2,
+        failureClass: "semantic",
+        stage: "output_semantic",
+      },
+    });
+
+    expect(timeout).toHaveBeenCalledOnce();
+    expect(timeout).toHaveBeenCalledWith(30_000);
+    expect(nowFromEngine).toHaveBeenCalledOnce();
+    expect(fetchFromOpenAI).toHaveBeenCalledTimes(2);
+    const requests = fetchFromOpenAI.mock.calls.map(([, request]) => request);
+    expect(requests[0]?.signal).toBe(signal);
+    expect(requests[1]?.signal).toBe(signal);
+    expect(requests[1]?.body).toBe(requests[0]?.body);
+    expect(input).toEqual(privateDecisionInput);
+  });
+
+  it("returns the second semantic failure after exactly two attempts", async () => {
+    const invalidDecision = {
+      ...explicitDecision,
+      targetTimeZone: "UTC",
+    };
+    const fetchFromOpenAI = vi.fn(async () =>
+      providerResponse(invalidDecision),
+    );
+
+    await expect(
+      engineWith(fetchFromOpenAI).decide(privateDecisionInput),
+    ).resolves.toEqual(failureOutcome("semantic", 2));
+    expect(fetchFromOpenAI).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns a second-attempt timeout without a third request", async () => {
+    const firstDecision = {
+      ...explicitDecision,
+      targetTimeZone: "UTC",
+    };
+    const fetchFromOpenAI = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(providerResponse(firstDecision))
+      .mockRejectedValueOnce(
+        new DOMException("private retry timeout", "TimeoutError"),
+      );
+
+    await expect(
+      engineWith(fetchFromOpenAI).decide(privateDecisionInput),
+    ).resolves.toEqual(failureOutcome("timeout", 2));
+    expect(fetchFromOpenAI).toHaveBeenCalledTimes(2);
+  });
+
   it.each<{
     expected: DecisionFailureClass;
     fetch: () => Promise<Response>;
@@ -1781,12 +1923,15 @@ describe("OpenAI decision failure boundary", () => {
         }),
       label: "semantically invalid output",
     },
-  ])("returns only a bounded class for $label", async ({ expected, fetch }) => {
-    const outcome = await engineWith(fetch as typeof fetch).decide(
+  ])("returns only bounded metadata for $label", async ({ expected, fetch }) => {
+    const fetchFromOpenAI = vi.fn(fetch as typeof fetch);
+    const outcome = await engineWith(fetchFromOpenAI).decide(
       privateDecisionInput,
     );
 
-    expect(outcome).toEqual({ failure: expected, ok: false });
+    const attemptCount = expected === "semantic" ? 2 : 1;
+    expect(outcome).toEqual(failureOutcome(expected, attemptCount));
+    expect(fetchFromOpenAI).toHaveBeenCalledTimes(attemptCount);
     expect(JSON.stringify(outcome)).not.toContain(privateInput);
     expect(JSON.stringify(outcome)).not.toContain(apiKey);
     expect(JSON.stringify(outcome)).not.toContain("private");
@@ -1802,7 +1947,8 @@ describe("OpenAI decision failure boundary", () => {
 
     await expect(
       engineWith(fetchFromOpenAI).decide(privateDecisionInput),
-    ).resolves.toEqual({ failure: "timeout", ok: false });
+    ).resolves.toEqual(failureOutcome("timeout"));
+    expect(fetchFromOpenAI).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -1820,7 +1966,8 @@ describe("OpenAI decision failure boundary", () => {
 
     await expect(
       engineWith(fetchFromOpenAI).decide(privateDecisionInput),
-    ).resolves.toEqual({ failure: "timeout", ok: false });
+    ).resolves.toEqual(failureOutcome("timeout"));
+    expect(fetchFromOpenAI).toHaveBeenCalledOnce();
   });
 
   it("maps other transport exceptions to an opaque HTTP failure", async () => {
@@ -1830,7 +1977,8 @@ describe("OpenAI decision failure boundary", () => {
 
     await expect(
       engineWith(fetchFromOpenAI).decide(privateDecisionInput),
-    ).resolves.toEqual({ failure: "http", ok: false });
+    ).resolves.toEqual(failureOutcome("http"));
+    expect(fetchFromOpenAI).toHaveBeenCalledOnce();
   });
 });
 
