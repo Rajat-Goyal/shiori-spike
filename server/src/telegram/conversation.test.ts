@@ -607,6 +607,68 @@ describe("ConversationService", () => {
       .not.toHaveBeenCalled();
   });
 
+  it("asks for an explicit preparation duration without borrowing the target duration", async () => {
+    const repository = new ControlledRepository({ kind: "none" });
+    repository.applyResult = {
+      completed: true,
+      draftCreated: true,
+      draftReference: {
+        id: "11111111-1111-4111-8111-111111111111",
+        version: 1,
+      },
+      status: "applied",
+    };
+    const initialWorkSessionInput = {
+      durationMinutes: null,
+      followUpQuestion: "How long do you need to prepare?",
+      nextInput: "duration",
+      preparationRequired: true,
+      startAt: null,
+      timingConstraints: null,
+    } as const;
+    const workSessionConversation = {
+      handleConversationInput: vi.fn(async () => ({
+        text: "How long do you need to prepare?",
+      })),
+    };
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => ({
+          decision: decision(workFields),
+          initialWorkSessionInput,
+          ok: true as const,
+        })),
+      },
+      modelId: "gpt-test-model",
+      ownerChatId: 42,
+      promptVersion: "shiori-test-v1",
+      repository,
+      workSessionConversation,
+    });
+
+    const reply = await service.handle(
+      79982,
+      "Submit in 45 minutes; I need to prepare",
+    );
+
+    expect(repository.commands[0]).toMatchObject({
+      action: "create_draft",
+      fields: expect.objectContaining({
+        durationMinutes: null,
+        possibleWorkSession: true,
+      }),
+    });
+    expect(workSessionConversation.handleConversationInput)
+      .toHaveBeenCalledWith(79982, 42, {
+        draftId: repository.applyResult.draftReference!.id,
+        draftVersion: repository.applyResult.draftReference!.version,
+        ...initialWorkSessionInput,
+      });
+    expect(reply).toEqual({
+      text: "How long do you need to prepare?",
+    });
+  });
+
   it("incorporates explicit no-preparation while creating the promise and proceeds to exact approval", async () => {
     const repository = new ControlledRepository({ kind: "none" });
     repository.applyResult = {

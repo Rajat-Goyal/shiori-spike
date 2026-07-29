@@ -673,6 +673,19 @@ describe("bounded Agents SDK runtime", () => {
       await invoke(request, "propose_draft_update", proposalInput);
       await expect(
         invoke(request, "propose_initial_preparation", {
+          durationMinutes: 45,
+          followUpQuestion: "When would you like to prepare?",
+          nextInput: "owner_time",
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: null,
+        }),
+      ).resolves.toEqual({
+        accepted: false,
+        reason: "input_invalid",
+      });
+      await expect(
+        invoke(request, "propose_initial_preparation", {
           durationMinutes: 15,
           followUpQuestion: "When would you like to prepare?",
           nextInput: "owner_time",
@@ -697,6 +710,100 @@ describe("bounded Agents SDK runtime", () => {
     expect(explicit.outcome).toMatchObject({
       initialWorkSessionInput: {
         durationMinutes: 15,
+        preparationRequired: true,
+      },
+      ok: true,
+    });
+
+    const prepOnlyRunner = new ScriptedRunner(async (request) => {
+      await invoke(request, "propose_draft_update", proposalInput);
+      await expect(
+        invoke(request, "propose_initial_preparation", {
+          durationMinutes: 45,
+          followUpQuestion: "When would you like to prepare?",
+          nextInput: "owner_time",
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: null,
+        }),
+      ).resolves.toEqual({ accepted: true });
+      return emptyResult();
+    });
+    const prepOnly = await runtimeWith(prepOnlyRunner).run({
+      authority: noDraftAuthority,
+      conversation: emptyConversation,
+      input: {
+        context: { fields: null, phase: "none" },
+        ownerText: "I need 45 minutes",
+      },
+      session: sdkSession([], noDraftAuthority),
+    });
+
+    expect(prepOnly.outcome).toMatchObject({
+      initialWorkSessionInput: {
+        durationMinutes: 45,
+        preparationRequired: true,
+      },
+      ok: true,
+    });
+  });
+
+  it("asks for preparation duration instead of borrowing an explicit target duration", async () => {
+    const noDraftAuthority: AgentExecutionAuthority = {
+      ...authority,
+      draftId: null,
+      draftVersion: null,
+    };
+    const emptyConversation = {
+      ...runtimeConversation,
+      product: {
+        ...productContext,
+        commitments: [],
+        drafts: [],
+        focusedEntity: null,
+      },
+    };
+    const runner = new ScriptedRunner(async (request) => {
+      await invoke(request, "propose_draft_update", proposalInput);
+      await expect(
+        invoke(request, "propose_initial_preparation", {
+          durationMinutes: 45,
+          followUpQuestion: "When would you like to prepare?",
+          nextInput: "owner_time",
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: null,
+        }),
+      ).resolves.toEqual({
+        accepted: false,
+        reason: "input_invalid",
+      });
+      await expect(
+        invoke(request, "propose_initial_preparation", {
+          durationMinutes: null,
+          followUpQuestion: "How long do you need to prepare?",
+          nextInput: "duration",
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: null,
+        }),
+      ).resolves.toEqual({ accepted: true });
+      return emptyResult();
+    });
+    const result = await runtimeWith(runner).run({
+      authority: noDraftAuthority,
+      conversation: emptyConversation,
+      input: {
+        context: { fields: null, phase: "none" },
+        ownerText: "Submit in 45 minutes; I need to prepare",
+      },
+      session: sdkSession([], noDraftAuthority),
+    });
+
+    expect(result.outcome).toMatchObject({
+      initialWorkSessionInput: {
+        durationMinutes: null,
+        nextInput: "duration",
         preparationRequired: true,
       },
       ok: true,

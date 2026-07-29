@@ -662,16 +662,40 @@ function explicitlySupportsInitialPreparation(
     );
   }
   const explicitWork =
-    /\b(?:prep|preparation|prepare|preparing|focused?\s+(?:time|work)|work\s+session)\b/.test(
-      normalized,
+    /\b(?:prep|preparation|prepare|preparing|focus(?:ed)?\s+(?:time|work)|work\s+session)\b/;
+  if (value.durationMinutes === null) {
+    return explicitWork.test(normalized);
+  }
+
+  const duration = String(value.durationMinutes);
+  const durationOccurrence = new RegExp(
+    `\\b${duration}\\s*(?:minutes?|mins?|m)\\b`,
+    "g",
+  );
+  const prepOnlyDuration = new RegExp(
+    `^(?:(?:yes|yeah|yep|sure)[,.!?]?\\s+)?(?:(?:i\\s+)?(?:need|want|would\\s+need)\\s+)?${duration}\\s*(?:minutes?|mins?|m)(?:\\s+(?:please))?[.!?]?$`,
+  );
+  if (prepOnlyDuration.test(normalized.trim())) {
+    return true;
+  }
+
+  for (const occurrence of normalized.matchAll(durationOccurrence)) {
+    const start = occurrence.index;
+    const end = start + occurrence[0].length;
+    if (
+      /\b(?:in|within|after)\s*$/.test(normalized.slice(0, start))
+    ) {
+      continue;
+    }
+    const localContext = normalized.slice(
+      Math.max(0, start - 48),
+      Math.min(normalized.length, end + 48),
     );
-  const duration =
-    /\b\d{1,4}\s*(?:m|min|mins|minute|minutes)\b/.test(normalized);
-  const relativeTarget =
-    /\b(?:in|within|after)\s+\d{1,4}\s*(?:m|min|mins|minute|minutes)\b/.test(
-      normalized,
-    );
-  return explicitWork || (duration && !relativeTarget);
+    if (explicitWork.test(localContext)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function hasAmbiguousDraftResolution(context: RuntimeContext): boolean {

@@ -31,7 +31,8 @@ AC3 — Natural constraints and owner-selected times in one durable run
 - WorkSessionFlow performs the authoritative availability check and transition.
 - Explicit duration and timing facts included in the original commitment message are applied immediately after draft creation in the same run.
 - The deterministic guard accepts only explicit complete commitment input and does not infer preparation from unrelated phrases.
-- A duration in a relative target phrase (`in`, `within`, or `after N minutes`) is not preparation evidence by itself. Tests keep “Remind me to stretch in 45 minutes” in the mandatory preparation-decision path while separating the 15-minute preparation duration in an explicit mixed target/preparation message.
+- A submitted preparation duration must occur exactly in preparation/work-associated text or as an unambiguous preparation-only phrase; numeric occurrences in relative target phrases (`in`, `within`, or `after N minutes`) are excluded.
+- Tests reject 45 as preparation in “due in 45 minutes … need 15 minutes to prepare” before accepting the exact 15, and reject borrowing 45 from “Submit in 45 minutes; I need to prepare” before asking for the missing preparation duration.
 
 AC4 — Controlled Calendar outcomes
 - Free generated windows use application-owned sanitized choice copy.
@@ -65,11 +66,12 @@ Safety and durability
 Verification
 - Clean local Supabase reset: PASS (all migrations through 20260730092000).
 - Focused repair tests: PASS (180/180 across 8 files).
-- Complete server unit tests: PASS (575/575 across 35 files).
+- Focused preparation-binding tests: PASS (88/88 across 2 files).
+- Complete server unit tests: PASS (577/577 across 35 files).
 - Local database integration tests after the clean reset: PASS (38/38 across 13 files).
 - npm run check: PASS.
   - Server and web typechecks: PASS.
-  - Server unit tests: 575/575.
+  - Server unit tests: 577/577.
   - Release verifier: 22/22.
   - Production web and server builds: PASS.
   - Isolated Playwright tests: 50/50.
