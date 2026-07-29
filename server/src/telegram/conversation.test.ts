@@ -367,23 +367,26 @@ describe("ConversationService", () => {
       copy: conversationCopy.missingDefinition,
       fields: incompleteFields,
       phase: "awaiting_definition",
+      storedFields: incompleteFields,
     },
     {
       copy: conversationCopy.missingTarget,
       fields: targetMissingFields,
       phase: "awaiting_target",
+      storedFields: targetMissingFields,
     },
     {
-      copy: confirmationSummary(completeFields, {
+      copy: workSessionPlanningOffer(workFields, {
         id: "11111111-1111-4111-8111-111111111111",
         version: 1,
       }),
       fields: completeFields,
       phase: "complete",
+      storedFields: workFields,
     },
   ] as const)(
-    "creates a restart-safe simple draft and sends only $phase copy",
-    async ({ copy, fields, phase }) => {
+    "creates a restart-safe draft and sends only $phase copy",
+    async ({ copy, fields, phase, storedFields }) => {
       const test = controlled(
         { kind: "none" },
         success(decision(fields)),
@@ -400,7 +403,7 @@ describe("ConversationService", () => {
         {
           action: "create_draft",
           expected: { kind: "none" },
-          fields,
+          fields: storedFields,
           phase,
           processingResult: "conversation",
           updateId: 7000,
@@ -423,10 +426,16 @@ describe("ConversationService", () => {
       if (typeof copy === "string") {
         expect(copy).not.toMatch(/Confirm|Cancel|\/correct/);
       } else {
-        expect(copy.actions?.map((action) => action.text)).toEqual([
-          "Confirm",
-          "Cancel",
-        ]);
+        expect(copy.actions?.map((action) => action.text)).toEqual(
+          phase === "complete"
+            ? [
+                "Help me find time",
+                "I’ll choose a time",
+                "No preparation needed",
+                "Cancel",
+              ]
+            : ["Confirm", "Cancel"],
+        );
       }
     },
   );
@@ -545,7 +554,7 @@ describe("ConversationService", () => {
 
     const reply = await second.service.handle(7002, "Yes");
     expect(reply).toEqual(
-      confirmationSummary(completeFields, {
+      workSessionPlanningOffer(workFields, {
         id: "11111111-1111-4111-8111-111111111111",
         version: 1,
       }),
@@ -567,9 +576,10 @@ describe("ConversationService", () => {
       ownerText: "Yes",
     }, { updateId: 7002 });
     expect(second.repository.commands[0]).toMatchObject({
-      action: "accept_permission",
+      action: "accept_work_permission",
+      fields: workFields,
+      phase: "complete",
     });
-    expect(second.repository.commands[0]).not.toHaveProperty("fields");
   });
 
   it("answers an ordinary phase-none question with only one bounded audit mutation", async () => {
@@ -633,7 +643,7 @@ describe("ConversationService", () => {
     );
   });
 
-  it("accepts permission only by exact stored candidate and passes no candidate mutation fields", async () => {
+  it("accepts only the exact stored candidate and enters preparation on permission acceptance", async () => {
     const permission = permissionCandidate();
     const test = controlled(
       permission,
@@ -646,27 +656,26 @@ describe("ConversationService", () => {
     test.repository.applyResult.draftCreated = true;
 
     await expect(test.service.handle(7002, "yes")).resolves.toEqual(
-      confirmationSummary(completeFields, {
+      workSessionPlanningOffer(workFields, {
         id: "11111111-1111-4111-8111-111111111111",
         version: 1,
       }),
     );
     expect(test.repository.commands).toEqual([
       {
-        action: "accept_permission",
+        action: "accept_work_permission",
         expected: {
           correlatedUpdateId: 7002,
           id: permission.id,
           kind: "permission",
           sourceUpdateId: 7001,
         },
+        fields: workFields,
+        phase: "complete",
         processingResult: "conversation",
         updateId: 7002,
       },
     ]);
-    expect(JSON.stringify(test.repository.commands)).not.toContain(
-      completeFields.definitionOfDone,
-    );
   });
 
   it("fails closed when permission acceptance does not exactly match all eight stored fields", async () => {
@@ -958,6 +967,40 @@ describe("ConversationService", () => {
     expect(test.repository.audits).toHaveLength(1);
   });
 
+  it("enters preparation when a simple-shaped clarification first completes a draft", async () => {
+    const snapshot = activeDraft(
+      "awaiting_target",
+      targetMissingFields,
+      6,
+    );
+    const test = controlled(
+      snapshot,
+      success(
+        decision(completeFields, {
+          turnRelation: "clarification_continuation",
+        }),
+      ),
+    );
+    test.repository.applyResult.draftReference = {
+      id: snapshot.id,
+      version: 7,
+    };
+
+    await expect(
+      test.service.handle(7011, "tomorrow at 10"),
+    ).resolves.toEqual(
+      workSessionPlanningOffer(workFields, {
+        id: snapshot.id,
+        version: 7,
+      }),
+    );
+    expect(test.repository.commands[0]).toMatchObject({
+      action: "update_draft",
+      fields: workFields,
+      phase: "complete",
+    });
+  });
+
   it("rejects clarification relation in complete phase", async () => {
     const snapshot = activeDraft("complete", completeFields, 7);
     const test = controlled(
@@ -978,7 +1021,7 @@ describe("ConversationService", () => {
     });
   });
 
-  it("increments a complete correction once and binds the full updated summary to the new version", async () => {
+  it("keeps a post-No-preparation simple correction on direct versioned confirmation", async () => {
     const snapshot = activeDraft("complete", completeFields, 7);
     const correctedFields = {
       ...completeFields,
@@ -987,9 +1030,16 @@ describe("ConversationService", () => {
     const test = controlled(
       snapshot,
       success(
-        decision(correctedFields, {
-          turnRelation: "correction",
-        }),
+        decision(
+          {
+            ...correctedFields,
+            possibleWorkSession: true,
+            simpleAction: false,
+          },
+          {
+            turnRelation: "correction",
+          },
+        ),
       ),
     );
     test.repository.applyResult.draftReference = {
@@ -1013,6 +1063,49 @@ describe("ConversationService", () => {
         kind: "draft",
         version: 7,
       },
+      fields: correctedFields,
+      phase: "complete",
+    });
+  });
+
+  it("keeps an already-complete possible-work correction in the preparation path", async () => {
+    const snapshot = activeDraft("complete", workFields, 7);
+    const correctedFields = {
+      ...workFields,
+      definitionOfDone: "Submit the corrected synthetic note",
+    };
+    const test = controlled(
+      snapshot,
+      success(
+        decision(
+          {
+            ...correctedFields,
+            durationMinutes: null,
+            possibleWorkSession: false,
+            simpleAction: true,
+          },
+          {
+            turnRelation: "correction",
+          },
+        ),
+      ),
+    );
+    test.repository.applyResult.draftReference = {
+      id: snapshot.id,
+      version: 8,
+    };
+
+    await expect(
+      test.service.handle(7012, "correct the current promise"),
+    ).resolves.toEqual(
+      workSessionPlanningOffer(
+        correctedFields,
+        { id: snapshot.id, version: 8 },
+        confirmationCopy.updated,
+      ),
+    );
+    expect(test.repository.commands[0]).toMatchObject({
+      action: "update_draft",
       fields: correctedFields,
       phase: "complete",
     });
@@ -1245,7 +1338,7 @@ describe("ConversationService", () => {
     await expect(
       service.handle(7016, "private owner input"),
     ).resolves.toEqual(
-      confirmationSummary(completeFields, {
+      workSessionPlanningOffer(workFields, {
         id: "11111111-1111-4111-8111-111111111111",
         version: 1,
       }),
