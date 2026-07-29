@@ -25,22 +25,57 @@ function fixture(
   const service = {
     handle: vi.fn(async () => reply),
   };
+  const recordCallbackChoice = vi.fn(async () => ({
+    kind: "stale" as const,
+  }));
+  const sdkSession = {
+    addItems: vi.fn(async () => undefined),
+    chatId: 42,
+    clearSession: vi.fn(async () => undefined),
+    currentSnapshot: () => ({
+      activeDraftId: ID,
+      chatId: 42,
+      compactionCheckpoint: null,
+      expiresAt: "2026-08-30T10:00:00.000Z",
+      firstWorkingSequence: null,
+      id: "session-1",
+      interaction: { callbackChoice: null, pendingQuestion: null },
+      itemCount: 0,
+      items: [],
+      version: 2,
+    }),
+    getItems: vi.fn(async () => []),
+    getSessionId: vi.fn(async () => "session-1"),
+    popItem: vi.fn(async () => undefined),
+    readHistory: vi.fn(async () => ({ items: [], nextCursor: null })),
+    recordApplicationReply: vi.fn(async () => ({
+      kind: "stale" as const,
+    })),
+    recordCallbackChoice,
+    reset: vi.fn(async () => undefined),
+    runCompaction: vi.fn(async () => null),
+    sessionId: "session-1",
+  };
   const sessions: AgentSessionRepository = {
     clear: vi.fn(async () => ({ kind: "cleared" })),
+    open: vi.fn(async () => sdkSession),
     read: vi.fn(async () => ({
       kind: "active",
       session: {
         activeDraftId: ID,
         chatId: 42,
+        compactionCheckpoint: null,
         expiresAt: "2026-07-30T10:00:00.000Z",
+        firstWorkingSequence: null,
         id: "session-1",
-        turns: [],
+        interaction: { callbackChoice: null, pendingQuestion: null },
+        itemCount: 0,
+        items: [],
         version: 2,
       },
     })),
-    recordTurn: vi.fn(async () => ({ kind: "stale" })),
   };
-  return { gate, service, sessions };
+  return { gate, recordCallbackChoice, service, sessions };
 }
 
 describe("agent-approved callback services", () => {
@@ -63,6 +98,12 @@ describe("agent-approved callback services", () => {
       chatId: 42,
       reason: "confirmed",
       sessionId: "session-1",
+      updateId: 200,
+    });
+    expect(test.recordCallbackChoice).toHaveBeenCalledWith({
+      action: "confirm",
+      assistantText: "Promise saved. Done.",
+      pendingQuestion: false,
       updateId: 200,
     });
   });

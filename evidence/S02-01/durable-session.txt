@@ -1,0 +1,49 @@
+S02-01 durable agent session verification
+Generated: 2026-07-30 (Asia/Singapore)
+
+Required command:
+  npm run test --workspace @shiori/server -- src/agent
+
+Result:
+  PASS
+  Test Files  6 passed (6)
+  Tests       47 passed (47)
+
+Required command:
+  npm run typecheck:server
+
+Result:
+  PASS
+  @shiori/server tsc -p tsconfig.json --noEmit
+
+Additional regression command:
+  npm run test --workspace @shiori/server
+
+Result:
+  PASS
+  Test Files  30 passed (30)
+  Tests       456 passed (456)
+
+Acceptance evidence:
+  AC1: repository tests persist and restore 16 SDK-compatible items; the
+       working context is bounded independently and no six-turn deletion
+       remains.
+  AC2: a new repository/session adapter instance restores the same persisted
+       session id and items, exercising process-restart continuity.
+  AC3: two encrypted-cursor history pages return ordered sequences 41-60 and
+       21-40 with no overlap and the correct next boundary.
+  AC4: SDK items, callback choices, pending questions, compaction checkpoints,
+       and paused approval state are application-encrypted. Reasoning items are
+       discarded. Runtime tests assert model store=false and tracing excludes
+       sensitive data.
+  AC5: the owner-authenticated reset endpoint rejects unauthenticated and
+       invalid requests. Clean-migration database probes confirm reset/forget
+       deletes agent session and approval rows while preserving commitment
+       rows.
+
+Database migration verification:
+  A clean all-migrations PostgreSQL run passed. Service-role/RLS probes passed
+  for lazy creation, CAS append, monotonic item ordering, bounded nonduplicate
+  pagination, encrypted interaction context, local compaction checkpoints,
+  pop, idempotent replay, and reset/forget domain-data isolation. Anonymous
+  execute was denied and service_role execute was allowed.

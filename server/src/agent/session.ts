@@ -1,19 +1,50 @@
-export const AGENT_SESSION_MAX_TURNS = 6;
-export const AGENT_SESSION_TTL_SECONDS = 24 * 60 * 60;
+import type {
+  AgentInputItem,
+  OpenAIResponsesCompactionAwareSession,
+} from "@openai/agents";
 
-export type AgentSessionTurn = Readonly<{
-  assistantText: string;
-  ownerText: string;
-  recordedAt: string;
+export const AGENT_SESSION_WORKING_ITEM_LIMIT = 40;
+export const AGENT_SESSION_HISTORY_PAGE_LIMIT = 40;
+export const AGENT_SESSION_COMPACTION_THRESHOLD = 80;
+export const AGENT_SESSION_DEFAULT_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+
+export type AgentSessionCallbackChoice = Readonly<{
+  action: string;
   updateId: number;
+}>;
+
+export type AgentSessionPendingQuestion = Readonly<{
+  text: string;
+  updateId: number;
+}>;
+
+export type AgentSessionInteractionContext = Readonly<{
+  callbackChoice: AgentSessionCallbackChoice | null;
+  pendingQuestion: AgentSessionPendingQuestion | null;
+}>;
+
+export type AgentSessionCompactionCheckpoint = Readonly<{
+  createdAt: string;
+  id: string;
+  throughSequence: number;
+}>;
+
+export type AgentSessionStoredItem = Readonly<{
+  item: AgentInputItem;
+  recordedAt: string;
+  sequence: number;
 }>;
 
 export type AgentSessionSnapshot = Readonly<{
   activeDraftId: string | null;
   chatId: number;
+  compactionCheckpoint: AgentSessionCompactionCheckpoint | null;
   expiresAt: string;
+  firstWorkingSequence: number | null;
   id: string;
-  turns: readonly AgentSessionTurn[];
+  interaction: AgentSessionInteractionContext;
+  itemCount: number;
+  items: readonly AgentSessionStoredItem[];
   version: number;
 }>;
 
@@ -21,25 +52,28 @@ export type AgentSessionReadResult =
   | Readonly<{ kind: "none" | "expired" }>
   | Readonly<{ kind: "active"; session: AgentSessionSnapshot }>;
 
-export type AgentSessionRecordCommand = Readonly<{
+export type AgentSessionApplicationReplyCommand = Readonly<{
   activeDraftId: string | null;
   assistantText: string;
   chatId: number;
-  expected:
-    | Readonly<{ kind: "none" }>
-    | Readonly<{ id: string; kind: "active"; version: number }>;
-  ownerText: string;
+  pendingQuestion: boolean;
+  sessionId: string;
   updateId: number;
 }>;
 
-export type AgentSessionRecordResult =
-  | Readonly<{ kind: "replay" | "stale" }>
-  | Readonly<{ kind: "applied"; session: AgentSessionSnapshot }>;
+export type AgentSessionWriteResult =
+  | Readonly<{ kind: "stale" }>
+  | Readonly<{
+      kind: "applied" | "replay";
+      session: AgentSessionSnapshot;
+    }>;
 
 export type AgentSessionClearReason =
   | "cancelled"
   | "confirmed"
-  | "expired";
+  | "expired"
+  | "owner_forget"
+  | "owner_reset";
 
 export type AgentSessionClearCommand = Readonly<{
   chatId: number;
@@ -52,25 +86,50 @@ export type AgentSessionClearResult = Readonly<{
   kind: "cleared" | "none" | "replay" | "stale";
 }>;
 
+export type AgentSessionHistoryPage = Readonly<{
+  items: readonly AgentSessionStoredItem[];
+  nextCursor: string | null;
+}>;
+
+export type AgentSessionResetMode = "forget" | "reset";
+
 /**
- * Ephemeral conversational continuity owned by the application.
+ * Application-owned Agents SDK session selected by authenticated owner chat.
  *
- * Implementations must enforce one active session per chat, a non-sliding
- * 24-hour lifetime, update-id idempotency, CAS writes, and the six-turn cap.
- * Expired sessions are deleted during reads. Clearing deletes all turns; there
- * is no archive. Durable adapters must seal each owner/assistant turn with the
- * domain-separated agent session cipher before writing it; the plaintext API
- * exists only for application callers and in-memory tests. Secret rotation may
- * invalidate a live session and must fail closed. This repository never stores
- * model reasoning, tool calls, tool outputs, callback data, Calendar event
- * data, credentials, or provider request/response payloads.
+ * The SDK calls the standard Session methods. The application extensions append
+ * authoritative reply/callback context, page older encrypted items by opaque
+ * cursor, and implement explicit owner reset/forget. Implementations must never
+ * persist reasoning items, secrets, complete Telegram callbacks, unsanitized
+ * Calendar objects, credentials, or provider request/response payloads.
  */
+export interface AgentSdkSession
+  extends OpenAIResponsesCompactionAwareSession {
+  readonly chatId: number;
+  readonly sessionId: string;
+  currentSnapshot(): AgentSessionSnapshot;
+  readHistory(
+    cursor?: string,
+    limit?: number,
+  ): Promise<AgentSessionHistoryPage>;
+  recordApplicationReply(
+    command: Omit<
+      AgentSessionApplicationReplyCommand,
+      "chatId" | "sessionId"
+    >,
+  ): Promise<AgentSessionWriteResult>;
+  recordCallbackChoice(command: Readonly<{
+    action: string;
+    assistantText: string;
+    pendingQuestion: boolean;
+    updateId: number;
+  }>): Promise<AgentSessionWriteResult>;
+  reset(mode: AgentSessionResetMode): Promise<void>;
+}
+
 export interface AgentSessionRepository {
   clear(command: AgentSessionClearCommand): Promise<AgentSessionClearResult>;
+  open(chatId: number): Promise<AgentSdkSession>;
   read(chatId: number): Promise<AgentSessionReadResult>;
-  recordTurn(
-    command: AgentSessionRecordCommand,
-  ): Promise<AgentSessionRecordResult>;
 }
 
 export type AgentApprovalToolName = "execute_commitment";

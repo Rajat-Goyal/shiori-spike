@@ -17,6 +17,29 @@ export type AgentStateBinding =
     }>
   | Readonly<{
       chatId: number;
+      itemId: string;
+      sessionId: string;
+      type: "session_item";
+    }>
+  | Readonly<{
+      chatId: number;
+      contextId: string;
+      sessionId: string;
+      type: "session_context";
+    }>
+  | Readonly<{
+      chatId: number;
+      checkpointId: string;
+      sessionId: string;
+      type: "session_compaction";
+    }>
+  | Readonly<{
+      chatId: number;
+      sessionId: string;
+      type: "history_cursor";
+    }>
+  | Readonly<{
+      chatId: number;
       draftId: string;
       draftVersion: number;
       sessionId: string;

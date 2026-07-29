@@ -41,68 +41,65 @@ function approvalRepository(fetchFromSupabase: typeof fetch) {
 }
 
 describe("SupabaseAgentSessionRepository", () => {
-  it("seals a new turn before sending it and returns plaintext only after opening", async () => {
+  it("persists more than six SDK items encrypted and restores the same session", async () => {
     const sessionCipher = cipher();
+    const durableItems = Array.from({ length: 16 }, (_, index) => ({
+      content: `private owner item ${index}`,
+      role: "user" as const,
+    }));
+    let persistedSnapshot: Record<string, unknown> | undefined;
     const fetchFromSupabase = vi.fn(async (_url, options) => {
       const body = JSON.parse(String(options?.body)) as Record<
         string,
         unknown
       >;
-      expect(JSON.stringify(body)).not.toContain("private owner turn");
-      expect(JSON.stringify(body)).not.toContain("private assistant turn");
+      if (!("p_items" in body)) {
+        return Response.json(
+          persistedSnapshot === undefined
+            ? { kind: "none" }
+            : { kind: "active", session: persistedSnapshot },
+        );
+      }
+      expect(JSON.stringify(body)).not.toContain("private owner item");
+      const sealed = body.p_items as Array<{
+        id: string;
+        sealedItem: string;
+      }>;
+      persistedSnapshot = {
+        activeDraftId: null,
+        chatId: 123,
+        compaction: null,
+        expiresAt,
+        firstWorkingSequence: 1,
+        id: sessionId,
+        interaction: null,
+        itemCount: sealed.length,
+        items: sealed.map((item, index) => ({
+          ...item,
+          recordedAt,
+          sequence: index + 1,
+        })),
+        version: 1,
+      };
       return Response.json({
         kind: "applied",
-        session: {
-          activeDraftId: draftId,
-          chatId: 123,
-          expiresAt,
-          id: sessionId,
-          turns: [
-            {
-              recordedAt,
-              sealedTurn: body.p_sealed_turn,
-              updateId: 41,
-            },
-          ],
-          version: 1,
-        },
+        session: persistedSnapshot,
       });
     });
+    const repository = sessionRepository(
+      fetchFromSupabase as typeof fetch,
+      sessionCipher,
+    );
+    const session = await repository.open(123);
+    await session.addItems(durableItems);
 
-    await expect(
-      sessionRepository(
-        fetchFromSupabase as typeof fetch,
-        sessionCipher,
-      ).recordTurn({
-        activeDraftId: draftId,
-        assistantText: "private assistant turn",
-        chatId: 123,
-        expected: { kind: "none" },
-        ownerText: "private owner turn",
-        updateId: 41,
-      }),
-    ).resolves.toEqual({
-      kind: "applied",
-      session: {
-        activeDraftId: draftId,
-        chatId: 123,
-        expiresAt,
-        id: sessionId,
-        turns: [
-          {
-            assistantText: "private assistant turn",
-            ownerText: "private owner turn",
-            recordedAt,
-            updateId: 41,
-          },
-        ],
-        version: 1,
-      },
-    });
-
-    const [url, options] = fetchFromSupabase.mock.calls[0];
+    expect(await session.getItems()).toEqual(durableItems);
+    const restarted = await repository.open(123);
+    expect(await restarted.getSessionId()).toBe(sessionId);
+    expect(await restarted.getItems()).toEqual(durableItems);
+    const [url, options] = fetchFromSupabase.mock.calls[1];
     expect(url).toBe(
-      "http://127.0.0.1:54321/rest/v1/rpc/record_agent_session_turn",
+      "http://127.0.0.1:54321/rest/v1/rpc/append_agent_sdk_items",
     );
     expect(options?.headers).toEqual({
       Accept: "application/json",
@@ -113,42 +110,45 @@ describe("SupabaseAgentSessionRepository", () => {
     expect(
       JSON.parse(String(options?.body)),
     ).toMatchObject({
-      p_active_draft_id: draftId,
       p_chat_id: 123,
-      p_expected_kind: "none",
       p_expected_session_id: null,
-      p_expected_version: null,
+      p_expected_version: 0,
       p_proposed_session_id: sessionId,
-      p_update_id: 41,
+      p_retention_seconds: 2_592_000,
     });
   });
 
-  it("opens only ciphertext bound to the exact session, chat, and update", async () => {
+  it("opens only SDK ciphertext bound to the exact session, chat, and item", async () => {
     const sessionCipher = cipher();
-    const sealedTurn = sessionCipher.seal(
-      JSON.stringify({
-        assistantText: "bounded assistant",
-        ownerText: "bounded owner",
-      }),
+    const itemId = "44444444-4444-4444-8444-444444444444";
+    const sealedItem = sessionCipher.seal(
+      JSON.stringify({ content: "bounded owner", role: "user" }),
       {
         chatId: 123,
+        itemId,
         sessionId,
-        type: "session_turn",
-        updateId: 42,
+        type: "session_item",
       },
     );
+    const active = {
+      activeDraftId: null,
+      chatId: 123,
+      compaction: null,
+      expiresAt,
+      firstWorkingSequence: 1,
+      id: sessionId,
+      interaction: null,
+      itemCount: 1,
+      items: [{
+        id: itemId,
+        recordedAt,
+        sealedItem,
+        sequence: 1,
+      }],
+      version: 7,
+    };
     const fetchFromSupabase = vi.fn(async () =>
-      Response.json({
-        kind: "active",
-        session: {
-          activeDraftId: null,
-          chatId: 123,
-          expiresAt,
-          id: sessionId,
-          turns: [{ recordedAt, sealedTurn, updateId: 42 }],
-          version: 7,
-        },
-      }),
+      Response.json({ kind: "active", session: active }),
     );
 
     await expect(
@@ -159,11 +159,10 @@ describe("SupabaseAgentSessionRepository", () => {
     ).resolves.toMatchObject({
       kind: "active",
       session: {
-        turns: [
+        items: [
           {
-            assistantText: "bounded assistant",
-            ownerText: "bounded owner",
-            updateId: 42,
+            item: { content: "bounded owner", role: "user" },
+            sequence: 1,
           },
         ],
         version: 7,
@@ -173,14 +172,7 @@ describe("SupabaseAgentSessionRepository", () => {
     const tamperedFetch = vi.fn(async () =>
       Response.json({
         kind: "active",
-        session: {
-          activeDraftId: null,
-          chatId: 124,
-          expiresAt,
-          id: sessionId,
-          turns: [{ recordedAt, sealedTurn, updateId: 42 }],
-          version: 7,
-        },
+        session: { ...active, chatId: 124 },
       }),
     );
     await expect(
@@ -191,75 +183,218 @@ describe("SupabaseAgentSessionRepository", () => {
     ).rejects.toThrow("Agent session persistence returned invalid data");
   });
 
-  it("uses active identity and version for CAS without extending the API shape", async () => {
-    const fetchFromSupabase = vi.fn(async () =>
-      Response.json({ kind: "stale" }),
-    );
-    await expect(
-      sessionRepository(fetchFromSupabase as typeof fetch).recordTurn({
-        activeDraftId: null,
-        assistantText: "assistant",
-        chatId: 123,
-        expected: { id: sessionId, kind: "active", version: 5 },
-        ownerText: "owner",
-        updateId: 43,
-      }),
-    ).resolves.toEqual({ kind: "stale" });
+  it("encrypts relevant callback and pending-question context", async () => {
+    const sessionCipher = cipher();
+    const fetchFromSupabase = vi.fn(async (url, options) => {
+      if (String(url).endsWith("/read_agent_sdk_session")) {
+        return Response.json({
+          kind: "active",
+          session: {
+            activeDraftId: draftId,
+            chatId: 123,
+            compaction: null,
+            expiresAt,
+            firstWorkingSequence: null,
+            id: sessionId,
+            interaction: null,
+            itemCount: 0,
+            items: [],
+            version: 1,
+          },
+        });
+      }
+      const body = JSON.parse(String(options?.body));
+      expect(JSON.stringify(body)).not.toContain("private callback reply");
+      expect(JSON.stringify(body)).not.toContain("confirm");
+      return Response.json({
+        kind: "applied",
+        session: {
+          activeDraftId: draftId,
+          chatId: 123,
+          compaction: null,
+          expiresAt,
+          firstWorkingSequence: 1,
+          id: sessionId,
+          interaction: {
+            contextId: body.p_context_id,
+            sealedContext: body.p_sealed_context,
+          },
+          itemCount: 1,
+          items: [{
+            id: body.p_item_id,
+            recordedAt,
+            sealedItem: body.p_sealed_item,
+            sequence: 1,
+          }],
+          version: 2,
+        },
+      });
+    });
+    const session = await sessionRepository(
+      fetchFromSupabase as typeof fetch,
+      sessionCipher,
+    ).open(123);
 
-    expect(
-      JSON.parse(String(fetchFromSupabase.mock.calls[0][1]?.body)),
-    ).toMatchObject({
-      p_expected_kind: "active",
-      p_expected_session_id: sessionId,
-      p_expected_version: 5,
-      p_proposed_session_id: sessionId,
-      p_update_id: 43,
+    await expect(
+      session.recordCallbackChoice({
+        action: "confirm",
+        assistantText: "private callback reply",
+        pendingQuestion: true,
+        updateId: 75,
+      }),
+    ).resolves.toMatchObject({ kind: "applied" });
+    expect(session.currentSnapshot()).toMatchObject({
+      interaction: {
+        callbackChoice: { action: "confirm", updateId: 75 },
+        pendingQuestion: {
+          text: "private callback reply",
+          updateId: 75,
+        },
+      },
+      items: [{
+        item: {
+          content: [{
+            text: "private callback reply",
+            type: "output_text",
+          }],
+          role: "assistant",
+        },
+      }],
     });
   });
 
-  it("maps bounded read, replay, and clear results", async () => {
-    const responses = [
-      { kind: "none" },
-      { kind: "expired" },
-      { kind: "replay" },
-      { kind: "cleared" },
-    ];
-    const fetchFromSupabase = vi.fn(async () =>
-      Response.json(responses.shift()),
+  it("pages older items without overlap using an encrypted cursor", async () => {
+    const sessionCipher = cipher();
+    const sealed = (sequence: number) => {
+      const id = `${String(sequence).padStart(8, "0")}-4444-4444-8444-444444444444`;
+      return {
+        id,
+        recordedAt,
+        sealedItem: sessionCipher.seal(
+          JSON.stringify({
+            content: `item-${sequence}`,
+            role: "user",
+          }),
+          {
+            chatId: 123,
+            itemId: id,
+            sessionId,
+            type: "session_item",
+          },
+        ),
+        sequence,
+      };
+    };
+    const working = Array.from({ length: 40 }, (_, index) =>
+      sealed(index + 61)
     );
-    const repository = sessionRepository(
-      fetchFromSupabase as typeof fetch,
-    );
-
-    await expect(repository.read(123)).resolves.toEqual({ kind: "none" });
-    await expect(repository.read(123)).resolves.toEqual({
-      kind: "expired",
+    const fetchFromSupabase = vi.fn(async (url, options) => {
+      if (String(url).endsWith("/read_agent_sdk_session")) {
+        return Response.json({
+          kind: "active",
+          session: {
+            activeDraftId: null,
+            chatId: 123,
+            compaction: null,
+            expiresAt,
+            firstWorkingSequence: 61,
+            id: sessionId,
+            interaction: null,
+            itemCount: 100,
+            items: working,
+            version: 4,
+          },
+        });
+      }
+      const body = JSON.parse(String(options?.body));
+      const end = Number(body.p_before_sequence) - 1;
+      const start = Math.max(1, end - 19);
+      return Response.json({
+        items: Array.from({ length: end - start + 1 }, (_, index) =>
+          sealed(start + index)
+        ),
+        kind: "active",
+        nextBeforeSequence: start === 1 ? null : start,
+      });
     });
-    await expect(
-      repository.recordTurn({
-        activeDraftId: null,
-        assistantText: "assistant",
-        chatId: 123,
-        expected: { kind: "none" },
-        ownerText: "owner",
-        updateId: 44,
-      }),
-    ).resolves.toEqual({ kind: "replay" });
-    await expect(
-      repository.clear({
-        chatId: 123,
-        expectedSessionId: sessionId,
-        reason: "confirmed",
-        updateId: 45,
-      }),
-    ).resolves.toEqual({ kind: "cleared" });
+    const session = await sessionRepository(
+      fetchFromSupabase as typeof fetch,
+      sessionCipher,
+    ).open(123);
+    const first = await session.readHistory();
+    const second = await session.readHistory(first.nextCursor!);
+
+    expect(first.items.map((item) => item.sequence)).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 41),
+    );
+    expect(second.items.map((item) => item.sequence)).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 21),
+    );
+    expect(first.nextCursor).not.toContain("41");
     expect(
-      JSON.parse(String(fetchFromSupabase.mock.calls[3][1]?.body)),
+      new Set([...first.items, ...second.items].map((item) => item.sequence))
+        .size,
+    ).toBe(40);
+    expect(
+      JSON.parse(String(fetchFromSupabase.mock.calls[2][1]?.body)),
+    ).toMatchObject({ p_before_sequence: 41, p_limit: 40 });
+  });
+
+  it("drops reasoning items and resets only the durable agent session", async () => {
+    const fetchFromSupabase = vi.fn(async (url, options) => {
+      if (String(url).endsWith("/read_agent_sdk_session")) {
+        return Response.json({ kind: "none" });
+      }
+      if (String(url).endsWith("/append_agent_sdk_items")) {
+        const body = JSON.parse(String(options?.body));
+        expect(body.p_items).toHaveLength(1);
+        return Response.json({
+          kind: "applied",
+          session: {
+            activeDraftId: null,
+            chatId: 123,
+            compaction: null,
+            expiresAt,
+            firstWorkingSequence: 1,
+            id: sessionId,
+            interaction: null,
+            itemCount: 1,
+            items: [{
+              ...body.p_items[0],
+              recordedAt,
+              sequence: 1,
+            }],
+            version: 1,
+          },
+        });
+      }
+      return Response.json({ kind: "cleared" });
+    });
+    const session = await sessionRepository(
+      fetchFromSupabase as typeof fetch,
+    ).open(123);
+    await session.addItems([
+      {
+        content: "durable",
+        id: "provider-response-item",
+        providerData: { privateProviderPayload: "must-not-persist" },
+        role: "user",
+      },
+      {
+        content: [],
+        type: "reasoning",
+      },
+    ]);
+    expect(await session.getItems()).toEqual([
+      { content: "durable", role: "user" },
+    ]);
+    await session.reset("forget");
+    expect(
+      JSON.parse(String(fetchFromSupabase.mock.calls[2][1]?.body)),
     ).toEqual({
       p_chat_id: 123,
-      p_expected_session_id: sessionId,
-      p_reason: "confirmed",
-      p_update_id: 45,
+      p_mode: "forget",
+      p_session_id: sessionId,
     });
   });
 

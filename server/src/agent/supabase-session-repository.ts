@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import type { AgentInputItem } from "@openai/agents";
 import { supabaseHeaders } from "../supabase.js";
 import type { AgentSessionCipher } from "./session-crypto.js";
 import type {
+  AgentSdkSession,
   AgentApprovalReadResult,
   AgentApprovalRepository,
   AgentApprovalResolveCommand,
@@ -10,14 +12,23 @@ import type {
   AgentApprovalStageResult,
   AgentApprovalToolName,
   AgentPendingApprovalSnapshot,
+  AgentSessionApplicationReplyCommand,
   AgentSessionClearCommand,
   AgentSessionClearResult,
+  AgentSessionCompactionCheckpoint,
+  AgentSessionHistoryPage,
+  AgentSessionInteractionContext,
   AgentSessionReadResult,
-  AgentSessionRecordCommand,
-  AgentSessionRecordResult,
   AgentSessionRepository,
   AgentSessionSnapshot,
-  AgentSessionTurn,
+  AgentSessionStoredItem,
+  AgentSessionWriteResult,
+} from "./session.js";
+import {
+  AGENT_SESSION_COMPACTION_THRESHOLD,
+  AGENT_SESSION_DEFAULT_RETENTION_SECONDS,
+  AGENT_SESSION_HISTORY_PAGE_LIMIT,
+  AGENT_SESSION_WORKING_ITEM_LIMIT,
 } from "./session.js";
 
 type SupabaseRepositoryOptions = Readonly<{
@@ -31,6 +42,7 @@ type SupabaseAgentSessionRepositoryOptions =
     Readonly<{
       cipher: AgentSessionCipher;
       createSessionId?: () => string;
+      retentionSeconds?: number;
     }>;
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -55,10 +67,7 @@ function nonempty(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
-function turnPlaintext(value: string): {
-  assistantText: string;
-  ownerText: string;
-} {
+function parseJsonRecord(value: string): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -66,17 +75,196 @@ function turnPlaintext(value: string): {
     throw new Error("Agent session persistence returned invalid data");
   }
   const item = record(parsed);
+  if (!item) {
+    throw new Error("Agent session persistence returned invalid data");
+  }
+  return item;
+}
+
+function stripProviderMetadata(
+  value: unknown,
+  root = true,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripProviderMetadata(item, false));
+  }
+  const item = record(value);
+  if (!item) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(item)
+      .filter(
+        ([key]) =>
+          key !== "providerData" && !(root && key === "id"),
+      )
+      .map(([key, child]) => [
+        key,
+        stripProviderMetadata(child, false),
+      ]),
+  );
+}
+
+function durableItem(value: AgentInputItem): AgentInputItem | null {
+  const item = record(value);
+  if (!item || item.type === "reasoning") {
+    return null;
+  }
+  const allowed =
+    item.role === "user" ||
+    item.role === "assistant" ||
+    item.role === "system" ||
+    item.type === "function_call" ||
+    item.type === "function_call_result";
+  if (!allowed) {
+    return null;
+  }
+  return stripProviderMetadata(value) as AgentInputItem;
+}
+
+function parseSealedItem(
+  value: unknown,
+  session: Readonly<{ chatId: number; id: string }>,
+  cipher: AgentSessionCipher,
+): AgentSessionStoredItem {
+  const item = record(value);
   if (
     !item ||
-    Object.keys(item).sort().join(",") !== "assistantText,ownerText" ||
-    typeof item.assistantText !== "string" ||
-    typeof item.ownerText !== "string"
+    !nonempty(item.id) ||
+    !safeInteger(item.sequence, true) ||
+    !nonempty(item.sealedItem) ||
+    !instant(item.recordedAt)
+  ) {
+    throw new Error("Agent session persistence returned invalid data");
+  }
+  let plaintext: Record<string, unknown>;
+  try {
+    plaintext = parseJsonRecord(
+      cipher.open(item.sealedItem, {
+        chatId: session.chatId,
+        itemId: item.id,
+        sessionId: session.id,
+        type: "session_item",
+      }),
+    );
+  } catch {
+    throw new Error("Agent session persistence returned invalid data");
+  }
+  const parsed = durableItem(plaintext as AgentInputItem);
+  if (parsed === null) {
+    throw new Error("Agent session persistence returned invalid data");
+  }
+  return {
+    item: parsed,
+    recordedAt: item.recordedAt,
+    sequence: item.sequence,
+  };
+}
+
+function parseInteraction(
+  value: unknown,
+  session: Readonly<{ chatId: number; id: string }>,
+  cipher: AgentSessionCipher,
+): AgentSessionInteractionContext {
+  if (value === null || value === undefined) {
+    return { callbackChoice: null, pendingQuestion: null };
+  }
+  const item = record(value);
+  if (!item || !nonempty(item.contextId) || !nonempty(item.sealedContext)) {
+    throw new Error("Agent session persistence returned invalid data");
+  }
+  let plaintext: Record<string, unknown>;
+  try {
+    plaintext = parseJsonRecord(
+      cipher.open(item.sealedContext, {
+        chatId: session.chatId,
+        contextId: item.contextId,
+        sessionId: session.id,
+        type: "session_context",
+      }),
+    );
+  } catch {
+    throw new Error("Agent session persistence returned invalid data");
+  }
+  const callback = plaintext.callbackChoice;
+  const pending = plaintext.pendingQuestion;
+  const callbackRecord = callback === null ? null : record(callback);
+  const pendingRecord = pending === null ? null : record(pending);
+  if (
+    callback !== null &&
+    (!callbackRecord ||
+      !nonempty(callbackRecord.action) ||
+      !safeInteger(callbackRecord.updateId, true))
+  ) {
+    throw new Error("Agent session persistence returned invalid data");
+  }
+  if (
+    pending !== null &&
+    (!pendingRecord ||
+      typeof pendingRecord.text !== "string" ||
+      !safeInteger(pendingRecord.updateId, true))
   ) {
     throw new Error("Agent session persistence returned invalid data");
   }
   return {
-    assistantText: item.assistantText,
-    ownerText: item.ownerText,
+    callbackChoice:
+      callback === null
+        ? null
+        : {
+            action: callbackRecord!.action as string,
+            updateId: callbackRecord!.updateId as number,
+          },
+    pendingQuestion:
+      pending === null
+        ? null
+        : {
+            text: pendingRecord!.text as string,
+            updateId: pendingRecord!.updateId as number,
+          },
+  };
+}
+
+function parseCompaction(
+  value: unknown,
+  session: Readonly<{ chatId: number; id: string }>,
+  cipher: AgentSessionCipher,
+): AgentSessionCompactionCheckpoint | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const item = record(value);
+  if (
+    !item ||
+    !nonempty(item.checkpointId) ||
+    !safeInteger(item.throughSequence, true) ||
+    !nonempty(item.sealedCheckpoint) ||
+    !instant(item.createdAt)
+  ) {
+    throw new Error("Agent session persistence returned invalid data");
+  }
+  let plaintext: Record<string, unknown>;
+  try {
+    plaintext = parseJsonRecord(
+      cipher.open(item.sealedCheckpoint, {
+        chatId: session.chatId,
+        checkpointId: item.checkpointId,
+        sessionId: session.id,
+        type: "session_compaction",
+      }),
+    );
+  } catch {
+    throw new Error("Agent session persistence returned invalid data");
+  }
+  if (
+    plaintext.throughSequence !== item.throughSequence ||
+    plaintext.kind !== "local_checkpoint"
+  ) {
+    throw new Error("Agent session persistence returned invalid data");
+  }
+  return {
+    createdAt: item.createdAt,
+    id: item.checkpointId,
+    throughSequence: item.throughSequence,
   };
 }
 
@@ -91,51 +279,45 @@ function sessionSnapshot(
     !safeInteger(item.chatId) ||
     !safeInteger(item.version, true) ||
     !instant(item.expiresAt) ||
+    !(item.activeDraftId === null || nonempty(item.activeDraftId)) ||
+    !safeInteger(item.itemCount) ||
+    item.itemCount < 0 ||
+    !Array.isArray(item.items) ||
+    item.items.length > AGENT_SESSION_WORKING_ITEM_LIMIT ||
     !(
-      item.activeDraftId === null ||
-      nonempty(item.activeDraftId)
-    ) ||
-    !Array.isArray(item.turns) ||
-    item.turns.length < 1 ||
-    item.turns.length > 6
+      item.firstWorkingSequence === null ||
+      safeInteger(item.firstWorkingSequence, true)
+    )
   ) {
     throw new Error("Agent session persistence returned invalid data");
   }
-
-  const turns: AgentSessionTurn[] = item.turns.map((value) => {
-    const turn = record(value);
-    if (
-      !turn ||
-      !safeInteger(turn.updateId) ||
-      !instant(turn.recordedAt) ||
-      !nonempty(turn.sealedTurn)
-    ) {
-      throw new Error("Agent session persistence returned invalid data");
-    }
-    let plaintext: string;
-    try {
-      plaintext = cipher.open(turn.sealedTurn, {
-        chatId: item.chatId as number,
-        sessionId: item.id as string,
-        type: "session_turn",
-        updateId: turn.updateId,
-      });
-    } catch {
-      throw new Error("Agent session persistence returned invalid data");
-    }
-    return {
-      ...turnPlaintext(plaintext),
-      recordedAt: turn.recordedAt,
-      updateId: turn.updateId,
-    };
-  });
-
+  const identity = { chatId: item.chatId, id: item.id };
+  const items = item.items.map((stored) =>
+    parseSealedItem(stored, identity, cipher)
+  );
+  if (
+    items.some(
+      (stored, index) =>
+        index > 0 && stored.sequence <= items[index - 1]!.sequence,
+    ) ||
+    item.itemCount < items.length
+  ) {
+    throw new Error("Agent session persistence returned invalid data");
+  }
   return {
-    activeDraftId: item.activeDraftId as string | null,
+    activeDraftId: item.activeDraftId,
     chatId: item.chatId,
+    compactionCheckpoint: parseCompaction(
+      item.compaction,
+      identity,
+      cipher,
+    ),
     expiresAt: item.expiresAt,
+    firstWorkingSequence: item.firstWorkingSequence,
     id: item.id,
-    turns,
+    interaction: parseInteraction(item.interaction, identity, cipher),
+    itemCount: item.itemCount,
+    items,
     version: item.version,
   };
 }
@@ -149,27 +331,25 @@ function sessionReadResult(
     throw new Error("Agent session persistence returned invalid data");
   }
   return item.kind === "active"
-    ? {
-        kind: "active",
-        session: sessionSnapshot(item.session, cipher),
-      }
+    ? { kind: "active", session: sessionSnapshot(item.session, cipher) }
     : { kind: item.kind as "expired" | "none" };
 }
 
-function sessionRecordResult(
+function sessionWriteResult(
   value: unknown,
   cipher: AgentSessionCipher,
-): AgentSessionRecordResult {
+): AgentSessionWriteResult {
   const item = record(value);
   if (!item || !["applied", "replay", "stale"].includes(String(item.kind))) {
     throw new Error("Agent session persistence returned invalid data");
   }
-  return item.kind === "applied"
-    ? {
-        kind: "applied",
-        session: sessionSnapshot(item.session, cipher),
-      }
-    : { kind: item.kind as "replay" | "stale" };
+  if (item.kind === "stale") {
+    return { kind: "stale" };
+  }
+  return {
+    kind: item.kind as "applied" | "replay",
+    session: sessionSnapshot(item.session, cipher),
+  };
 }
 
 function sessionClearResult(value: unknown): AgentSessionClearResult {
@@ -180,11 +360,8 @@ function sessionClearResult(value: unknown): AgentSessionClearResult {
   ) {
     throw new Error("Agent session persistence returned invalid data");
   }
-  return {
-    kind: item.kind as AgentSessionClearResult["kind"],
-  };
+  return { kind: item.kind as AgentSessionClearResult["kind"] };
 }
-
 function approvalSnapshot(value: unknown): AgentPendingApprovalSnapshot {
   const item = record(value);
   if (
@@ -310,16 +487,41 @@ export class SupabaseAgentSessionRepository
 {
   readonly #cipher: AgentSessionCipher;
   readonly #createSessionId: () => string;
+  readonly #retentionSeconds: number;
 
   constructor(options: SupabaseAgentSessionRepositoryOptions) {
     super(options);
     this.#cipher = options.cipher;
     this.#createSessionId = options.createSessionId ?? randomUUID;
+    this.#retentionSeconds =
+      options.retentionSeconds ??
+      AGENT_SESSION_DEFAULT_RETENTION_SECONDS;
+    if (
+      !Number.isSafeInteger(this.#retentionSeconds) ||
+      this.#retentionSeconds < 3_600 ||
+      this.#retentionSeconds >
+        AGENT_SESSION_DEFAULT_RETENTION_SECONDS
+    ) {
+      throw new Error("Invalid agent session retention");
+    }
   }
 
   async clear(
     command: AgentSessionClearCommand,
   ): Promise<AgentSessionClearResult> {
+    if (
+      command.reason === "owner_forget" ||
+      command.reason === "owner_reset"
+    ) {
+      return sessionClearResult(
+        await this.rpc("reset_agent_sdk_session", {
+          p_chat_id: command.chatId,
+          p_mode:
+            command.reason === "owner_forget" ? "forget" : "reset",
+          p_session_id: command.expectedSessionId ?? null,
+        }),
+      );
+    }
     return sessionClearResult(
       await this.rpc("clear_agent_session", {
         p_chat_id: command.chatId,
@@ -330,51 +532,423 @@ export class SupabaseAgentSessionRepository
     );
   }
 
+  async open(chatId: number): Promise<AgentSdkSession> {
+    const read = await this.read(chatId);
+    const snapshot =
+      read.kind === "active"
+        ? read.session
+        : {
+            activeDraftId: null,
+            chatId,
+            compactionCheckpoint: null,
+            expiresAt: new Date(0).toISOString(),
+            firstWorkingSequence: null,
+            id: this.#createSessionId(),
+            interaction: {
+              callbackChoice: null,
+              pendingQuestion: null,
+            },
+            itemCount: 0,
+            items: [],
+            version: 0,
+          };
+    return new SupabaseAgentSdkSession({
+      cipher: this.#cipher,
+      retentionSeconds: this.#retentionSeconds,
+      rpc: (name, body) => this.rpc(name, body),
+      snapshot,
+    });
+  }
+
   async read(chatId: number): Promise<AgentSessionReadResult> {
     return sessionReadResult(
-      await this.rpc("read_agent_session", { p_chat_id: chatId }),
+      await this.rpc("read_agent_sdk_session", {
+        p_chat_id: chatId,
+        p_item_limit: AGENT_SESSION_WORKING_ITEM_LIMIT,
+      }),
       this.#cipher,
     );
   }
+}
 
-  async recordTurn(
-    command: AgentSessionRecordCommand,
-  ): Promise<AgentSessionRecordResult> {
-    const sessionId =
-      command.expected.kind === "active"
-        ? command.expected.id
-        : this.#createSessionId();
-    const sealedTurn = this.#cipher.seal(
-      JSON.stringify({
-        assistantText: command.assistantText,
-        ownerText: command.ownerText,
-      }),
-      {
-        chatId: command.chatId,
-        sessionId,
-        type: "session_turn",
-        updateId: command.updateId,
-      },
+type SupabaseAgentSdkSessionOptions = Readonly<{
+  cipher: AgentSessionCipher;
+  retentionSeconds: number;
+  rpc: (
+    name: string,
+    body: Record<string, unknown>,
+  ) => Promise<unknown>;
+  snapshot: AgentSessionSnapshot;
+}>;
+
+class SupabaseAgentSdkSession implements AgentSdkSession {
+  readonly #cipher: AgentSessionCipher;
+  readonly #rpc: SupabaseAgentSdkSessionOptions["rpc"];
+  readonly #retentionSeconds: number;
+  #snapshot: AgentSessionSnapshot;
+
+  constructor(options: SupabaseAgentSdkSessionOptions) {
+    this.#cipher = options.cipher;
+    this.#retentionSeconds = options.retentionSeconds;
+    this.#rpc = options.rpc;
+    this.#snapshot = options.snapshot;
+  }
+
+  get chatId(): number {
+    return this.#snapshot.chatId;
+  }
+
+  get sessionId(): string {
+    return this.#snapshot.id;
+  }
+
+  currentSnapshot(): AgentSessionSnapshot {
+    return structuredClone(this.#snapshot);
+  }
+
+  async getSessionId(): Promise<string> {
+    return this.sessionId;
+  }
+
+  async getItems(limit = AGENT_SESSION_WORKING_ITEM_LIMIT): Promise<AgentInputItem[]> {
+    const bounded = Math.max(
+      0,
+      Math.min(limit, AGENT_SESSION_WORKING_ITEM_LIMIT),
     );
-    return sessionRecordResult(
-      await this.rpc("record_agent_session_turn", {
-        p_active_draft_id: command.activeDraftId,
-        p_chat_id: command.chatId,
-        p_expected_kind: command.expected.kind,
+    if (bounded === 0) {
+      return [];
+    }
+    return this.#snapshot.items
+      .slice(-bounded)
+      .map((stored) => structuredClone(stored.item));
+  }
+
+  async addItems(items: AgentInputItem[]): Promise<void> {
+    const sealedItems = items
+      .map(durableItem)
+      .filter((item): item is AgentInputItem => item !== null)
+      .map((item) => {
+        const id = randomUUID();
+        return {
+          id,
+          sealedItem: this.#cipher.seal(JSON.stringify(item), {
+            chatId: this.chatId,
+            itemId: id,
+            sessionId: this.sessionId,
+            type: "session_item",
+          }),
+        };
+      });
+    if (sealedItems.length === 0) {
+      return;
+    }
+    const result = sessionWriteResult(
+      await this.#rpc("append_agent_sdk_items", {
+        p_chat_id: this.chatId,
         p_expected_session_id:
-          command.expected.kind === "active"
-            ? command.expected.id
-            : null,
-        p_expected_version:
-          command.expected.kind === "active"
-            ? command.expected.version
-            : null,
-        p_proposed_session_id: sessionId,
-        p_sealed_turn: sealedTurn,
-        p_update_id: command.updateId,
+          this.#snapshot.version === 0 ? null : this.sessionId,
+        p_expected_version: this.#snapshot.version,
+        p_items: sealedItems,
+        p_proposed_session_id: this.sessionId,
+        p_retention_seconds: this.#retentionSeconds,
       }),
       this.#cipher,
     );
+    if (result.kind === "stale") {
+      throw new Error("Agent session changed concurrently");
+    }
+    this.#snapshot = result.session;
+  }
+
+  async popItem(): Promise<AgentInputItem | undefined> {
+    if (this.#snapshot.version === 0) {
+      return undefined;
+    }
+    const value = record(
+      await this.#rpc("pop_agent_sdk_item", {
+        p_chat_id: this.chatId,
+        p_expected_version: this.#snapshot.version,
+        p_session_id: this.sessionId,
+      }),
+    );
+    if (
+      !value ||
+      !["empty", "popped", "stale"].includes(String(value.kind))
+    ) {
+      throw new Error("Agent session persistence returned invalid data");
+    }
+    if (value.kind === "stale") {
+      throw new Error("Agent session changed concurrently");
+    }
+    if (value.kind === "empty") {
+      return undefined;
+    }
+    const popped = parseSealedItem(
+      value.item,
+      { chatId: this.chatId, id: this.sessionId },
+      this.#cipher,
+    );
+    this.#snapshot = sessionSnapshot(value.session, this.#cipher);
+    return popped.item;
+  }
+
+  async clearSession(): Promise<void> {
+    await this.reset("reset");
+  }
+
+  async reset(mode: "forget" | "reset"): Promise<void> {
+    if (this.#snapshot.version > 0) {
+      const result = sessionClearResult(
+        await this.#rpc("reset_agent_sdk_session", {
+          p_chat_id: this.chatId,
+          p_mode: mode,
+          p_session_id: this.sessionId,
+        }),
+      );
+      if (result.kind === "stale") {
+        throw new Error("Agent session changed concurrently");
+      }
+    }
+    this.#snapshot = {
+      ...this.#snapshot,
+      activeDraftId: null,
+      compactionCheckpoint: null,
+      expiresAt: new Date(0).toISOString(),
+      firstWorkingSequence: null,
+      interaction: { callbackChoice: null, pendingQuestion: null },
+      itemCount: 0,
+      items: [],
+      version: 0,
+    };
+  }
+
+  async readHistory(
+    cursor?: string,
+    limit = AGENT_SESSION_HISTORY_PAGE_LIMIT,
+  ): Promise<AgentSessionHistoryPage> {
+    if (this.#snapshot.version === 0) {
+      return { items: [], nextCursor: null };
+    }
+    let beforeSequence: number | null =
+      this.#snapshot.firstWorkingSequence;
+    if (cursor !== undefined) {
+      let payload: Record<string, unknown>;
+      try {
+        payload = parseJsonRecord(
+          this.#cipher.open(cursor, {
+            chatId: this.chatId,
+            sessionId: this.sessionId,
+            type: "history_cursor",
+          }),
+        );
+      } catch {
+        throw new Error("Invalid agent session history cursor");
+      }
+      if (
+        payload.sessionId !== this.sessionId ||
+        !safeInteger(payload.beforeSequence, true)
+      ) {
+        throw new Error("Invalid agent session history cursor");
+      }
+      beforeSequence = payload.beforeSequence;
+    }
+    if (beforeSequence === null) {
+      return { items: [], nextCursor: null };
+    }
+    const bounded = Math.max(
+      1,
+      Math.min(limit, AGENT_SESSION_HISTORY_PAGE_LIMIT),
+    );
+    const value = record(
+      await this.#rpc("page_agent_sdk_history", {
+        p_before_sequence: beforeSequence,
+        p_chat_id: this.chatId,
+        p_limit: bounded,
+        p_session_id: this.sessionId,
+      }),
+    );
+    if (
+      !value ||
+      !["active", "expired", "missing"].includes(String(value.kind))
+    ) {
+      throw new Error("Agent session persistence returned invalid data");
+    }
+    if (value.kind !== "active") {
+      return { items: [], nextCursor: null };
+    }
+    if (!Array.isArray(value.items)) {
+      throw new Error("Agent session persistence returned invalid data");
+    }
+    const items = value.items.map((stored) =>
+      parseSealedItem(
+        stored,
+        { chatId: this.chatId, id: this.sessionId },
+        this.#cipher,
+      )
+    );
+    const nextBefore = value.nextBeforeSequence;
+    if (!(nextBefore === null || safeInteger(nextBefore, true))) {
+      throw new Error("Agent session persistence returned invalid data");
+    }
+    return {
+      items,
+      nextCursor:
+        nextBefore === null
+          ? null
+          : this.#cipher.seal(
+              JSON.stringify({
+                beforeSequence: nextBefore,
+                sessionId: this.sessionId,
+              }),
+              {
+                chatId: this.chatId,
+                sessionId: this.sessionId,
+                type: "history_cursor",
+              },
+            ),
+    };
+  }
+
+  async recordApplicationReply(
+    command: Omit<
+      AgentSessionApplicationReplyCommand,
+      "chatId" | "sessionId"
+    >,
+  ): Promise<AgentSessionWriteResult> {
+    return this.#recordInteraction(
+      "write_agent_sdk_application_reply",
+      command,
+      null,
+    );
+  }
+
+  async recordCallbackChoice(command: Readonly<{
+    action: string;
+    assistantText: string;
+    pendingQuestion: boolean;
+    updateId: number;
+  }>): Promise<AgentSessionWriteResult> {
+    return this.#recordInteraction(
+      "write_agent_sdk_callback_choice",
+      {
+        activeDraftId: this.#snapshot.activeDraftId,
+        assistantText: command.assistantText,
+        pendingQuestion: command.pendingQuestion,
+        updateId: command.updateId,
+      },
+      command.action,
+    );
+  }
+
+  async runCompaction(): Promise<null> {
+    if (
+      this.#snapshot.version === 0 ||
+      this.#snapshot.itemCount < AGENT_SESSION_COMPACTION_THRESHOLD
+    ) {
+      return null;
+    }
+    const throughSequence =
+      this.#snapshot.firstWorkingSequence === null
+        ? this.#snapshot.itemCount
+        : this.#snapshot.firstWorkingSequence - 1;
+    if (
+      throughSequence < 1 ||
+      (this.#snapshot.compactionCheckpoint?.throughSequence ?? 0) >=
+        throughSequence
+    ) {
+      return null;
+    }
+    const checkpointId = randomUUID();
+    const sealedCheckpoint = this.#cipher.seal(
+      JSON.stringify({ kind: "local_checkpoint", throughSequence }),
+      {
+        chatId: this.chatId,
+        checkpointId,
+        sessionId: this.sessionId,
+        type: "session_compaction",
+      },
+    );
+    const result = sessionWriteResult(
+      await this.#rpc("write_agent_sdk_compaction", {
+        p_chat_id: this.chatId,
+        p_checkpoint_id: checkpointId,
+        p_expected_version: this.#snapshot.version,
+        p_retention_seconds: this.#retentionSeconds,
+        p_sealed_checkpoint: sealedCheckpoint,
+        p_session_id: this.sessionId,
+        p_through_sequence: throughSequence,
+      }),
+      this.#cipher,
+    );
+    if (result.kind !== "stale") {
+      this.#snapshot = result.session;
+    }
+    return null;
+  }
+
+  async #recordInteraction(
+    rpcName:
+      | "write_agent_sdk_application_reply"
+      | "write_agent_sdk_callback_choice",
+    command: Readonly<{
+      activeDraftId: string | null;
+      assistantText: string;
+      pendingQuestion: boolean;
+      updateId: number;
+    }>,
+    callbackAction: string | null,
+  ): Promise<AgentSessionWriteResult> {
+    if (this.#snapshot.version === 0) {
+      throw new Error("Agent session has not been persisted");
+    }
+    const itemId = randomUUID();
+    const contextId = randomUUID();
+    const assistantItem: AgentInputItem = {
+      content: [{ text: command.assistantText, type: "output_text" }],
+      role: "assistant",
+      status: "completed",
+    };
+    const interaction: AgentSessionInteractionContext = {
+      callbackChoice:
+        callbackAction === null
+          ? null
+          : { action: callbackAction, updateId: command.updateId },
+      pendingQuestion: command.pendingQuestion
+        ? { text: command.assistantText, updateId: command.updateId }
+        : null,
+    };
+    const result = sessionWriteResult(
+      await this.#rpc(rpcName, {
+        p_active_draft_id: command.activeDraftId,
+        p_chat_id: this.chatId,
+        p_context_id: contextId,
+        p_expected_version: this.#snapshot.version,
+        p_item_id: itemId,
+        p_operation_id: command.updateId,
+        p_retention_seconds: this.#retentionSeconds,
+        p_sealed_context: this.#cipher.seal(
+          JSON.stringify(interaction),
+          {
+            chatId: this.chatId,
+            contextId,
+            sessionId: this.sessionId,
+            type: "session_context",
+          },
+        ),
+        p_sealed_item: this.#cipher.seal(JSON.stringify(assistantItem), {
+          chatId: this.chatId,
+          itemId,
+          sessionId: this.sessionId,
+          type: "session_item",
+        }),
+        p_session_id: this.sessionId,
+      }),
+      this.#cipher,
+    );
+    if (result.kind !== "stale") {
+      this.#snapshot = result.session;
+    }
+    return result;
   }
 }
 

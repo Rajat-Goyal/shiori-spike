@@ -28,6 +28,7 @@ import {
   createAgentRuntime,
 } from "./agent/runtime.js";
 import { createAgentSessionCipher } from "./agent/session-crypto.js";
+import type { AgentSessionRepository } from "./agent/session.js";
 import {
   SupabaseAgentApprovalRepository,
   SupabaseAgentSessionRepository,
@@ -84,6 +85,7 @@ import {
 import type { DecisionResult } from "./decision/schema.js";
 
 export type AppOptions = {
+  agentSessions?: AgentSessionRepository;
   config: ServerConfig;
   dashboardRepository?: DashboardRepository;
   googleCalendarService?: GoogleCalendarService;
@@ -158,11 +160,13 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const agentSessionCipher = createAgentSessionCipher(
     options.config.dashboardSessionSecret,
   );
-  const agentSessions = new SupabaseAgentSessionRepository({
-    cipher: agentSessionCipher,
-    supabaseSecretKey: options.config.supabaseSecretKey,
-    supabaseUrl: options.config.supabaseUrl,
-  });
+  const agentSessions =
+    options.agentSessions ??
+    new SupabaseAgentSessionRepository({
+      cipher: agentSessionCipher,
+      supabaseSecretKey: options.config.supabaseSecretKey,
+      supabaseUrl: options.config.supabaseUrl,
+    });
   const agentApprovals = new SupabaseAgentApprovalRepository({
     supabaseSecretKey: options.config.supabaseSecretKey,
     supabaseUrl: options.config.supabaseUrl,
@@ -591,6 +595,33 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       };
     }
   });
+
+  app.post<{ Body: { mode?: unknown } }>(
+    "/api/owner/conversation/reset",
+    async (request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      if (!isAuthenticated(request.headers.cookie)) {
+        return reply
+          .code(401)
+          .send(unauthorizedError(request.headers.cookie));
+      }
+      const mode = request.body?.mode;
+      if (mode !== "reset" && mode !== "forget") {
+        return reply.code(400).send({ error: "invalid_reset_mode" });
+      }
+      try {
+        const session = await agentSessions.open(
+          options.config.telegramOwnerUserId,
+        );
+        await session.reset(mode);
+        return { reset: true };
+      } catch {
+        return reply
+          .code(503)
+          .send({ error: "conversation_reset_unavailable" });
+      }
+    },
+  );
 
   app.get("/api/dashboard/summary", async (request, reply) => {
     reply.header("Cache-Control", "no-store");

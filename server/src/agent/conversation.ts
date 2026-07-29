@@ -10,7 +10,7 @@ import type {
   AgentRuntime,
 } from "./runtime.js";
 import type {
-  AgentSessionReadResult,
+  AgentSdkSession,
   AgentSessionRepository,
 } from "./session.js";
 
@@ -23,45 +23,34 @@ type SessionBackedAgentDecisionEngineOptions = Readonly<{
 
 export type AgentSessionContinuityFailureEvent = Readonly<{
   event: "agent_session_continuity_dropped";
-  operation: "clear" | "record_turn";
+  operation: "record_reply";
   reason: "repository_error" | "stale";
 }>;
 
 type PendingTurn = Readonly<{
-  ownerText: string;
-  sessionRead: AgentSessionReadResult;
+  session: AgentSdkSession;
 }>;
-
-function expectedSession(read: AgentSessionReadResult) {
-  return read.kind === "active"
-    ? {
-        id: read.session.id,
-        kind: "active" as const,
-        version: read.session.version,
-      }
-    : { kind: "none" as const };
-}
 
 function authority(
   chatId: number,
   updateId: number,
-  read: AgentSessionReadResult,
+  session: AgentSdkSession,
 ): AgentExecutionAuthority {
+  const snapshot = session.currentSnapshot();
   return {
     chatId,
-    draftId:
-      read.kind === "active" ? read.session.activeDraftId : null,
+    draftId: snapshot.activeDraftId,
     draftVersion: null,
-    sessionId: read.kind === "active" ? read.session.id : null,
+    sessionId: session.sessionId,
     updateId,
   };
 }
 
 /**
- * Adds bounded, application-owned continuity to the provider-neutral decision
- * contract. The runtime never owns persistence: this adapter reads recent
- * turns before a run and records only the final application reply after the
- * deterministic conversation transition completes.
+ * Connects the provider-neutral decision contract to an application-owned
+ * Agents SDK session. The SDK persists bounded working history during the
+ * model run; this adapter appends only the deterministic application reply and
+ * its pending-question/domain focus after the transition completes.
  */
 export class SessionBackedAgentDecisionEngine implements DecisionEngine {
   readonly #chatId: number;
@@ -86,16 +75,12 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
     if (context === undefined) {
       throw new Error("Agent decision turn context is required");
     }
-    const sessionRead = await this.#repository.read(this.#chatId);
-    this.#pendingTurns.set(context.updateId, {
-      ownerText: input.ownerText,
-      sessionRead,
-    });
+    const session = await this.#repository.open(this.#chatId);
+    this.#pendingTurns.set(context.updateId, { session });
     const result = await this.#runtime.run({
-      authority: authority(this.#chatId, context.updateId, sessionRead),
+      authority: authority(this.#chatId, context.updateId, session),
       input,
-      recentTurns:
-        sessionRead.kind === "active" ? sessionRead.session.turns : [],
+      session,
     });
     return result.outcome;
   }
@@ -106,63 +91,27 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
     const pending = this.#pendingTurns.get(completion.updateId);
     this.#pendingTurns.delete(completion.updateId);
 
-    if (completion.status === "expired") {
-      if (pending?.sessionRead.kind === "active") {
-        await this.#clearSession(
-          pending.sessionRead.session.id,
-          "expired",
-          completion.updateId,
-        );
-      }
-      return;
-    }
     if (pending === undefined) {
       return;
     }
-    if (completion.status === "closed") {
-      if (pending.sessionRead.kind === "active") {
-        await this.#clearSession(
-          pending.sessionRead.session.id,
-          "cancelled",
-          completion.updateId,
-        );
-      }
-      return;
-    }
-    if (completion.status !== "active") {
+    if (completion.status === "expired") {
       return;
     }
     try {
-      const recorded = await this.#repository.recordTurn({
+      const recorded = await pending.session.recordApplicationReply({
         activeDraftId: completion.activeDraftId,
         assistantText: completion.assistantText,
-        chatId: this.#chatId,
-        expected: expectedSession(pending.sessionRead),
-        ownerText: pending.ownerText,
+        pendingQuestion: completion.status === "active",
         updateId: completion.updateId,
       });
       if (recorded.kind === "stale") {
-        this.#reportContinuityFailure("record_turn", "stale");
+        this.#reportContinuityFailure("record_reply", "stale");
       }
     } catch {
-      this.#reportContinuityFailure("record_turn", "repository_error");
-    }
-  }
-
-  async #clearSession(
-    expectedSessionId: string,
-    reason: "cancelled" | "expired",
-    updateId: number,
-  ): Promise<void> {
-    try {
-      await this.#repository.clear({
-        chatId: this.#chatId,
-        expectedSessionId,
-        reason,
-        updateId,
-      });
-    } catch {
-      this.#reportContinuityFailure("clear", "repository_error");
+      this.#reportContinuityFailure(
+        "record_reply",
+        "repository_error",
+      );
     }
   }
 

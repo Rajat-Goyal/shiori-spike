@@ -44,11 +44,10 @@ class MemorySessionRepository implements AgentSessionRepository {
   readonly clear = vi.fn<AgentSessionRepository["clear"]>(
     async () => ({ kind: "cleared" }),
   );
-  readonly recordTurn = vi.fn<AgentSessionRepository["recordTurn"]>(
-    async () => {
-      throw new Error("not used");
-    },
-  );
+
+  async open(): Promise<never> {
+    throw new Error("not used");
+  }
 
   async read(chatId: number) {
     return {
@@ -56,9 +55,16 @@ class MemorySessionRepository implements AgentSessionRepository {
       session: {
         activeDraftId: this.activeDraftId,
         chatId,
+        compactionCheckpoint: null,
         expiresAt: "2026-07-30T10:00:00.000Z",
+        firstWorkingSequence: null,
         id: "session-1",
-        turns: [],
+        interaction: {
+          callbackChoice: null,
+          pendingQuestion: null,
+        },
+        itemCount: 0,
+        items: [],
         version: 4,
       },
     };
@@ -422,7 +428,7 @@ describe("agent approval gate", () => {
     "confirmed",
     "cancelled",
     "expired",
-  ] as const)("clears both ephemeral stores after %s", async (reason) => {
+  ] as const)("clears only paused approval state after %s", async (reason) => {
     const { approvals, gate, sessions } = fixture();
 
     await expect(
@@ -434,12 +440,7 @@ describe("agent approval gate", () => {
       }),
     ).resolves.toEqual({ kind: "cleared" });
 
-    expect(sessions.clear).toHaveBeenCalledWith({
-      chatId: 42,
-      expectedSessionId: "session-1",
-      reason,
-      updateId: 300,
-    });
+    expect(sessions.clear).not.toHaveBeenCalled();
     expect(approvals.clearForSession).toHaveBeenCalledWith(
       "session-1",
       reason,

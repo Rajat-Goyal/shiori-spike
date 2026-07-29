@@ -1,6 +1,10 @@
 import { argon2Sync } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
+import type {
+  AgentSdkSession,
+  AgentSessionRepository,
+} from "./agent/session.js";
 import type { ServerConfig } from "./config.js";
 import type { DashboardRepository, DashboardSummary } from "./dashboard.js";
 
@@ -130,6 +134,77 @@ describe("API contracts", () => {
     expect(summaryResponse.statusCode).toBe(401);
     expect(summaryResponse.json()).toEqual({ error: "unauthenticated" });
     expect(dashboardRepository.readSummary).not.toHaveBeenCalled();
+  });
+
+  it("allows only the authenticated owner to reset or forget conversation history", async () => {
+    const reset = vi.fn<AgentSdkSession["reset"]>(async () => undefined);
+    const session: AgentSdkSession = {
+      addItems: vi.fn(async () => undefined),
+      chatId: testConfig.telegramOwnerUserId,
+      clearSession: vi.fn(async () => undefined),
+      currentSnapshot: () => ({
+        activeDraftId: null,
+        chatId: testConfig.telegramOwnerUserId,
+        compactionCheckpoint: null,
+        expiresAt: new Date(0).toISOString(),
+        firstWorkingSequence: null,
+        id: "11111111-1111-4111-8111-111111111111",
+        interaction: { callbackChoice: null, pendingQuestion: null },
+        itemCount: 0,
+        items: [],
+        version: 0,
+      }),
+      getItems: vi.fn(async () => []),
+      getSessionId: vi.fn(async () =>
+        "11111111-1111-4111-8111-111111111111"
+      ),
+      popItem: vi.fn(async () => undefined),
+      readHistory: vi.fn(async () => ({ items: [], nextCursor: null })),
+      recordApplicationReply: vi.fn(async () => ({ kind: "stale" })),
+      recordCallbackChoice: vi.fn(async () => ({ kind: "stale" })),
+      reset,
+      runCompaction: vi.fn(async () => null),
+      sessionId: "11111111-1111-4111-8111-111111111111",
+    };
+    const agentSessions: AgentSessionRepository = {
+      clear: vi.fn(async () => ({ kind: "none" })),
+      open: vi.fn(async () => session),
+      read: vi.fn(async () => ({ kind: "none" })),
+    };
+    const app = await buildApp({
+      agentSessions,
+      config: testConfig,
+      now: () => testNow,
+      serveStatic: false,
+    });
+    openApps.push(app);
+
+    const unauthenticated = await app.inject({
+      method: "POST",
+      payload: { mode: "forget" },
+      url: "/api/owner/conversation/reset",
+    });
+    expect(unauthenticated.statusCode).toBe(401);
+    expect(agentSessions.open).not.toHaveBeenCalled();
+
+    const cookie = await login(app);
+    const invalid = await app.inject({
+      headers: { cookie },
+      method: "POST",
+      payload: { mode: "everything" },
+      url: "/api/owner/conversation/reset",
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const forgotten = await app.inject({
+      headers: { cookie },
+      method: "POST",
+      payload: { mode: "forget" },
+      url: "/api/owner/conversation/reset",
+    });
+    expect(forgotten.statusCode).toBe(200);
+    expect(forgotten.json()).toEqual({ reset: true });
+    expect(reset).toHaveBeenCalledWith("forget");
   });
 
   it("admits only the configured Argon2id password with a bounded secure cookie", async () => {

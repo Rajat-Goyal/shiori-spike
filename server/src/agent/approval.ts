@@ -157,27 +157,11 @@ export function createAgentApprovalGate(
         return { kind: "unavailable" };
       }
       try {
-        const [sessionResult] = await Promise.all([
-          options.sessions.clear({
-            chatId: command.chatId,
-            expectedSessionId: command.sessionId,
-            reason: command.reason,
-            updateId: command.updateId,
-          }),
-          options.approvals.clearForSession(
-            command.sessionId,
-            command.reason,
-          ),
-        ]);
-        if (sessionResult.kind === "replay") {
-          return { kind: "replay" };
-        }
-        if (
-          sessionResult.kind === "cleared" ||
-          sessionResult.kind === "none"
-        ) {
-          return { kind: "cleared" };
-        }
+        await options.approvals.clearForSession(
+          command.sessionId,
+          command.reason,
+        );
+        return { kind: "cleared" };
       } catch {
         report("clear_unavailable");
       }

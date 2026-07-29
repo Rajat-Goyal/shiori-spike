@@ -11,7 +11,7 @@ import {
 import { z } from "zod";
 
 import type { TelegramReply } from "../confirmation.js";
-import type { AgentSessionTurn } from "./session.js";
+import type { AgentSdkSession } from "./session.js";
 import {
   type DecisionOutcome,
   type DecisionTelemetryReason,
@@ -96,7 +96,7 @@ export type AgentRuntimeResult = Readonly<{
 export type AgentRuntimeRunRequest = Readonly<{
   authority: AgentExecutionAuthority;
   input: DecisionInput;
-  recentTurns: readonly AgentSessionTurn[];
+  session: AgentSdkSession;
 }>;
 
 export type AgentRuntimePrepareExecutionRequest = Readonly<{
@@ -137,6 +137,7 @@ export type AgentRunnerRequest = Readonly<{
   input: readonly AgentInputItem[];
   maxTurns: number;
   safety: AgentRunnerSafetySettings;
+  session?: AgentSdkSession;
   signal: AbortSignal;
 }>;
 
@@ -398,26 +399,6 @@ function parsePendingEnvelope(value: string): PendingApprovalEnvelope | null {
   };
 }
 
-function replayInput(
-  turns: readonly AgentSessionTurn[],
-  currentOwnerText: string,
-): AgentInputItem[] {
-  return turns.slice(-6).flatMap<AgentInputItem>((turn) => [
-    {
-      content: turn.ownerText,
-      role: "user",
-    },
-    {
-      content: [{ text: turn.assistantText, type: "output_text" }],
-      role: "assistant",
-      status: "completed",
-    },
-  ]).concat({
-    content: currentOwnerText,
-    role: "user",
-  });
-}
-
 function sanitizeAvailability(
   slots: readonly SanitizedAvailabilitySlot[],
 ): SanitizedAvailabilitySlot[] {
@@ -584,6 +565,7 @@ class OpenAIAgentsRunner implements AgentRunner {
     const result = await runner.run(request.agent, [...request.input], {
       context: request.context,
       maxTurns: request.maxTurns,
+      session: request.session,
       signal: request.signal,
     });
     return {
@@ -859,16 +841,17 @@ export function createAgentRuntime(
         const result = await runner.run({
           agent: prepared.agent,
           context: prepared.context,
-          input: replayInput(
-            request.recentTurns,
-            request.input.ownerText,
-          ),
+          input: [{
+            content: request.input.ownerText,
+            role: "user",
+          }],
           maxTurns: AGENT_RUNTIME_MAX_TURNS,
           safety: {
             modelStore: false,
             traceIncludeSensitiveData: false,
             tracingDisabled: true,
           },
+          session: request.session,
           signal,
         });
         return resultFromRunner(result, prepared.context);

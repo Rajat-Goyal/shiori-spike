@@ -13,7 +13,8 @@ import { ConversationService } from "../conversation/service.js";
 import type { DecisionResult } from "../decision/schema.js";
 import type { AgentRuntime } from "./runtime.js";
 import type {
-  AgentSessionRecordCommand,
+  AgentSessionApplicationReplyCommand,
+  AgentSdkSession,
   AgentSessionRepository,
   AgentSessionSnapshot,
 } from "./session.js";
@@ -37,51 +38,90 @@ const decision: DecisionResult = {
 const snapshot: AgentSessionSnapshot = {
   activeDraftId: "11111111-1111-4111-8111-111111111111",
   chatId: 42,
+  compactionCheckpoint: null,
   expiresAt: "2026-07-30T10:00:00.000Z",
+  firstWorkingSequence: 1,
   id: "session-1",
-  turns: [
-    {
-      assistantText: "When should it be done?",
-      ownerText: "I need to submit the note",
-      recordedAt: "2026-07-29T10:00:00.000Z",
+  interaction: {
+    callbackChoice: null,
+    pendingQuestion: {
+      text: "When should it be done?",
       updateId: 10,
+    },
+  },
+  itemCount: 2,
+  items: [
+    {
+      item: {
+        content: "I need to submit the note",
+        role: "user",
+      },
+      recordedAt: "2026-07-29T10:00:00.000Z",
+      sequence: 1,
+    },
+    {
+      item: {
+        content: [{
+          text: "When should it be done?",
+          type: "output_text",
+        }],
+        role: "assistant",
+        status: "completed",
+      },
+      recordedAt: "2026-07-29T10:00:01.000Z",
+      sequence: 2,
     },
   ],
   version: 2,
 };
 
 function fixture(active = true) {
-  const records: AgentSessionRecordCommand[] = [];
+  const records: Array<
+    Omit<AgentSessionApplicationReplyCommand, "chatId" | "sessionId">
+  > = [];
   const continuityFailures = vi.fn();
+  const mutableSnapshot = active
+    ? snapshot
+    : {
+        ...snapshot,
+        activeDraftId: null,
+        firstWorkingSequence: null,
+        itemCount: 0,
+        items: [],
+        version: 0,
+      };
+  const session: AgentSdkSession = {
+    addItems: vi.fn(async () => undefined),
+    chatId: 42,
+    clearSession: vi.fn(async () => undefined),
+    currentSnapshot: () => mutableSnapshot,
+    getItems: vi.fn(async () => []),
+    getSessionId: vi.fn(async () => snapshot.id),
+    popItem: vi.fn(async () => undefined),
+    readHistory: vi.fn(async () => ({ items: [], nextCursor: null })),
+    recordApplicationReply: vi.fn(async (command) => {
+      records.push(command);
+      return { kind: "applied", session: snapshot };
+    }),
+    recordCallbackChoice: vi.fn(async () => ({
+      kind: "applied",
+      session: snapshot,
+    })),
+    reset: vi.fn(async () => undefined),
+    runCompaction: vi.fn(async () => null),
+    sessionId: snapshot.id,
+  };
   const repository: AgentSessionRepository = {
     clear: vi.fn(async () => ({ kind: "cleared" })),
+    open: vi.fn(async () => session),
     read: vi.fn(async () =>
       active
         ? { kind: "active", session: snapshot }
         : { kind: "none" }
     ),
-    recordTurn: vi.fn(async (command) => {
-      records.push(command);
-      return {
-        kind: "applied",
-        session: {
-          ...snapshot,
-          activeDraftId: command.activeDraftId,
-          turns: [
-            ...snapshot.turns,
-            {
-              assistantText: command.assistantText,
-              ownerText: command.ownerText,
-              recordedAt: "2026-07-29T10:01:00.000Z",
-              updateId: command.updateId,
-            },
-          ],
-          version: snapshot.version + 1,
-        },
-      };
-    }),
   };
   const runtime: AgentRuntime = {
+    prepareExecution: vi.fn(),
     resume: vi.fn(),
     run: vi.fn(async () => ({ outcome: { decision, ok: true } })),
   };
@@ -96,11 +136,12 @@ function fixture(active = true) {
     records,
     repository,
     runtime,
+    session,
   };
 }
 
 describe("SessionBackedAgentDecisionEngine", () => {
-  it("replays the bounded active session and records only application reply copy", async () => {
+  it("passes the durable SDK session and records only application reply copy", async () => {
     const test = fixture();
     const input = {
       context: {
@@ -130,7 +171,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
         updateId: 11,
       },
       input,
-      recentTurns: snapshot.turns,
+      session: test.session,
     });
 
     await test.engine.completeTurn({
@@ -143,19 +184,13 @@ describe("SessionBackedAgentDecisionEngine", () => {
       {
         activeDraftId: snapshot.activeDraftId,
         assistantText: "Do you need preparation time?",
-        chatId: 42,
-        expected: {
-          id: snapshot.id,
-          kind: "active",
-          version: snapshot.version,
-        },
-        ownerText: "Tomorrow at 10",
+        pendingQuestion: true,
         updateId: 11,
       },
     ]);
   });
 
-  it("does not create permanent session state for a state-free ordinary answer", async () => {
+  it("records an ordinary application answer in the same session", async () => {
     const test = fixture(false);
     await test.engine.decide(
       {
@@ -171,11 +206,16 @@ describe("SessionBackedAgentDecisionEngine", () => {
       updateId: 12,
     });
 
-    expect(test.repository.recordTurn).not.toHaveBeenCalled();
+    expect(test.session.recordApplicationReply).toHaveBeenCalledWith({
+      activeDraftId: null,
+      assistantText: "Singapore uses UTC+08:00.",
+      pendingQuestion: false,
+      updateId: 12,
+    });
     expect(test.repository.clear).not.toHaveBeenCalled();
   });
 
-  it("deletes the ephemeral session when permission is declined", async () => {
+  it("retains durable history when a draft conversation closes", async () => {
     const test = fixture();
     await test.engine.decide(
       {
@@ -191,18 +231,18 @@ describe("SessionBackedAgentDecisionEngine", () => {
       updateId: 13,
     });
 
-    expect(test.repository.clear).toHaveBeenCalledWith({
-      chatId: 42,
-      expectedSessionId: snapshot.id,
-      reason: "cancelled",
+    expect(test.session.recordApplicationReply).toHaveBeenCalledWith({
+      activeDraftId: null,
+      assistantText: "Okay. Nothing was saved.",
+      pendingQuestion: false,
       updateId: 13,
     });
-    expect(test.repository.recordTurn).not.toHaveBeenCalled();
+    expect(test.repository.clear).not.toHaveBeenCalled();
   });
 
   it("drops stale continuity without suppressing the applied turn", async () => {
     const test = fixture();
-    vi.mocked(test.repository.recordTurn).mockResolvedValueOnce({
+    vi.mocked(test.session.recordApplicationReply).mockResolvedValueOnce({
       kind: "stale",
     });
     await test.engine.decide(
@@ -223,14 +263,14 @@ describe("SessionBackedAgentDecisionEngine", () => {
     ).resolves.toBeUndefined();
     expect(test.continuityFailures).toHaveBeenCalledWith({
       event: "agent_session_continuity_dropped",
-      operation: "record_turn",
+      operation: "record_reply",
       reason: "stale",
     });
   });
 
   it("returns the deterministic reply once when the post-apply session write fails", async () => {
     const test = fixture(false);
-    vi.mocked(test.repository.recordTurn).mockRejectedValueOnce(
+    vi.mocked(test.session.recordApplicationReply).mockRejectedValueOnce(
       new Error("private repository details"),
     );
     let applied = false;
@@ -271,10 +311,10 @@ describe("SessionBackedAgentDecisionEngine", () => {
     ).resolves.toBe(conversationCopy.interrupted);
 
     expect(conversationRepository.applyTurn).toHaveBeenCalledTimes(1);
-    expect(test.repository.recordTurn).toHaveBeenCalledTimes(1);
+    expect(test.session.recordApplicationReply).toHaveBeenCalledTimes(1);
     expect(test.continuityFailures).toHaveBeenCalledWith({
       event: "agent_session_continuity_dropped",
-      operation: "record_turn",
+      operation: "record_reply",
       reason: "repository_error",
     });
   });

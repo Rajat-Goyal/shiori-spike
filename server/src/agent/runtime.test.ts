@@ -1,10 +1,11 @@
 import {
   RunContext,
+  type AgentInputItem,
   type FunctionTool,
 } from "@openai/agents";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentSessionTurn } from "./session.js";
+import type { AgentSdkSession } from "./session.js";
 import {
   AGENT_RUNTIME_MAX_TURNS,
   AGENT_RUNTIME_TIMEOUT_MS,
@@ -132,17 +133,57 @@ function runtimeWith(runner: AgentRunner, overrides: {
   });
 }
 
-function turn(index: number): AgentSessionTurn {
+function sdkSession(
+  items: readonly AgentInputItem[] = [],
+): AgentSdkSession {
   return {
-    assistantText: `assistant-${index}`,
-    ownerText: `owner-${index}`,
-    recordedAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
-    updateId: index,
+    addItems: vi.fn(async () => undefined),
+    chatId: 42,
+    clearSession: vi.fn(async () => undefined),
+    currentSnapshot: () => ({
+      activeDraftId: authority.draftId,
+      chatId: 42,
+      compactionCheckpoint: null,
+      expiresAt: "2026-08-29T00:00:00.000Z",
+      firstWorkingSequence: items.length > 0 ? 1 : null,
+      id: authority.sessionId!,
+      interaction: {
+        callbackChoice: null,
+        pendingQuestion: null,
+      },
+      itemCount: items.length,
+      items: items.map((item, index) => ({
+        item,
+        recordedAt: "2026-07-29T00:00:00.000Z",
+        sequence: index + 1,
+      })),
+      version: 1,
+    }),
+    getItems: vi.fn(async (limit?: number) =>
+      items.slice(-(limit ?? items.length)) as AgentInputItem[]
+    ),
+    getSessionId: vi.fn(async () => authority.sessionId!),
+    popItem: vi.fn(async () => undefined),
+    readHistory: vi.fn(async () => ({
+      items: [],
+      nextCursor: null,
+    })),
+    recordApplicationReply: vi.fn(async () => ({ kind: "stale" })),
+    recordCallbackChoice: vi.fn(async () => ({ kind: "stale" })),
+    reset: vi.fn(async () => undefined),
+    runCompaction: vi.fn(async () => null),
+    sessionId: authority.sessionId!,
   };
 }
 
 describe("bounded Agents SDK runtime", () => {
-  it("exposes only four allowlisted tools and replays six turns plus the current raw text", async () => {
+  it("exposes only four allowlisted tools and delegates history to the durable SDK session", async () => {
+    const session = sdkSession(
+      Array.from({ length: 16 }, (_, index) => ({
+        content: `history-${index}`,
+        role: "user" as const,
+      })),
+    );
     const runner = new ScriptedRunner(async (request) => {
       expect(request.agent.tools.map((candidate) => candidate.name)).toEqual(
         AGENT_RUNTIME_TOOL_NAMES,
@@ -156,12 +197,9 @@ describe("bounded Agents SDK runtime", () => {
       });
       expect(request.signal.aborted).toBe(false);
       expect(AGENT_RUNTIME_TIMEOUT_MS).toBe(30_000);
-      expect(request.input).toHaveLength(13);
+      expect(request.session).toBe(session);
+      expect(request.input).toHaveLength(1);
       expect(request.input[0]).toMatchObject({
-        content: "owner-2",
-        role: "user",
-      });
-      expect(request.input.at(-1)).toMatchObject({
         content: input.ownerText,
         role: "user",
       });
@@ -172,7 +210,7 @@ describe("bounded Agents SDK runtime", () => {
     const result = await runtimeWith(runner).run({
       authority,
       input,
-      recentTurns: Array.from({ length: 8 }, (_, index) => turn(index)),
+      session,
     });
 
     expect(result.outcome).toMatchObject({
@@ -236,7 +274,7 @@ describe("bounded Agents SDK runtime", () => {
       const result = await runtimeWith(runner).run({
         authority,
         input: datedInput,
-        recentTurns: [],
+        session: sdkSession(),
       });
 
       expect(result.outcome).toMatchObject({
@@ -282,7 +320,7 @@ describe("bounded Agents SDK runtime", () => {
     const result = await runtimeWith(runner).run({
       authority,
       input: datedInput,
-      recentTurns: [],
+      session: sdkSession(),
     });
 
     expect(result.outcome).toMatchObject({
@@ -319,7 +357,7 @@ describe("bounded Agents SDK runtime", () => {
         context: { fields: null, phase: "none" },
         ownerText: "How can you help me?",
       },
-      recentTurns: [],
+      session: sdkSession(),
     });
 
     expect(result.outcome).toMatchObject({
@@ -344,7 +382,7 @@ describe("bounded Agents SDK runtime", () => {
     const result = await runtimeWith(runner).run({
       authority,
       input,
-      recentTurns: [],
+      session: sdkSession(),
     });
 
     expect(result.outcome).toMatchObject({
@@ -367,7 +405,7 @@ describe("bounded Agents SDK runtime", () => {
     const result = await runtimeWith(runner).run({
       authority,
       input,
-      recentTurns: [],
+      session: sdkSession(),
     });
 
     expect(result.outcome).toMatchObject({
@@ -395,7 +433,7 @@ describe("bounded Agents SDK runtime", () => {
     await runtimeWith(runner, { executeCommitment }).run({
       authority,
       input,
-      recentTurns: [],
+      session: sdkSession(),
     });
 
     expect(executeCommitment).not.toHaveBeenCalled();
@@ -435,7 +473,7 @@ describe("bounded Agents SDK runtime", () => {
     const staged = await runtime.run({
       authority,
       input,
-      recentTurns: [],
+      session: sdkSession(),
     });
     expect(staged.pendingApprovalState).toBeTypeOf("string");
 
@@ -577,7 +615,7 @@ describe("bounded Agents SDK runtime", () => {
     const staged = await runtime.run({
       authority,
       input,
-      recentTurns: [],
+      session: sdkSession(),
     });
 
     const result = await runtime.resume({
@@ -628,7 +666,7 @@ describe("bounded Agents SDK runtime", () => {
     }).run({
       authority,
       input,
-      recentTurns: [],
+      session: sdkSession(),
     });
   });
 });
