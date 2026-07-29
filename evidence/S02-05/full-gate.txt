@@ -1,0 +1,182 @@
+S02-05 consolidated local release gate
+Date: 2026-07-30 (Asia/Singapore)
+Verified source: aff10738b75515a12eb5e69073c8cd8846d8780f
+Scope: local repository, disposable local Supabase, source/privacy inspection
+
+Final result
+
+PASS for the complete local gate.
+
+- AC1: PASS. Typechecks, unit/API tests, release-verifier tests, production
+  builds, isolated browser tests, disposable-database tests, and the focused
+  S02/S01 regression matrix all passed.
+- AC2: PENDING EXTERNAL AUTHORIZATION. No hosted Supabase migration, Railway
+  deployment, or hosted data-preservation check was performed by this local
+  gate.
+- AC3: PENDING EXTERNAL AUTHORIZATION. No real owner Telegram conversation,
+  hosted restart, or hosted replay was performed by this local gate.
+- AC4: PASS for the local/privacy portion. Provider storage and sensitive
+  tracing remain disabled; durable session material is encrypted; callback and
+  Calendar context remain bounded; source, tests, and this evidence expose no
+  secret, decrypted transcript, raw webhook payload, owner conversation, or
+  unrelated Calendar content. Hosted log/storage observation remains pending
+  with AC2 and AC3.
+
+Gate results
+
+1. Release-verifier contract
+
+Command:
+  npm run test:release-verifier
+
+Result:
+  PASS — 24 tests passed, 0 failed.
+
+Coverage includes the bare local contract, explicit remote phases, rejection
+of remote-only arguments in local mode, and trap executables that fail if bare
+mode invokes npx or Railway.
+
+Command:
+  npm run verify:release
+
+Result:
+  PASS — phase=local, mode=local, migrationCount=31,
+  repositoryGate=passed, Node 26.5.0, npm 11.17.0.
+
+The local call path branches before any environment-file read. It performs
+only the Node/npm version check, ordered local migration-manifest inspection,
+and `npm run check`; it does not call the hosted release routines, Supabase
+CLI, Railway CLI, or hosted fetch paths. The command completed without hosted
+credentials and without requiring hosted network access.
+
+2. Fresh disposable database
+
+Command:
+  npx --yes supabase@2.109.1 db reset --local --no-seed
+
+Result:
+  PASS — all 31 ordered migrations applied through
+  20260730092000_repair_continuation_claim_identity.sql.
+
+Command:
+  npm run test:db
+
+Execution boundary:
+  The test process received only the API URL and service credential returned
+  by the pinned local Supabase status command. A guard rejected any host other
+  than localhost/127.0.0.1 or any port other than 54321. Values were retained
+  only in the child-process environment and were not printed or written.
+
+Result:
+  PASS — 13 test files, 38 tests passed, 0 failed.
+
+The repaired Node/PostgreSQL wall-clock checks passed on this first run after
+the fresh reset. The shared tolerance is exactly 100 ms, applied symmetrically
+to lower and upper wall-clock bounds only in:
+
+- simple-reminder completion time; and
+- status/cancel cancellation and completion times.
+
+Lifecycle, state, message, event-count, schedule-cancellation, and unchanged
+Calendar assertions remain exact.
+
+3. Full repository gate
+
+Command:
+  npm run check
+
+Result:
+  PASS
+
+- Server unit/API: 35 files, 577 tests passed.
+- Release verifier: 24 tests passed.
+- Web production build: passed.
+- Server production build: passed.
+- Isolated Playwright: 50 tests passed across desktop and mobile Chromium.
+- TypeScript checks: server and web passed.
+
+This was run independently after the complete check already performed inside
+the bare local release verifier.
+
+4. Focused Slice 02 / critical Slice 01 regression
+
+Command:
+  npm run test --workspace @shiori/server -- \
+    src/agent/session-crypto.test.ts \
+    src/agent/supabase-session-repository.test.ts \
+    src/agent/runtime.test.ts \
+    src/agent/approval.test.ts \
+    src/agent/conversation.test.ts \
+    src/agent/callback-context.test.ts \
+    src/telegram/conversation.test.ts \
+    src/telegram/webhook.test.ts \
+    src/telegram/status-cancel.test.ts \
+    src/telegram/confirmation.test.ts \
+    src/commitments/approved-change.test.ts \
+    src/commitments/simple-action.test.ts \
+    src/work-sessions/flow.test.ts \
+    src/work-sessions/continuation.test.ts \
+    src/work-sessions/confirm.test.ts \
+    src/work-sessions/outcomes.test.ts \
+    src/work-sessions/notifications.test.ts \
+    src/scheduler/scheduler.test.ts
+
+Result:
+  PASS — 18 test files, 274 tests passed, 0 failed.
+
+Story coverage:
+
+- S02-01: encrypted durable SDK sessions, history pagination, restart restore,
+  callback context, and storage/tracing privacy.
+- S02-02: unified conversation, multiple drafts, focus, ambiguity, status, and
+  non-mutating ordinary answers.
+- S02-03: paused-run approval, exact-authority create/edit, final recheck,
+  stale/replay protection, and schedule replacement.
+- S02-04: natural preparation/continuation, exact 1..1440-minute duration
+  boundary including 45 minutes, cross-midnight cases, authoritative Telegram
+  update/audit identity, replay, and restart.
+- Critical Slice 01: simple actions, confirmation, status/cancel, scheduling,
+  work-session lifecycle, outcomes, notifications, and continuation.
+
+5. Privacy, source, and migration inspection
+
+Result:
+  PASS
+
+- Agent runtime keeps modelStore=false, traceIncludeSensitiveData=false,
+  tracingDisabled=true, and modelSettings.store=false on new, continued, and
+  resumed runs; the legacy decision boundary also keeps store=false.
+- Durable session items, interaction context, history cursors, and compaction
+  checkpoints are sealed with AES-256-GCM before persistence.
+- Callback projection retains only an allowlisted action and application
+  reply/question; raw callback data and entity identifiers do not cross the
+  boundary.
+- Agent product context exposes bounded commitment/work-session availability
+  facts and excludes Calendar titles, descriptions, attendees, and full event
+  objects.
+- Runtime warning events are bounded to event/reason records; this evidence
+  contains no configured values or personal payloads.
+- Git source was clean before evidence creation; `git diff --check` passed.
+- The migration directory contains exactly 31 strictly named SQL files, with
+  20260730092000_repair_continuation_claim_identity.sql last.
+
+Prior red run and repair
+
+The initial S02-05 local QA run at 1c21e2e455ceee42c20aff7b14f18f8f5c8fa1a8
+was correctly held red:
+
+- the first fresh database run passed 36/38 tests but two cross-process
+  timestamp lower bounds missed by exactly 1 ms; focused and fresh reruns
+  passed, identifying independent Node/PostgreSQL clock skew; and
+- bare `npm run verify:release` failed with `invalid_phase`.
+
+Repair aff10738b75515a12eb5e69073c8cd8846d8780f added the local/default release
+contract and its fail-closed tests, plus one shared 100 ms wall-clock tolerance
+limited to the affected bounds. This clean rerun passed every local gate with
+no remaining local deviation.
+
+Release boundary
+
+This evidence does not claim that S02-05 is shipped or closed. AC2, AC3, the
+release-restart scenario, and hosted privacy/log observation require fresh
+explicit production authorization and remain pending.
