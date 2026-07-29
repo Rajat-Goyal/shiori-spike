@@ -72,12 +72,23 @@ function initialSnapshot(
 
 class MemoryRepository implements WorkSessionFlowRepository {
   snapshot: WorkSessionDraftSnapshot;
+  readonly finalizations: unknown[] = [];
   readonly transitions: WorkSessionFlowTransition[] = [];
   readonly seenUpdates = new Set<number>();
   readKind: "current" | "expired" | "missing" | "stale" = "current";
 
   constructor(snapshot = initialSnapshot()) {
     this.snapshot = snapshot;
+  }
+
+  async finalizeConversation(
+    updateId: number,
+    chatId: number,
+    reference: DraftReference,
+    result: "domain_error" | "expired" | "invalid" | "stale",
+  ) {
+    this.finalizations.push({ chatId, reference, result, updateId });
+    return { kind: "applied" as const };
   }
 
   async read(reference: DraftReference) {
@@ -394,6 +405,58 @@ describe("WorkSessionFlow", () => {
     }
   });
 
+  it("accepts a 1440-minute owner window across midnight and rejects a non-boundary start terminally", async () => {
+    const fullDay = {
+      endAt: "2026-07-29T00:00:00+08:00",
+      startAt: "2026-07-28T00:00:00+08:00",
+    };
+    const valid = setup(
+      new MemoryRepository(),
+      checker({
+        alternatives: [],
+        checkedAt: "2026-07-27T00:01:00.000Z",
+        proposed: { status: "free", window: fullDay },
+        status: "available",
+      }),
+      vi.fn(async () => true),
+    );
+
+    await valid.flow.handleConversationInput(7994, 42, {
+      draftId: ID,
+      draftVersion: 1,
+      durationMinutes: 1_440,
+      followUpQuestion: null,
+      nextInput: null,
+      preparationRequired: true,
+      startAt: fullDay.startAt,
+      timingConstraints: null,
+    });
+
+    expect(valid.repository.snapshot.selectedWindow).toEqual(fullDay);
+    expect(valid.repository.snapshot.durationMinutes).toBe(1_440);
+
+    const invalid = setup(new MemoryRepository(), checker());
+    await expect(
+      invalid.flow.handleConversationInput(7995, 42, {
+        draftId: ID,
+        draftVersion: 1,
+        durationMinutes: 45,
+        followUpQuestion: null,
+        nextInput: null,
+        preparationRequired: true,
+        startAt: "2026-07-28T08:15:00+08:00",
+        timingConstraints: null,
+      }),
+    ).resolves.toEqual({
+      text:
+        "Use an exact future Singapore time on a 30-minute boundary. I didn’t change the draft.",
+    });
+    expect(invalid.availability).not.toHaveBeenCalled();
+    expect(invalid.repository.finalizations).toEqual([
+      expect.objectContaining({ result: "invalid", updateId: 7995 }),
+    ]);
+  });
+
   it("turns a natural no-preparation answer into the exact same-run creation approval and rejects stale focus", async () => {
     const prepareApproval = vi.fn(async () => true);
     const test = setup(
@@ -430,6 +493,65 @@ describe("WorkSessionFlow", () => {
     ).resolves.toEqual({
       text: "That action is stale. I didn’t change anything.",
     });
+    expect(test.repository.finalizations).toEqual([
+      expect.objectContaining({ result: "stale", updateId: 7996 }),
+    ]);
+  });
+
+  it.each([
+    ["expired", "expired"],
+    ["missing", "stale"],
+    ["stale", "stale"],
+  ] as const)(
+    "terminally finalizes a typed answer when its draft read is %s",
+    async (readKind, result) => {
+      const repository = new MemoryRepository();
+      repository.readKind = readKind;
+      const test = setup(repository);
+
+      await test.flow.handleConversationInput(7997, 42, {
+        draftId: ID,
+        draftVersion: 1,
+        durationMinutes: 45,
+        followUpQuestion: null,
+        nextInput: null,
+        preparationRequired: true,
+        startAt: null,
+        timingConstraints: "mon 08:00-12:00",
+      });
+
+      expect(repository.finalizations).toEqual([
+        expect.objectContaining({ result, updateId: 7997 }),
+      ]);
+    },
+  );
+
+  it("terminally finalizes typed domain failures without retrying Calendar", async () => {
+    const repository = new MemoryRepository();
+    const availability = vi.fn(async () => {
+      throw new Error("provider internals");
+    });
+    const test = setup(repository, availability);
+
+    await expect(
+      test.flow.handleConversationInput(7998, 42, {
+        draftId: ID,
+        draftVersion: 1,
+        durationMinutes: 45,
+        followUpQuestion: null,
+        nextInput: null,
+        preparationRequired: true,
+        startAt: null,
+        timingConstraints: "mon 08:00-12:00",
+      }),
+    ).resolves.toEqual({
+      text:
+        "I couldn’t safely prepare confirmation. Nothing was saved. Send another message to continue this draft.",
+    });
+    expect(repository.finalizations).toEqual([
+      expect.objectContaining({ result: "domain_error", updateId: 7998 }),
+    ]);
+    expect(availability).toHaveBeenCalledTimes(1);
   });
 
   it("converts declined preparation into a fresh simple confirmation without side effects", async () => {

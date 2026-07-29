@@ -44,8 +44,12 @@ import {
   MAX_WORK_SESSION_DURATION_MINUTES,
   MIN_WORK_SESSION_DURATION_MINUTES,
 } from "../work-sessions/duration.js";
-import type { WorkSessionConversationInput } from "../work-sessions/conversation-input.js";
+import type {
+  InitialWorkSessionConversationInput,
+  WorkSessionConversationInput,
+} from "../work-sessions/conversation-input.js";
 import { normalizeTimingConstraints } from "../work-sessions/availability-integration.js";
+import type { WorkSessionContinuationConversationInput } from "../work-sessions/continuation.js";
 
 export const AGENT_RUNTIME_MAX_TURNS = 4;
 export const AGENT_RUNTIME_TIMEOUT_MS = 30_000;
@@ -55,6 +59,8 @@ export const AGENT_RUNTIME_TOOL_NAMES = [
   "list_commitments",
   "propose_draft_update",
   "propose_work_session_input",
+  "propose_continuation_duration",
+  "propose_initial_preparation",
   "request_sanitized_availability",
   "execute_commitment",
   "update_commitment",
@@ -175,10 +181,12 @@ export type AgentRuntimeResumeRequest = Readonly<{
 type RuntimeContext = {
   authority: AgentExecutionAuthority;
   conversation: AgentRuntimeConversationContext | null;
+  continuationInput?: WorkSessionContinuationConversationInput;
   editProposal?: CommitmentEditProposal;
   executionApproved: boolean;
   execution?: AgentCommitmentExecutionResult;
   input: DecisionInput | null;
+  initialWorkSessionInput?: InitialWorkSessionConversationInput;
   lastSemanticFailure?: DecisionTelemetryReason;
   mode: "decision" | "execution";
   proposal?: DecisionResult;
@@ -338,6 +346,23 @@ const workSessionInputSchema = z
     timingConstraints: z.string().trim().min(1).max(500).nullable(),
   })
   .strict();
+
+const continuationDurationSchema = z
+  .object({
+    durationMinutes: z.number().int()
+      .min(MIN_WORK_SESSION_DURATION_MINUTES)
+      .max(MAX_WORK_SESSION_DURATION_MINUTES),
+    intentId: z.string().uuid(),
+    intentVersion: z.number().int().positive(),
+  })
+  .strict();
+
+const initialPreparationSchema = workSessionInputSchema.omit({
+  draftId: true,
+  draftVersion: true,
+}).extend({
+  preparationRequired: z.boolean(),
+}).strict();
 
 const executionSchema = z
   .object({
@@ -603,6 +628,44 @@ function workSessionDecision(
   };
 }
 
+function continuationDecision(): DecisionResult {
+  return {
+    commitmentMode: "unresolved",
+    definitionOfDone: null,
+    durationMinutes: null,
+    inputClass: "ordinary_question",
+    missingFields: [],
+    nextAction: "answer",
+    offerWorkWindowHelp: false,
+    response: "",
+    targetAt: null,
+    targetTimeZone: null,
+    timingConstraints: [],
+    turnRelation: "none",
+  };
+}
+
+function explicitlySupportsInitialPreparation(
+  ownerText: string | undefined,
+  value: InitialWorkSessionConversationInput,
+): boolean {
+  if (ownerText === undefined) {
+    return false;
+  }
+  const normalized = ownerText.toLocaleLowerCase("en");
+  if (!value.preparationRequired) {
+    return /\b(?:no|without|don['’]?t need)\s+(?:any\s+)?(?:prep|preparation|preparing)\b/.test(
+      normalized,
+    );
+  }
+  return (
+    /\b(?:prep|preparation|prepare|preparing|focused?\s+(?:time|work)|work\s+session)\b/.test(
+      normalized,
+    ) ||
+    /\b\d{1,4}\s*(?:m|min|mins|minute|minutes)\b/.test(normalized)
+  );
+}
+
 function singaporeReferenceTimestamp(now: Date): string {
   const singaporeWallClock = new Date(
     now.getTime() + 8 * 60 * 60 * 1_000,
@@ -640,6 +703,8 @@ function runtimeInstructions(
     "When the focused draft has authoritative preparation state, answer that pending preparation question with propose_work_session_input instead of propose_draft_update.",
     "For preparation input, preserve the exact draft id and version, extract a positive whole-minute duration from 1 through 1440, translate natural timing constraints into the canonical Singapore format used by the context, and translate an owner-selected time into an exact future RFC3339 +08:00 instant on a 30-minute start boundary.",
     "Use nextInput and one short natural followUpQuestion only when another owner answer is required. Do not put Calendar facts, availability, conflicts, or warnings in that question; application code owns those.",
+    "When there is exactly one authoritative continuation awaiting duration and no focused draft, submit a natural duration with propose_continuation_duration using its exact id and version.",
+    "When the current message explicitly says preparation is or is not needed while completing a promise that has no durable preparation state yet, submit those exact facts with propose_initial_preparation in the same run. A duration or working constraint explicitly supplied for preparation means preparationRequired true. Never infer preparation from the promise target time or an unrelated time phrase. Omit this tool when the decision or facts are ambiguous so the application asks the mandatory preparation question.",
     "Only a structurally and semantically accepted proposal can be returned by the application; final prose is never authoritative.",
     "request_sanitized_availability returns free/busy intervals only.",
     "execute_commitment is exclusively for an exact application-owned draft id and version and always requires explicit human approval.",
@@ -904,7 +969,9 @@ function buildTools(
             value.startAt !== null ||
               value.timingConstraints !== null
               ? value.nextInput === null
-            : value.nextInput === "timing_constraints"
+            : draft.preparation?.timingConstraints !== null
+              ? value.nextInput === null
+              : value.nextInput === "timing_constraints"
           );
       } else if (
         commonValid &&
@@ -945,6 +1012,121 @@ function buildTools(
         return { accepted: false, reason: "input_invalid" };
       }
       context.workSessionInput = {
+        ...value,
+        timingConstraints:
+          normalizedTiming?.status === "ok"
+            ? normalizedTiming.canonical
+            : null,
+      };
+      context.lastSemanticFailure = undefined;
+      return { accepted: true };
+    },
+  });
+  const proposeContinuationDuration = tool({
+    description:
+      "Submit a natural remaining-work duration for the one exact application-owned continuation awaiting duration.",
+    name: "propose_continuation_duration",
+    parameters: continuationDurationSchema,
+    strict: true,
+    isEnabled:
+      expectedDraftAuthority(context) === null &&
+      (
+        context.conversation?.product.continuations?.filter(
+          (continuation) =>
+            continuation.stage === "awaiting_duration",
+        ).length ?? 0
+      ) === 1,
+    execute: (value) => {
+      const awaiting =
+        context.conversation?.product.continuations?.filter(
+          (continuation) =>
+            continuation.stage === "awaiting_duration",
+        ) ?? [];
+      if (
+        awaiting.length !== 1 ||
+        awaiting[0]!.id !== value.intentId ||
+        awaiting[0]!.version !== value.intentVersion
+      ) {
+        context.lastSemanticFailure = "input_invalid";
+        return { accepted: false, reason: "input_invalid" };
+      }
+      context.continuationInput = value;
+      context.lastSemanticFailure = undefined;
+      return { accepted: true };
+    },
+  });
+  const proposeInitialPreparation = tool({
+    description:
+      "Submit an explicit preparation decision and any preparation duration, natural timing constraints, or exact owner start supplied while this message completes a promise.",
+    name: "propose_initial_preparation",
+    parameters: initialPreparationSchema,
+    strict: true,
+    isEnabled:
+      context.conversation !== null &&
+      context.conversation.product.drafts.every(
+        (draft) =>
+          draft.id !== context.authority.draftId ||
+          draft.preparation === null ||
+          draft.preparation === undefined,
+      ),
+    execute: (value) => {
+      const normalizedTiming =
+        value.timingConstraints === null
+          ? null
+          : normalizeTimingConstraints(value.timingConstraints, []);
+      const startMillis =
+        value.startAt === null ? null : Date.parse(value.startAt);
+      const exactStart =
+        value.startAt === null ||
+        (
+          /^\d{4}-\d{2}-\d{2}T\d{2}:(?:00|30):00\+08:00$/.test(
+            value.startAt,
+          ) &&
+          Number.isFinite(startMillis) &&
+          startMillis! > now.getTime()
+        );
+      const followUpMatches =
+        value.nextInput === null
+          ? value.followUpQuestion === null
+          : value.followUpQuestion !== null &&
+            value.followUpQuestion.endsWith("?");
+      const noPreparation =
+        !value.preparationRequired &&
+        value.durationMinutes === null &&
+        value.startAt === null &&
+        value.timingConstraints === null &&
+        value.nextInput === null;
+      const preparation =
+        value.preparationRequired &&
+        exactStart &&
+        followUpMatches &&
+        !(value.startAt !== null && value.timingConstraints !== null) &&
+        (
+          normalizedTiming === null ||
+          normalizedTiming.status === "ok"
+        ) &&
+        (
+          value.durationMinutes === null
+            ? value.startAt === null &&
+              value.nextInput === "duration"
+            : value.startAt !== null ||
+                value.timingConstraints !== null
+              ? value.nextInput === null
+              : value.nextInput === "owner_time" ||
+                value.nextInput === "timing_constraints"
+        );
+      if (
+        (!noPreparation && !preparation) ||
+        normalizedTiming?.status === "invalid" ||
+        !explicitlySupportsInitialPreparation(
+          context.input?.ownerText,
+          value,
+        )
+      ) {
+        context.lastSemanticFailure = "input_invalid";
+        return { accepted: false, reason: "input_invalid" };
+      }
+      context.initialWorkSessionInput = {
         ...value,
         timingConstraints:
           normalizedTiming?.status === "ok"
@@ -1059,6 +1241,8 @@ function buildTools(
     listCommitments,
     proposeDraftUpdate,
     proposeWorkSessionInput,
+    proposeContinuationDuration,
+    proposeInitialPreparation,
     requestAvailability,
     executeCommitment,
     updateCommitment,
@@ -1326,10 +1510,28 @@ function resultFromRunner(
       },
     };
   }
+  if (context.continuationInput !== undefined) {
+    return {
+      outcome: {
+        continuationInput: context.continuationInput,
+        decision: continuationDecision(),
+        ok: true,
+      },
+    };
+  }
   if (context.proposal !== undefined) {
     return {
       execution: context.execution,
-      outcome: { decision: context.proposal, ok: true },
+      outcome: {
+        decision: context.proposal,
+        ...(context.initialWorkSessionInput === undefined
+          ? {}
+          : {
+              initialWorkSessionInput:
+                context.initialWorkSessionInput,
+            }),
+        ok: true,
+      },
     };
   }
   if (context.editProposal !== undefined) {

@@ -18,15 +18,16 @@ import {
 } from "./availability-integration.js";
 import type { WorkWindow } from "../scheduling/availability.js";
 import type { WorkSessionConversationInput } from "./conversation-input.js";
-import { isWorkSessionDuration } from "./duration.js";
+import {
+  isSingaporeWorkSessionStart,
+  isWorkSessionDuration,
+} from "./duration.js";
 
 const UUID_PATTERN =
   "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const ACTION_PATTERN = new RegExp(
   `^w:(${UUID_PATTERN}):([1-9][0-9]*):([a-z0-9_]+)$`,
 );
-const SINGAPORE_INSTANT_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:(?:00|30):00\+08:00$/;
 const SUPPORTED_DURATIONS = [30, 60, 90, 120] as const;
 
 export type WorkSessionFlowAction =
@@ -128,6 +129,12 @@ export interface WorkSessionFlowRepository {
     chatId: number,
     reference: DraftReference,
   ): Promise<PreparationDeclineResult>;
+  finalizeConversation(
+    updateId: number,
+    chatId: number,
+    reference: DraftReference,
+    result: "domain_error" | "expired" | "invalid" | "stale",
+  ): Promise<Readonly<{ kind: "applied" | "replay" }>>;
   read(reference: DraftReference): Promise<
     | Readonly<{ kind: "expired" | "missing" | "stale" }>
     | Readonly<{ kind: "current"; snapshot: WorkSessionDraftSnapshot }>
@@ -610,7 +617,10 @@ function canonicalTiming(value: string): string | undefined {
 }
 
 function endFor(startAt: string, durationMinutes: number): string | undefined {
-  if (!SINGAPORE_INSTANT_PATTERN.test(startAt)) {
+  if (
+    !isSingaporeWorkSessionStart(startAt) ||
+    !isWorkSessionDuration(durationMinutes)
+  ) {
     return undefined;
   }
   const start = Date.parse(startAt);
@@ -620,10 +630,7 @@ function endFor(startAt: string, durationMinutes: number): string | undefined {
   const end = new Date(start + durationMinutes * 60_000);
   const local = new Date(end.getTime() + 8 * 60 * 60_000);
   const dateTime = local.toISOString().slice(0, 19);
-  const result = `${dateTime}+08:00`;
-  return result.slice(0, 10) === startAt.slice(0, 10)
-    ? result
-    : undefined;
+  return `${dateTime}+08:00`;
 }
 
 export class WorkSessionFlow {
@@ -885,15 +892,49 @@ export class WorkSessionFlow {
     chatId: number,
     input: WorkSessionConversationInput,
   ): Promise<TelegramReply | null> {
+    try {
+      return await this.#handleConversationInput(
+        updateId,
+        chatId,
+        input,
+      );
+    } catch {
+      await this.#repository.finalizeConversation(
+        updateId,
+        chatId,
+        { id: input.draftId, version: input.draftVersion },
+        "domain_error",
+      ).catch(() => undefined);
+      return { text: workSessionFlowCopy.approvalUnavailable };
+    }
+  }
+
+  async #handleConversationInput(
+    updateId: number,
+    chatId: number,
+    input: WorkSessionConversationInput,
+  ): Promise<TelegramReply | null> {
     const draftReference = {
       id: input.draftId,
       version: input.draftVersion,
     };
     const read = await this.#repository.read(draftReference);
     if (read.kind === "expired") {
+      await this.#repository.finalizeConversation(
+        updateId,
+        chatId,
+        draftReference,
+        "expired",
+      );
       return { text: workSessionFlowCopy.expired };
     }
     if (read.kind !== "current") {
+      await this.#repository.finalizeConversation(
+        updateId,
+        chatId,
+        draftReference,
+        "stale",
+      );
       return { text: workSessionFlowCopy.stale };
     }
     const snapshot = read.snapshot;
@@ -902,14 +943,18 @@ export class WorkSessionFlow {
       snapshot.stage === "offer_help" &&
       input.preparationRequired === false
     ) {
-      const result = await (
-        this.#repository.declinePreparationFromConversation ??
-        this.#repository.declinePreparation.bind(this.#repository)
-      )(
-        updateId,
-        chatId,
-        draftReference,
-      );
+      const result =
+        this.#repository.declinePreparationFromConversation === undefined
+          ? await this.#repository.declinePreparation(
+              updateId,
+              chatId,
+              draftReference,
+            )
+          : await this.#repository.declinePreparationFromConversation(
+              updateId,
+              chatId,
+              draftReference,
+            );
       switch (result.kind) {
         case "replay":
           return null;
@@ -940,6 +985,9 @@ export class WorkSessionFlow {
         expectedStage: snapshot.stage,
         nextStage: "awaiting_duration_help",
         reference: draftReference,
+        ...(input.timingConstraints === null
+          ? {}
+          : { timingConstraints: input.timingConstraints }),
         updateId,
       });
       return transitioned(result, (current) =>
@@ -975,6 +1023,20 @@ export class WorkSessionFlow {
           draftReference,
           { ...snapshot, durationMinutes: input.durationMinutes },
           input.startAt,
+          input.durationMinutes,
+          true,
+        );
+      }
+      if (
+        input.nextInput === null &&
+        snapshot.timingConstraints !== null
+      ) {
+        return this.#findOptions(
+          updateId,
+          chatId,
+          draftReference,
+          { ...snapshot, durationMinutes: input.durationMinutes },
+          snapshot.timingConstraints,
           input.durationMinutes,
           true,
         );
@@ -1037,6 +1099,12 @@ export class WorkSessionFlow {
       );
     }
 
+    await this.#repository.finalizeConversation(
+      updateId,
+      chatId,
+      draftReference,
+      "invalid",
+    );
     return { text: workSessionFlowCopy.stale };
   }
 
@@ -1103,10 +1171,26 @@ export class WorkSessionFlow {
     const durationMinutes =
       submittedDuration ?? snapshot.durationMinutes;
     if (!isWorkSessionDuration(durationMinutes)) {
+      if (fromConversation) {
+        await this.#repository.finalizeConversation(
+          updateId,
+          chatId,
+          draftReference,
+          "invalid",
+        );
+      }
       return { text: workSessionFlowCopy.stale };
     }
     const endAt = endFor(startAt, durationMinutes);
     if (!endAt || Date.parse(startAt) <= this.#now().getTime()) {
+      if (fromConversation) {
+        await this.#repository.finalizeConversation(
+          updateId,
+          chatId,
+          draftReference,
+          "invalid",
+        );
+      }
       return { text: workSessionFlowCopy.invalidOwnerTime };
     }
     const selectedWindow = { endAt, startAt };
@@ -1196,6 +1280,14 @@ export class WorkSessionFlow {
           ),
       );
     }
+    if (fromConversation) {
+      await this.#repository.finalizeConversation(
+        updateId,
+        chatId,
+        draftReference,
+        "invalid",
+      );
+    }
     return { text: workSessionFlowCopy.invalidOwnerTime };
   }
 
@@ -1226,6 +1318,14 @@ export class WorkSessionFlow {
     fromConversation = false,
   ): Promise<TelegramReply | null> {
     if (!snapshot.durationMinutes) {
+      if (fromConversation) {
+        await this.#repository.finalizeConversation(
+          updateId,
+          chatId,
+          draftReference,
+          "invalid",
+        );
+      }
       return { text: workSessionFlowCopy.stale };
     }
     const timingConstraints =
@@ -1304,16 +1404,23 @@ export class WorkSessionFlow {
         )
       );
     }
+    if (fromConversation) {
+      await this.#repository.finalizeConversation(
+        updateId,
+        chatId,
+        draftReference,
+        "invalid",
+      );
+    }
     return { text: TIMING_CONSTRAINT_FORMAT_HELP };
   }
 
   #conversationTransition(
     command: WorkSessionFlowTransition,
   ): Promise<WorkSessionFlowTransitionResult> {
-    return (
-      this.#repository.transitionFromConversation ??
-      this.#repository.transition.bind(this.#repository)
-    )(command);
+    return this.#repository.transitionFromConversation === undefined
+      ? this.#repository.transition(command)
+      : this.#repository.transitionFromConversation(command);
   }
 
   #transitionInput(

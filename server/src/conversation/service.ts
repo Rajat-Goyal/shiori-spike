@@ -39,7 +39,11 @@ import {
   isEligibleWorkSessionCandidate,
   workSessionPlanningOffer,
 } from "../work-sessions/flow.js";
-import type { WorkSessionConversationInput } from "../work-sessions/conversation-input.js";
+import type {
+  InitialWorkSessionConversationInput,
+  WorkSessionConversationInput,
+} from "../work-sessions/conversation-input.js";
+import type { WorkSessionContinuationConversationInput } from "../work-sessions/continuation.js";
 
 type ConversationServiceOptions = {
   decisionEngine: DecisionEngine;
@@ -61,6 +65,13 @@ type ConversationServiceOptions = {
       updateId: number,
       chatId: number,
       input: WorkSessionConversationInput,
+    ): Promise<TelegramReply | null>;
+  };
+  continuationConversation?: {
+    handleDurationInput(
+      updateId: number,
+      chatId: number,
+      input: WorkSessionContinuationConversationInput,
     ): Promise<TelegramReply | null>;
   };
 };
@@ -102,6 +113,35 @@ function candidateFields(decision: DecisionResult): DecisionContextFields {
     targetAt: decision.targetAt,
     targetTimeZone: decision.targetTimeZone,
     timingConstraints: decision.timingConstraints,
+  };
+}
+
+function withInitialPreparation(
+  decision: DecisionResult,
+  input: InitialWorkSessionConversationInput | undefined,
+): DecisionResult {
+  if (input === undefined) {
+    return decision;
+  }
+  if (!input.preparationRequired) {
+    return {
+      ...decision,
+      commitmentMode: "simple_action",
+      durationMinutes: null,
+      nextAction: "ready",
+      timingConstraints: [],
+    };
+  }
+  return {
+    ...decision,
+    commitmentMode: "possible_work_session",
+    durationMinutes: input.durationMinutes,
+    nextAction:
+      input.durationMinutes === null ? "ask_duration" : "ready",
+    timingConstraints:
+      input.timingConstraints === null
+        ? []
+        : [input.timingConstraints],
   };
 }
 
@@ -289,6 +329,9 @@ function isCompleteReply(
 
 export class ConversationService {
   readonly #decisionEngine: DecisionEngine;
+  readonly #continuationConversation:
+    | ConversationServiceOptions["continuationConversation"]
+    | undefined;
   readonly #modelId: string;
   readonly #onDecisionFailure:
     | ((event: DecisionFailureEvent) => void)
@@ -309,6 +352,7 @@ export class ConversationService {
 
   constructor(options: ConversationServiceOptions) {
     this.#decisionEngine = options.decisionEngine;
+    this.#continuationConversation = options.continuationConversation;
     this.#modelId = options.modelId;
     this.#onDecisionFailure = options.onDecisionFailure;
     this.#onDecisionRetryRecovered = options.onDecisionRetryRecovered;
@@ -409,6 +453,33 @@ export class ConversationService {
       }
     }
 
+    if (outcome.continuationInput !== undefined) {
+      if (
+        this.#continuationConversation === undefined ||
+        this.#ownerChatId === undefined ||
+        snapshot.kind !== "none"
+      ) {
+        return this.#preserveFailure(updateId, snapshot);
+      }
+      const reply =
+        await this.#continuationConversation.handleDurationInput(
+          updateId,
+          this.#ownerChatId,
+          outcome.continuationInput,
+        ) ?? { text: conversationCopy.failureNoDraft };
+      const expectsOwnerReply =
+        (reply.actions?.length ?? 0) > 0 ||
+        reply.text.trimEnd().endsWith("?");
+      await this.#decisionEngine.completeTurn?.({
+        activeDraftId: null,
+        assistantText: reply.text,
+        pendingQuestion: expectsOwnerReply ? "replace" : "clear",
+        status: "active",
+        updateId,
+      });
+      return reply;
+    }
+
     if (outcome.workSessionInput !== undefined) {
       if (
         this.#workSessionConversation === undefined ||
@@ -455,21 +526,42 @@ export class ConversationService {
       );
     }
 
+    if (
+      outcome.initialWorkSessionInput !== undefined &&
+      (
+        outcome.decision.inputClass !== "explicit_commitment" ||
+        outcome.decision.definitionOfDone === null ||
+        outcome.decision.targetAt === null
+      )
+    ) {
+      return this.#preserveFailure(updateId, snapshot);
+    }
+    const effectiveDecision = withInitialPreparation(
+      outcome.decision,
+      outcome.initialWorkSessionInput,
+    );
     switch (snapshot.kind) {
       case "none":
-        return this.#withoutState(updateId, snapshot, outcome.decision);
+        return this.#withoutState(
+          updateId,
+          snapshot,
+          effectiveDecision,
+          outcome.initialWorkSessionInput,
+        );
       case "permission":
         return this.#withPermission(
           updateId,
           snapshot,
-          outcome.decision,
+          effectiveDecision,
+          outcome.initialWorkSessionInput,
         );
       case "draft":
         return this.#withDraft(
           updateId,
           snapshot,
-          outcome.decision,
+          effectiveDecision,
           outcome.draftTarget,
+          outcome.initialWorkSessionInput,
         );
     }
   }
@@ -517,6 +609,7 @@ export class ConversationService {
     updateId: number,
     snapshot: Extract<ConversationSnapshot, { kind: "none" }>,
     decision: DecisionResult,
+    initialPreparation?: InitialWorkSessionConversationInput,
   ): Promise<ConversationReply> {
     if (
       decision.turnRelation === "none" &&
@@ -563,7 +656,8 @@ export class ConversationService {
 
     const extractedPhase = phaseFor(extractedFields);
     const fields =
-      extractedPhase === "complete"
+      extractedPhase === "complete" &&
+        initialPreparation === undefined
         ? preparationFields(extractedFields)
         : extractedFields;
     const phase = phaseFor(fields);
@@ -582,6 +676,8 @@ export class ConversationService {
       },
       snapshot,
       collectedReply(phase, fields),
+      false,
+      initialPreparation,
     );
   }
 
@@ -589,6 +685,7 @@ export class ConversationService {
     updateId: number,
     snapshot: PermissionCandidate,
     decision: DecisionResult,
+    initialPreparation?: InitialWorkSessionConversationInput,
   ): Promise<ConversationReply> {
     switch (decision.turnRelation) {
       case "permission_accepted": {
@@ -600,9 +697,12 @@ export class ConversationService {
         }
         const phase = phaseFor(snapshot.fields);
         const fields =
-          phase === "complete"
+          phase === "complete" &&
+            initialPreparation === undefined
             ? preparationFields(snapshot.fields)
-            : snapshot.fields;
+            : initialPreparation === undefined
+              ? snapshot.fields
+              : candidateFields(decision);
         const draftIsAllowed =
           draftable(fields) && phase !== undefined;
         const command: ConversationCommand =
@@ -630,6 +730,7 @@ export class ConversationService {
             ? collectedReply(phase, fields)
             : conversationCopy.failureNoDraft,
           draftIsAllowed,
+          initialPreparation,
         );
       }
       case "permission_declined":
@@ -703,6 +804,7 @@ export class ConversationService {
     snapshot: ActiveDraft,
     decision: DecisionResult,
     draftTarget?: DecisionDraftTarget,
+    initialPreparation?: InitialWorkSessionConversationInput,
   ): Promise<ConversationReply> {
     if (decision.turnRelation === "none") {
       if (
@@ -736,7 +838,8 @@ export class ConversationService {
       const extractedFields = candidateFields(decision);
       const extractedPhase = phaseFor(extractedFields);
       const fields =
-        extractedPhase === "complete"
+        extractedPhase === "complete" &&
+          initialPreparation === undefined
           ? preparationFields(extractedFields)
           : extractedFields;
       const phase = phaseFor(fields);
@@ -755,6 +858,8 @@ export class ConversationService {
         },
         snapshot,
         collectedReply(phase, fields),
+        false,
+        initialPreparation,
       );
     }
 
@@ -791,7 +896,8 @@ export class ConversationService {
         extractedPhase === "complete"
         ? retainCommitmentMode(extractedFields, selectedSnapshot.fields)
         : selectedSnapshot.phase !== "complete" &&
-            extractedPhase === "complete"
+            extractedPhase === "complete" &&
+            initialPreparation === undefined
         ? preparationFields(extractedFields)
         : extractedFields;
     const phase = phaseFor(fields);
@@ -840,6 +946,7 @@ export class ConversationService {
           ? collectedReply(phase, fields, confirmationCopy.updated)
           : correctionCopy(phase)
         : collectedReply(phase, fields),
+      initialPreparation,
     );
   }
 
@@ -882,8 +989,18 @@ export class ConversationService {
     snapshot: ConversationSnapshot,
     copy: ConversationReply | CompleteReply,
     expectDraft = false,
+    initialPreparation?: InitialWorkSessionConversationInput,
   ): Promise<ConversationReply> {
     const result = await this.#repository.applyTurn(command);
+    const preparationReply = await this.#applyInitialPreparation(
+      command,
+      result,
+      snapshot,
+      initialPreparation,
+    );
+    if (preparationReply !== undefined) {
+      return preparationReply;
+    }
     return this.#finishResult(
       command,
       result,
@@ -897,23 +1014,73 @@ export class ConversationService {
     command: PatchFocusedDraftCommand,
     snapshot: ActiveDraft,
     copy: ConversationReply | CompleteReply,
+    initialPreparation?: InitialWorkSessionConversationInput,
   ): Promise<ConversationReply> {
     const result = await this.#repository.patchFocusedDraft(command);
+    const conversationCommand: ConversationCommand = {
+      action: "update_draft",
+      audit: command.audit,
+      expected: command.expectedFocus,
+      fields: command.fields,
+      phase: command.phase,
+      processingResult: command.processingResult,
+      updateId: command.updateId,
+    };
+    const preparationReply = await this.#applyInitialPreparation(
+      conversationCommand,
+      result,
+      snapshot,
+      initialPreparation,
+    );
+    if (preparationReply !== undefined) {
+      return preparationReply;
+    }
     return this.#finishResult(
-      {
-        action: "update_draft",
-        audit: command.audit,
-        expected: command.expectedFocus,
-        fields: command.fields,
-        phase: command.phase,
-        processingResult: command.processingResult,
-        updateId: command.updateId,
-      },
+      conversationCommand,
       result,
       snapshot,
       copy,
       false,
     );
+  }
+
+  async #applyInitialPreparation(
+    command: ConversationCommand,
+    result: ConversationApplyResult,
+    snapshot: ConversationSnapshot,
+    input: InitialWorkSessionConversationInput | undefined,
+  ): Promise<ConversationReply | undefined> {
+    if (input === undefined || !input.preparationRequired) {
+      return undefined;
+    }
+    if (result.status !== "applied") {
+      return undefined;
+    }
+    if (
+      !result.draftReference ||
+      this.#ownerChatId === undefined ||
+      this.#workSessionConversation === undefined
+    ) {
+      const reply = { text: confirmationCopy.approvalUnavailable };
+      await this.#decisionEngine.completeTurn?.(
+        this.#turnCompletion(command, result, snapshot, reply),
+      );
+      return reply;
+    }
+    const reply =
+      await this.#workSessionConversation.handleConversationInput(
+        command.updateId,
+        this.#ownerChatId,
+        {
+          draftId: result.draftReference.id,
+          draftVersion: result.draftReference.version,
+          ...input,
+        },
+      ) ?? { text: confirmationCopy.approvalUnavailable };
+    await this.#decisionEngine.completeTurn?.(
+      this.#turnCompletion(command, result, snapshot, reply),
+    );
+    return reply;
   }
 
   async #finishResult(
@@ -1075,29 +1242,7 @@ export class ConversationService {
           if (!result.draftReference) {
             throw new Error("Complete draft reference is missing");
           }
-          const newlyComplete =
-            (
-              snapshot.kind === "none" &&
-              command.action === "create_draft"
-            ) ||
-            (
-              snapshot.kind === "permission" &&
-              (
-                command.action === "accept_permission" ||
-                command.action === "accept_work_permission"
-              )
-            ) ||
-            (
-              snapshot.kind === "draft" &&
-              snapshot.phase !== "complete" &&
-              command.action === "update_draft"
-            ) ||
-            (
-              snapshot.kind === "draft" &&
-              command.action === "create_separate_draft"
-            );
-          return newlyComplete ||
-              isEligibleWorkSessionCandidate(copy.completeFields)
+          return isEligibleWorkSessionCandidate(copy.completeFields)
             ? workSessionPlanningOffer(
                 copy.completeFields,
                 result.draftReference,

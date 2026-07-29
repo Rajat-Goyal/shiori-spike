@@ -318,4 +318,53 @@ describe("SupabaseDashboardRepository", () => {
       "Supabase dashboard read returned an invalid response",
     );
   });
+
+  it.each([
+    { durationMinutes: 0, endAt: "2026-07-24T09:00:00.000Z" },
+    { durationMinutes: 1_441, endAt: "2026-07-25T09:01:00.000Z" },
+    { durationMinutes: 45.5, endAt: "2026-07-24T09:45:30.000Z" },
+    { durationMinutes: 45, endAt: "2026-07-24T09:46:00.000Z" },
+  ])(
+    "rejects dashboard session duration/window mismatch %#",
+    async ({ durationMinutes, endAt }) => {
+      const repository = new SupabaseDashboardRepository({
+        fetch: (async () =>
+          Response.json({
+            activeCommitments: [{
+              continuation: null,
+              currentSession: {
+                calendarAttemptedAt: "2026-07-24T08:00:00.000Z",
+                calendarCheckedAt: "2026-07-24T08:00:00.000Z",
+                calendarStatus: "free",
+                conflictConsent: false,
+                durationMinutes,
+                endAt,
+                finalCalendarObservation: "free",
+                id: ids.session1,
+                isRecovery: false,
+                outcomeAt: null,
+                sequenceNumber: 1,
+                startAt: "2026-07-24T09:00:00.000Z",
+                status: "planned",
+              },
+              definitionOfDone: "Reject malformed session data",
+              deliveries: [],
+              id: ids.commitment1,
+              targetAt: "2026-07-26T10:00:00.000Z",
+            }],
+            events: [],
+            sessionHistoryRows: [],
+            terminalCommitments: [],
+          })) as typeof fetch,
+        ownerId: 998877,
+        ownerTimeZone: "Asia/Singapore",
+        supabaseSecretKey: "server-only-test-key",
+        supabaseUrl: "http://127.0.0.1:54321",
+      });
+
+      await expect(repository.readSummary()).rejects.toThrow(
+        "Dashboard work-session data is invalid",
+      );
+    },
+  );
 });

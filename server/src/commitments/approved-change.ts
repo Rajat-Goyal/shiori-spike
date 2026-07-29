@@ -8,6 +8,7 @@ import { supabaseHeaders } from "../supabase.js";
 import {
   MAX_WORK_SESSION_DURATION_MINUTES,
   MIN_WORK_SESSION_DURATION_MINUTES,
+  isWorkSessionWindow,
 } from "../work-sessions/duration.js";
 
 const UUID_PATTERN =
@@ -64,7 +65,11 @@ export const commitmentEditSchema = z
       !Number.isFinite(start) ||
       !Number.isFinite(end) ||
       end <= start ||
-      end - start !== session.durationMinutes * 60_000 ||
+      !isWorkSessionWindow(
+        session.startAt,
+        session.endAt,
+        session.durationMinutes,
+      ) ||
       end > Date.parse(value.targetAt)
     ) {
       context.addIssue({

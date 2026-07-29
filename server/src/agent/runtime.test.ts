@@ -405,6 +405,149 @@ describe("bounded Agents SDK runtime", () => {
     });
   });
 
+  it("extracts an exact natural 45-minute duration for the sole continuation awaiting duration", async () => {
+    const continuationId =
+      "99999999-9999-4999-8999-999999999999";
+    const runner = new ScriptedRunner(async (request) => {
+      await expect(
+        invoke(request, "propose_continuation_duration", {
+          durationMinutes: 45,
+          intentId: continuationId,
+          intentVersion: 2,
+        }),
+      ).resolves.toEqual({ accepted: true });
+      return emptyResult();
+    });
+    const noDraftAuthority: AgentExecutionAuthority = {
+      ...authority,
+      draftId: null,
+      draftVersion: null,
+    };
+    const result = await runtimeWith(runner).run({
+      authority: noDraftAuthority,
+      conversation: {
+        ...runtimeConversation,
+        product: {
+          ...productContext,
+          commitments: [],
+          continuations: [{
+            commitmentId:
+              "11111111-1111-4111-8111-111111111111",
+            durationMinutes: null,
+            id: continuationId,
+            stage: "awaiting_duration",
+            targetAt: "2026-07-30T17:00:00+08:00",
+            timingConstraints: "default",
+            version: 2,
+          }],
+          drafts: [],
+          focusedEntity: null,
+        },
+      },
+      input: {
+        context: { fields: null, phase: "none" },
+        ownerText: "45 minutes",
+      },
+      session: sdkSession([], noDraftAuthority),
+    });
+
+    expect(result.outcome).toMatchObject({
+      continuationInput: {
+        durationMinutes: 45,
+        intentId: continuationId,
+        intentVersion: 2,
+      },
+      ok: true,
+    });
+  });
+
+  it("captures explicit same-message preparation facts and rejects inference from a target time", async () => {
+    const noDraftAuthority: AgentExecutionAuthority = {
+      ...authority,
+      draftId: null,
+      draftVersion: null,
+    };
+    const emptyConversation = {
+      ...runtimeConversation,
+      product: {
+        ...productContext,
+        commitments: [],
+        drafts: [],
+        focusedEntity: null,
+      },
+    };
+    const explicitInput: DecisionInput = {
+      context: { fields: null, phase: "none" },
+      ownerText:
+        "I will publish tomorrow and need 45 minutes of preparation Monday morning.",
+    };
+    const explicitRunner = new ScriptedRunner(async (request) => {
+      await invoke(request, "propose_draft_update", {
+        ...proposalInput,
+        commitmentMode: "possible_work_session",
+      });
+      await expect(
+        invoke(request, "propose_initial_preparation", {
+          durationMinutes: 45,
+          followUpQuestion: null,
+          nextInput: null,
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: "mon 08:00-12:00",
+        }),
+      ).resolves.toEqual({ accepted: true });
+      return emptyResult();
+    });
+    const explicit = await runtimeWith(explicitRunner).run({
+      authority: noDraftAuthority,
+      conversation: emptyConversation,
+      input: explicitInput,
+      session: sdkSession([], noDraftAuthority),
+    });
+
+    expect(explicit.outcome).toMatchObject({
+      initialWorkSessionInput: {
+        durationMinutes: 45,
+        preparationRequired: true,
+        timingConstraints: "mon 08:00-12:00",
+      },
+      ok: true,
+    });
+
+    const targetOnly: DecisionInput = {
+      context: { fields: null, phase: "none" },
+      ownerText: "I will publish tomorrow at 9.",
+    };
+    const targetRunner = new ScriptedRunner(async (request) => {
+      await invoke(request, "propose_draft_update", proposalInput);
+      await expect(
+        invoke(request, "propose_initial_preparation", {
+          durationMinutes: null,
+          followUpQuestion: "How long do you need?",
+          nextInput: "duration",
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: null,
+        }),
+      ).resolves.toEqual({
+        accepted: false,
+        reason: "input_invalid",
+      });
+      return emptyResult();
+    });
+    const inferred = await runtimeWith(targetRunner).run({
+      authority: noDraftAuthority,
+      conversation: emptyConversation,
+      input: targetOnly,
+      session: sdkSession([], noDraftAuthority),
+    });
+
+    expect(inferred.outcome).toMatchObject({ ok: true });
+    if (inferred.outcome.ok) {
+      expect(inferred.outcome.initialWorkSessionInput).toBeUndefined();
+    }
+  });
+
   it("exposes only the typed allowlist and binds context/history reads to the durable session", async () => {
     const session = sdkSession(
       Array.from({ length: 16 }, (_, index) => ({

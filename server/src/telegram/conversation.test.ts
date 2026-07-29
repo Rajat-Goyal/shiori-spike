@@ -396,6 +396,142 @@ describe("ConversationService", () => {
     });
   });
 
+  it("incorporates explicit preparation facts while creating the promise and skips the redundant generic question", async () => {
+    const repository = new ControlledRepository({ kind: "none" });
+    repository.applyResult = {
+      completed: true,
+      draftCreated: true,
+      draftReference: {
+        id: "11111111-1111-4111-8111-111111111111",
+        version: 1,
+      },
+      status: "applied",
+    };
+    const completeTurn = vi.fn();
+    const workSessionConversation = {
+      handleConversationInput: vi.fn(async () => ({
+        actions: [{
+          callbackData:
+            "w:11111111-1111-4111-8111-111111111111:2:option_1",
+          text: "Choose option 1",
+        }],
+        text: "I found an available work window.",
+      })),
+    };
+    const initialWorkSessionInput = {
+      durationMinutes: 45,
+      followUpQuestion: null,
+      nextInput: null,
+      preparationRequired: true,
+      startAt: null,
+      timingConstraints: "mon 08:00-12:00",
+    } as const;
+    const service = new ConversationService({
+      decisionEngine: {
+        completeTurn,
+        decide: vi.fn(async () => ({
+          decision: decision(completeFields),
+          initialWorkSessionInput,
+          ok: true as const,
+        })),
+      },
+      modelId: "gpt-test-model",
+      ownerChatId: 42,
+      promptVersion: "shiori-test-v1",
+      repository,
+      workSessionConversation,
+    });
+
+    const reply = await service.handle(
+      7998,
+      "I will submit the note by Sunday; I need 45 minutes Monday morning.",
+    );
+
+    expect(repository.commands).toEqual([
+      expect.objectContaining({
+        action: "create_draft",
+        fields: expect.objectContaining({
+          durationMinutes: 45,
+          possibleWorkSession: true,
+          simpleAction: false,
+          timingConstraints: ["mon 08:00-12:00"],
+        }),
+      }),
+    ]);
+    expect(workSessionConversation.handleConversationInput)
+      .toHaveBeenCalledWith(7998, 42, {
+        draftId: "11111111-1111-4111-8111-111111111111",
+        draftVersion: 1,
+        ...initialWorkSessionInput,
+      });
+    expect(reply).toMatchObject({
+      text: "I found an available work window.",
+    });
+    expect(JSON.stringify(reply)).not.toContain(
+      "Do you need preparation time",
+    );
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("incorporates explicit no-preparation while creating the promise and proceeds to exact approval", async () => {
+    const repository = new ControlledRepository({ kind: "none" });
+    repository.applyResult = {
+      completed: true,
+      draftCreated: true,
+      draftReference: {
+        id: "11111111-1111-4111-8111-111111111111",
+        version: 1,
+      },
+      status: "applied",
+    };
+    const prepareApproval = vi.fn(async () => true);
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => ({
+          decision: decision(workFields),
+          initialWorkSessionInput: {
+            durationMinutes: null,
+            followUpQuestion: null,
+            nextInput: null,
+            preparationRequired: false,
+            startAt: null,
+            timingConstraints: null,
+          },
+          ok: true as const,
+        })),
+      },
+      modelId: "gpt-test-model",
+      ownerChatId: 42,
+      prepareApproval,
+      promptVersion: "shiori-test-v1",
+      repository,
+    });
+
+    const reply = await service.handle(
+      7997,
+      "I will submit the note by Sunday. No preparation needed.",
+    );
+
+    expect(repository.commands[0]).toMatchObject({
+      action: "create_draft",
+      fields: {
+        durationMinutes: null,
+        possibleWorkSession: false,
+        simpleAction: true,
+      },
+    });
+    expect(reply).toEqual(
+      confirmationSummary(
+        completeFields,
+        repository.applyResult.draftReference!,
+      ),
+    );
+    expect(prepareApproval).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(reply)).not.toContain(
+      "Do you need preparation time",
+    );
+  });
+
   it("dispatches /status inside the unified boundary and preserves draft interaction authority", async () => {
     const snapshot = activeDraft(
       "awaiting_target",

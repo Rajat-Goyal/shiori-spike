@@ -1,5 +1,8 @@
 import { supabaseHeaders } from "./supabase.js";
-import { isWorkSessionDuration } from "./work-sessions/duration.js";
+import {
+  isWorkSessionDuration,
+  isWorkSessionWindow,
+} from "./work-sessions/duration.js";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -315,6 +318,11 @@ function rawSession(value: unknown): RawSession {
     !instant(value.endAt) ||
     Date.parse(value.endAt) <= Date.parse(value.startAt) ||
     !isWorkSessionDuration(value.durationMinutes) ||
+    !isWorkSessionWindow(
+      value.startAt,
+      value.endAt,
+      value.durationMinutes,
+    ) ||
     !oneOf(value.calendarStatus, [
       "conflict_kept",
       "free",

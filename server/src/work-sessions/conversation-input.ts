@@ -12,3 +12,16 @@ export type WorkSessionConversationInput = Readonly<{
   startAt: string | null;
   timingConstraints: string | null;
 }>;
+
+export type InitialWorkSessionConversationInput = Readonly<{
+  durationMinutes: number | null;
+  followUpQuestion: string | null;
+  nextInput:
+    | "duration"
+    | "owner_time"
+    | "timing_constraints"
+    | null;
+  preparationRequired: boolean;
+  startAt: string | null;
+  timingConstraints: string | null;
+}>;

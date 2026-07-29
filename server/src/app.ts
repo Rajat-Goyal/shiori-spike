@@ -415,6 +415,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
         sessions: agentSessions,
       }),
       conversationService: new ConversationService({
+        continuationConversation: workSessionContinuationService,
         decisionEngine: new SessionBackedAgentDecisionEngine({
           chatId: options.config.telegramOwnerUserId,
           contextReader: agentContextReader,

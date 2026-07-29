@@ -148,6 +148,19 @@ function transitionResult(value: unknown): WorkSessionFlowTransitionResult {
     : { kind: item.kind as "expired" | "replay" | "stale" };
 }
 
+function finalizationResult(
+  value: unknown,
+): Readonly<{ kind: "applied" | "replay" }> {
+  const item = record(value);
+  if (
+    !item ||
+    !["applied", "replay"].includes(String(item.kind))
+  ) {
+    throw new Error("Work-session conversation finalization failed");
+  }
+  return { kind: item.kind as "applied" | "replay" };
+}
+
 function preparationDeclineResult(
   value: unknown,
 ): PreparationDeclineResult {
@@ -233,6 +246,24 @@ export class SupabaseWorkSessionFlowRepository
           p_version: reference.version,
         },
       ),
+    );
+  }
+
+  async finalizeConversation(
+    updateId: number,
+    chatId: number,
+    reference: DraftReference,
+    result: "domain_error" | "expired" | "invalid" | "stale",
+  ) {
+    return finalizationResult(
+      await this.#rpc("finalize_work_session_conversation_turn", {
+        p_draft_id: reference.id,
+        p_owner_chat_id: chatId,
+        p_owner_id: this.#ownerId,
+        p_result: result,
+        p_update_id: updateId,
+        p_version: reference.version,
+      }),
     );
   }
 

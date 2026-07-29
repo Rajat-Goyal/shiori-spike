@@ -8,13 +8,14 @@ import type {
   CalendarAvailabilityRequest,
   CalendarAvailabilityResult,
 } from "./availability-integration.js";
+import { isWorkSessionDuration } from "./duration.js";
 
 const UUID_PATTERN =
   "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const ACTION_PATTERN = new RegExp(
   `^c:(${UUID_PATTERN}):([1-9][0-9]*):([a-z0-9_]+)$`,
 );
-const DURATIONS = [30, 60, 90, 120] as const;
+const SUGGESTED_DURATIONS = [30, 60, 90, 120] as const;
 
 export type WorkSessionContinuationAction =
   | "another"
@@ -25,6 +26,7 @@ export type WorkSessionContinuationAction =
   | "duration_60"
   | "duration_90"
   | "duration_120"
+  | "natural_duration"
   | "option_1"
   | "option_2"
   | "reconnect"
@@ -44,7 +46,7 @@ export type WorkSessionContinuationSnapshot = Readonly<{
   commitmentId: string;
   commitmentStatus: "active";
   definitionOfDone: string;
-  durationMinutes: 30 | 60 | 90 | 120 | null;
+  durationMinutes: number | null;
   finalObservation: "conflict" | "free" | "unavailable" | null;
   id: string;
   isRecovery: boolean;
@@ -68,7 +70,7 @@ export type WorkSessionContinuationTransition = Readonly<{
   calendarAttemptedAt?: string | null;
   calendarCheckedAt?: string | null;
   chatId: number;
-  durationMinutes?: 30 | 60 | 90 | 120;
+  durationMinutes?: number;
   expectedStage: WorkSessionContinuationStage;
   finalObservation?: "conflict" | "free" | "unavailable" | null;
   isRecovery?: boolean;
@@ -101,6 +103,12 @@ export interface WorkSessionContinuationRepository {
     | Readonly<{ kind: "applied"; workSessionId: string }>
     | Readonly<{ kind: "expired" | "replay" | "stale" }>
   >;
+  finalizeConversation(
+    updateId: number,
+    chatId: number,
+    reference: Readonly<{ id: string; version: number }>,
+    result: "domain_error" | "expired" | "invalid" | "stale",
+  ): Promise<Readonly<{ kind: "applied" | "replay" }>>;
   read(reference: Readonly<{ id: string; version: number }>): Promise<
     | Readonly<{ kind: "current"; snapshot: WorkSessionContinuationSnapshot }>
     | Readonly<{ kind: "expired" | "missing" | "stale" }>
@@ -112,7 +120,16 @@ export interface WorkSessionContinuationRepository {
       }>
     | Readonly<{ kind: "expired" | "replay" | "stale" }>
   >;
+  transitionFromConversation?(
+    command: WorkSessionContinuationTransition,
+  ): ReturnType<WorkSessionContinuationRepository["transition"]>;
 }
+
+export type WorkSessionContinuationConversationInput = Readonly<{
+  durationMinutes: number;
+  intentId: string;
+  intentVersion: number;
+}>;
 
 export type WorkSessionContinuationAvailability = (
   request: CalendarAvailabilityRequest,
@@ -238,8 +255,9 @@ function parseSnapshot(value: unknown): WorkSessionContinuationSnapshot {
     typeof item.definitionOfDone !== "string" ||
     typeof item.targetAt !== "string" ||
     !Number.isFinite(Date.parse(item.targetAt)) ||
-    ![null, ...DURATIONS].includes(
-      item.durationMinutes as null | 30 | 60 | 90 | 120,
+    !(
+      item.durationMinutes === null ||
+      isWorkSessionDuration(item.durationMinutes)
     ) ||
     typeof item.timingConstraints !== "string" ||
     typeof item.isRecovery !== "boolean" ||
@@ -255,12 +273,7 @@ function parseSnapshot(value: unknown): WorkSessionContinuationSnapshot {
     commitmentId: item.commitmentId,
     commitmentStatus: "active",
     definitionOfDone: item.definitionOfDone,
-    durationMinutes: item.durationMinutes as
-      | 30
-      | 60
-      | 90
-      | 120
-      | null,
+    durationMinutes: item.durationMinutes as number | null,
     finalObservation: item.finalObservation as
       | "conflict"
       | "free"
@@ -392,6 +405,72 @@ export class SupabaseWorkSessionContinuationRepository
         p_version: command.reference.version,
       }),
     );
+  }
+
+  async transitionFromConversation(
+    command: WorkSessionContinuationTransition,
+  ) {
+    return parseTransition(
+      await this.#transitionRpc(
+        "transition_work_session_continuation_from_conversation",
+        command,
+      ),
+    );
+  }
+
+  async finalizeConversation(
+    updateId: number,
+    chatId: number,
+    reference: Readonly<{ id: string; version: number }>,
+    result: "domain_error" | "expired" | "invalid" | "stale",
+  ) {
+    const value = record(
+      await this.#rpc(
+        "finalize_work_session_continuation_conversation_turn",
+        {
+          p_intent_id: reference.id,
+          p_owner_chat_id: chatId,
+          p_owner_id: this.#ownerId,
+          p_result: result,
+          p_update_id: updateId,
+          p_version: reference.version,
+        },
+      ),
+    );
+    if (
+      !value ||
+      !["applied", "replay"].includes(String(value.kind))
+    ) {
+      throw new Error("Continuation finalization failed");
+    }
+    return { kind: value.kind as "applied" | "replay" };
+  }
+
+  async #transitionRpc(
+    name: string,
+    command: WorkSessionContinuationTransition,
+  ): Promise<unknown> {
+    return this.#rpc(name, {
+      p_action: command.action,
+      p_calendar_attempted_at:
+        command.calendarAttemptedAt ?? null,
+      p_calendar_checked_at:
+        command.calendarCheckedAt ?? null,
+      p_duration_minutes: command.durationMinutes ?? null,
+      p_expected_stage: command.expectedStage,
+      p_final_observation:
+        command.finalObservation ?? null,
+      p_intent_id: command.reference.id,
+      p_is_recovery: command.isRecovery ?? null,
+      p_next_stage: command.nextStage,
+      p_options: command.options ?? null,
+      p_owner_chat_id: command.chatId,
+      p_owner_id: this.#ownerId,
+      p_selected_end_at: command.selectedWindow?.endAt ?? null,
+      p_selected_start_at: command.selectedWindow?.startAt ?? null,
+      p_update_id: command.updateId,
+      p_version: command.reference.version,
+    });
   }
 
   async confirm(command: {
@@ -561,6 +640,89 @@ export class WorkSessionContinuationService {
     this.#repository = options.repository;
   }
 
+  async handleDurationInput(
+    updateId: number,
+    chatId: number,
+    input: WorkSessionContinuationConversationInput,
+  ): Promise<TelegramReply | null> {
+    const reference = {
+      id: input.intentId,
+      version: input.intentVersion,
+    };
+    if (!isWorkSessionDuration(input.durationMinutes)) {
+      await this.#repository.finalizeConversation(
+        updateId,
+        chatId,
+        reference,
+        "invalid",
+      ).catch(() => undefined);
+      return { text: workSessionContinuationCopy.stale };
+    }
+    let read;
+    try {
+      read = await this.#repository.read(reference);
+    } catch {
+      await this.#repository.finalizeConversation(
+        updateId,
+        chatId,
+        reference,
+        "domain_error",
+      ).catch(() => undefined);
+      return { text: workSessionContinuationCopy.uncertain };
+    }
+    if (read.kind === "expired") {
+      await this.#repository.finalizeConversation(
+        updateId,
+        chatId,
+        reference,
+        "expired",
+      );
+      return { text: workSessionContinuationCopy.expired };
+    }
+    if (
+      read.kind !== "current" ||
+      read.snapshot.stage !== "awaiting_duration"
+    ) {
+      await this.#repository.finalizeConversation(
+        updateId,
+        chatId,
+        reference,
+        "stale",
+      );
+      return { text: workSessionContinuationCopy.stale };
+    }
+    try {
+      const command = {
+        action: "natural_duration" as const,
+        chatId,
+        durationMinutes: input.durationMinutes,
+        expectedStage: "awaiting_duration" as const,
+        nextStage: "offer" as const,
+        reference,
+        updateId,
+      };
+      const result =
+        this.#repository.transitionFromConversation === undefined
+          ? await this.#repository.transition(command)
+          : await this.#repository.transitionFromConversation(command);
+      return result.kind === "applied"
+        ? findTimeOffer(result.snapshot)
+        : result.kind === "replay"
+          ? null
+          : result.kind === "expired"
+            ? { text: workSessionContinuationCopy.expired }
+            : { text: workSessionContinuationCopy.stale };
+    } catch {
+      await this.#repository.finalizeConversation(
+        updateId,
+        chatId,
+        reference,
+        "domain_error",
+      ).catch(() => undefined);
+      return { text: workSessionContinuationCopy.uncertain };
+    }
+  }
+
   async handle(
     updateId: number,
     chatId: number,
@@ -611,7 +773,9 @@ export class WorkSessionContinuationService {
         parsed.action.slice("duration_".length),
       );
       if (
-        !DURATIONS.includes(duration as 30 | 60 | 90 | 120) ||
+        !SUGGESTED_DURATIONS.includes(
+          duration as (typeof SUGGESTED_DURATIONS)[number],
+        ) ||
         snapshot.stage !== "awaiting_duration"
       ) {
         return { text: workSessionContinuationCopy.stale };
@@ -619,7 +783,7 @@ export class WorkSessionContinuationService {
       const result = await this.#transition({
         action: parsed.action,
         chatId,
-        durationMinutes: duration as 30 | 60 | 90 | 120,
+        durationMinutes: duration,
         expectedStage: "awaiting_duration",
         nextStage: "offer",
         reference: parsed,
@@ -722,7 +886,7 @@ export class WorkSessionContinuationService {
     chatId: number,
     reference: ParsedContinuationAction,
     snapshot: WorkSessionContinuationSnapshot,
-    durationMinutes: 30 | 60 | 90 | 120,
+    durationMinutes: number,
   ): Promise<TelegramReply | null> {
     const now = this.#now().toISOString();
     let available = await this.#availability({

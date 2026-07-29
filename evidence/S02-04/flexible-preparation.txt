@@ -17,13 +17,18 @@ AC1 — Mandatory preparation decision and exact focus
 AC2 — Flexible bounded durations, including 45 minutes
 - Decision/runtime, scheduling, repository, dashboard, work-session, and approved-edit validation accept integers from 1 through 1440.
 - Unit coverage verifies a 45-minute option beginning at 08:00 and ending at 08:45.
-- Database coverage verifies exactly one 45-minute work_sessions row and exactly two scheduler consequences.
+- Cross-midnight and full-day (1440-minute) windows preserve their exact duration.
+- Application and database boundaries enforce the same Singapore-local :00/:30 start rule and exact end = start + duration invariant.
+- Database coverage verifies 45- and 1440-minute persistence and rejects a :15 start.
+- Dashboard parsing rejects zero, fractional, over-bound, and duration/window-mismatch rows.
 
 AC3 — Natural constraints and owner-selected times in one durable run
 - propose_work_session_input is part of the same Agents SDK run as the typed owner turn.
 - Durable agent product context includes only structured preparation stage, duration, canonical constraints, and selected start/end.
 - The agent translates natural constraints to the existing canonical Singapore format and owner-selected time to an exact future +08:00 start.
 - WorkSessionFlow performs the authoritative availability check and transition.
+- Explicit duration and timing facts included in the original commitment message are applied immediately after draft creation in the same run.
+- The deterministic guard accepts only explicit complete commitment input and does not infer preparation from unrelated phrases.
 
 AC4 — Controlled Calendar outcomes
 - Free generated windows use application-owned sanitized choice copy.
@@ -37,22 +42,28 @@ AC5 — Declining preparation
 - The resulting new version is passed immediately to the existing same-session creation-approval continuation.
 - No commitment is created before the owner approves the exact consequence.
 
+AC6 — Flexible continuations
+- Natural typed continuation duration is authoritative for the exact referenced active intent and accepts 1–1440 whole minutes.
+- Context exposes only owner-isolated active continuation intent references and state.
+- Database transition and final confirmation enforce the same duration and exact-window bounds.
+- Database coverage verifies the 45-minute outcome → options → explicit confirmation path creates exactly one session and two messages.
+
 Safety and durability
 - Additive migration only; no prior migration was edited.
-- Typed work-session transitions consume the already-claimed Telegram update atomically.
+- Typed preparation and continuation outcomes terminally finalize claimed Telegram updates for applied, stale, expired, unsupported, invalid, unavailable, no-fit, provider-failure, domain-error, replay, and restart paths.
+- Same-message preparation consumes the exact processed creation turn in place without deleting its Telegram row or linked model-decision/draft-operation audit history.
 - Stale draft versions remain inert.
 - Availability transitions store at most two sanitized windows.
 - Commitment confirmation still creates at most one next work session.
 - No Google Calendar write path was introduced.
 
 Verification
-- Clean local Supabase reset: PASS (all migrations through 20260730090000).
-- Focused server tests: PASS (257/257).
-- Complete server unit tests: PASS (527/527).
-- Server typecheck: PASS.
-- Local database integration tests: PASS (35/35 across 13 files).
+- Clean local Supabase reset: PASS (all migrations through 20260730091000).
+- Complete server unit tests: PASS (560/560 across 35 files).
+- Local database integration tests after the clean reset: PASS (38/38 across 13 files).
 - npm run check: PASS.
-  - Server unit tests: 527/527.
+  - Server and web typechecks: PASS.
+  - Server unit tests: 560/560.
   - Release verifier: 22/22.
   - Production web and server builds: PASS.
   - Isolated Playwright tests: 50/50.

@@ -125,6 +125,22 @@ export type AgentRecentOutcomeContext = Readonly<{
   workSessionId: string;
 }>;
 
+export type AgentContinuationContext = Readonly<{
+  commitmentId: string;
+  durationMinutes: number | null;
+  id: string;
+  stage:
+    | "awaiting_duration"
+    | "choosing"
+    | "confirming"
+    | "conflict_choice"
+    | "offer"
+    | "unverified_confirming";
+  targetAt: string;
+  timingConstraints: string;
+  version: number;
+}>;
+
 export type AgentFocusedEntity =
   | Readonly<{ entity: AgentDraftContext; kind: "draft" }>
   | Readonly<{ entity: AgentCommitmentContext; kind: "commitment" }>;
@@ -142,6 +158,7 @@ export type AgentProductContext = Readonly<{
     query: string;
   }> | null;
   commitments: readonly AgentCommitmentContext[];
+  continuations?: readonly AgentContinuationContext[];
   drafts: readonly AgentDraftContext[];
   focusedEntity: AgentFocusedEntity | null;
   matchedEntity?: AgentFocusedEntity | null;
@@ -188,6 +205,7 @@ type SupabaseAgentContextReaderOptions = Readonly<{
 
 type RawProductContext = Readonly<{
   commitments: readonly unknown[];
+  continuations: readonly unknown[];
   drafts: readonly unknown[];
   focusedEntity: unknown;
   recentOutcomes: readonly unknown[];
@@ -491,6 +509,46 @@ function parseOutcome(value: unknown): AgentRecentOutcomeContext {
   };
 }
 
+function parseContinuation(value: unknown): AgentContinuationContext {
+  const item = record(value);
+  if (
+    !item ||
+    !uuid(item.id) ||
+    !uuid(item.commitmentId) ||
+    !positiveInteger(item.version) ||
+    !oneOf(item.stage, [
+      "awaiting_duration",
+      "choosing",
+      "confirming",
+      "conflict_choice",
+      "offer",
+      "unverified_confirming",
+    ]) ||
+    !(
+      item.durationMinutes === null ||
+      (
+        positiveInteger(item.durationMinutes) &&
+        item.durationMinutes <= 1_440
+      )
+    ) ||
+    !instant(item.targetAt) ||
+    typeof item.timingConstraints !== "string" ||
+    item.timingConstraints.length < 1 ||
+    item.timingConstraints.length > 500
+  ) {
+    throw new Error("Agent continuation context is invalid");
+  }
+  return {
+    commitmentId: item.commitmentId,
+    durationMinutes: item.durationMinutes as number | null,
+    id: item.id,
+    stage: item.stage as AgentContinuationContext["stage"],
+    targetAt: item.targetAt,
+    timingConstraints: item.timingConstraints,
+    version: item.version,
+  };
+}
+
 function parseTruncated(value: unknown): AgentProductContext["truncated"] {
   const item = record(value);
   if (
@@ -544,6 +602,9 @@ function parseRawProductContext(value: unknown): RawProductContext {
   }
   return {
     commitments: item.commitments,
+    continuations: Array.isArray(item.continuations)
+      ? item.continuations
+      : [],
     drafts: item.drafts,
     focusedEntity: item.focusedEntity,
     recentOutcomes: item.recentOutcomes,
@@ -739,11 +800,13 @@ export class SupabaseAgentContextReader implements AgentContextReader {
       .map((draft) => parseDraft(draft, observedAt))
       .filter((draft): draft is AgentDraftContext => draft !== null);
     const commitments = raw.commitments.map(parseCommitment);
+    const continuations = raw.continuations.map(parseContinuation);
     const workSessions = raw.workSessions.map(parseWorkSession);
     const recentOutcomes = raw.recentOutcomes.map(parseOutcome);
     if (
       drafts.length > limit ||
       commitments.length > limit ||
+      continuations.length > Math.min(5, limit) ||
       workSessions.length > Math.min(WORK_SESSION_LIMIT, limit * 2) ||
       recentOutcomes.length > limit
     ) {
@@ -753,6 +816,7 @@ export class SupabaseAgentContextReader implements AgentContextReader {
     return {
       ambiguity: match.ambiguity,
       commitments,
+      continuations,
       drafts,
       focusedEntity: parseFocusedEntity(raw.focusedEntity, observedAt),
       matchedEntity: match.exact,

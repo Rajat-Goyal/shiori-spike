@@ -13,7 +13,11 @@ import {
   validateDecisionInputSemantics,
 } from "./semantic.js";
 import type { TelegramReply } from "../confirmation.js";
-import type { WorkSessionConversationInput } from "../work-sessions/conversation-input.js";
+import type {
+  InitialWorkSessionConversationInput,
+  WorkSessionConversationInput,
+} from "../work-sessions/conversation-input.js";
+import type { WorkSessionContinuationConversationInput } from "../work-sessions/continuation.js";
 
 export type DecisionFailureClass =
   | "http"
@@ -69,6 +73,8 @@ export type DecisionOutcome =
       }>;
       ok: true;
       recovery?: DecisionRetryRecovery;
+      continuationInput?: WorkSessionContinuationConversationInput;
+      initialWorkSessionInput?: InitialWorkSessionConversationInput;
       workSessionInput?: WorkSessionConversationInput;
     }
   | {

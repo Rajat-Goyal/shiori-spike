@@ -1,5 +1,6 @@
 import { randomInt } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
+import { SupabaseAgentContextReader } from "../src/agent/context-reader.js";
 import { readServerConfig } from "../src/config.js";
 import {
   type DecisionAudit,
@@ -13,6 +14,7 @@ import type {
   WorkSessionCommitRequest,
   WorkSessionDraftSnapshot,
 } from "../src/work-sessions/flow.js";
+import { WorkSessionFlow } from "../src/work-sessions/flow.js";
 import { SupabaseWorkSessionFlowRepository } from "../src/work-sessions/flow-repository.js";
 import {
   SupabaseWorkSessionOutcomeRepository,
@@ -567,6 +569,311 @@ describe("atomic work-session confirmation on local Supabase", () => {
 });
 
 describe("atomic work-session outcome and continuation on local Supabase", () => {
+  it("advances same-message preparation facts from the processed creation turn without replaying the update", async () => {
+    const baseUpdateId =
+      9_760_000_000 + randomInt(4_000_000);
+    const config = localConfig();
+    const telegram = new SupabaseTelegramRepository({
+      supabaseSecretKey: config.supabaseSecretKey,
+      supabaseUrl: config.supabaseUrl,
+    });
+    const conversation = new SupabaseConversationRepository({
+      supabaseSecretKey: config.supabaseSecretKey,
+      supabaseUrl: config.supabaseUrl,
+    });
+    const flowRepository = new SupabaseWorkSessionFlowRepository({
+      ownerId: config.telegramOwnerUserId,
+      supabaseSecretKey: config.supabaseSecretKey,
+      supabaseUrl: config.supabaseUrl,
+    });
+    const now = Date.now();
+    const startMillis = nextBoundary(now + 8 * 60 * 60_000);
+    const option = {
+      endAt: singaporeInstant(startMillis + 45 * 60_000),
+      startAt: singaporeInstant(startMillis),
+    };
+    const fields: DecisionContextFields = {
+      definitionOfDone: `Same-message preparation ${baseUpdateId}`,
+      durationMinutes: 45,
+      offerWorkWindowHelp: false,
+      possibleWorkSession: true,
+      simpleAction: false,
+      targetAt: singaporeInstant(now + 3 * 24 * 60 * 60_000),
+      targetTimeZone: "Asia/Singapore",
+      timingConstraints: ["mon 08:00-12:00"],
+    };
+    const audit: DecisionAudit = {
+      inputClass: "explicit_commitment",
+      modelId: "db-test-model",
+      payload: {
+        ...fields,
+        missingFields: [],
+        nextAction: "ready",
+        turnRelation: "new_request",
+      },
+      promptVersion: "db-test-prompt-v1",
+    };
+
+    await expect(
+      telegram.claimUpdate(baseUpdateId, config.telegramOwnerUserId),
+    ).resolves.toBe(true);
+    const focus = await conversation.readTurn(baseUpdateId);
+    if (focus.kind !== "none" && focus.kind !== "draft") {
+      throw new Error("same-message test requires an available draft focus");
+    }
+    const created = await conversation.applyTurn({
+      action:
+        focus.kind === "none"
+          ? "create_draft"
+          : "create_separate_draft",
+      audit,
+      expected:
+        focus.kind === "none"
+          ? focus
+          : {
+              id: focus.id,
+              kind: focus.kind,
+              version: focus.version,
+            },
+      fields,
+      phase: "complete",
+      processingResult: "conversation",
+      updateId: baseUpdateId,
+    });
+    expect(created).toMatchObject({
+      draftCreated: true,
+      status: "applied",
+    });
+    const flow = new WorkSessionFlow({
+      availability: vi.fn(async () => ({
+        alternatives: [option],
+        checkedAt: new Date().toISOString(),
+        proposed: null,
+        status: "available" as const,
+      })),
+      committer: {
+        commit: vi.fn(async () => ({ kind: "stale" as const })),
+      },
+      repository: flowRepository,
+    });
+
+    const reply = await flow.handleConversationInput(
+      baseUpdateId,
+      config.telegramOwnerUserId,
+      {
+        draftId: created.draftReference!.id,
+        draftVersion: created.draftReference!.version,
+        durationMinutes: 45,
+        followUpQuestion: null,
+        nextInput: null,
+        preparationRequired: true,
+        startAt: null,
+        timingConstraints: "mon 08:00-12:00",
+      },
+    );
+    expect(reply.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ text: "Choose option 1" }),
+      ]),
+    );
+    await expect(
+      telegram.claimUpdate(baseUpdateId, config.telegramOwnerUserId),
+    ).resolves.toBe(false);
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "telegram_updates",
+        `&update_id=eq.${baseUpdateId}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        processing_status: "processed",
+        processing_result: "work_session_draft_resolved",
+        resolved_action_key:
+          `w:${created.draftReference!.id}:` +
+          `${created.draftReference!.version}:apply`,
+      }),
+    ]);
+    const current = await flowRepository.read({
+      id: created.draftReference!.id,
+      version: created.draftReference!.version + 1,
+    });
+    expect(current).toMatchObject({
+      kind: "current",
+      snapshot: {
+        durationMinutes: 45,
+        options: [option],
+        stage: "choosing",
+      },
+    });
+    if (current.kind !== "current") {
+      throw new Error("same-message preparation was not persisted");
+    }
+    await flowRepository.cancel(
+      baseUpdateId + 1,
+      config.telegramOwnerUserId,
+      {
+        id: current.snapshot.id,
+        version: current.snapshot.version,
+      },
+      current.snapshot.stage,
+    );
+  });
+
+  it("persists exact 45- and 1440-minute windows and rejects a :15 start at the database boundary", async () => {
+    for (const [index, durationMinutes] of [45, 1_440].entries()) {
+      const baseUpdateId =
+        9_740_000_000 + randomInt(4_000_000) + index * 10;
+      const prepared = await preparedDraft(
+        "free",
+        baseUpdateId,
+        durationMinutes,
+      );
+      await expect(
+        committer(prepared).commit(prepared.request),
+      ).resolves.toEqual({ kind: "applied" });
+      const [session] = await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "work_sessions",
+        `&duration_minutes=eq.${durationMinutes}` +
+          `&start_at=eq.${encodeURIComponent(prepared.request.selectedWindow.startAt)}`,
+      );
+      expect(session).toMatchObject({
+        duration_minutes: durationMinutes,
+        status: "planned",
+      });
+      expect(
+        Date.parse(String(session.end_at)) -
+          Date.parse(String(session.start_at)),
+      ).toBe(durationMinutes * 60_000);
+
+      if (durationMinutes === 45) {
+        const invalidStart = new Date(
+          Date.parse(String(session.start_at)) + 15 * 60_000,
+        ).toISOString();
+        const invalidEnd = new Date(
+          Date.parse(invalidStart) + 45 * 60_000,
+        ).toISOString();
+        const response = await fetch(
+          `${prepared.config.supabaseUrl}/rest/v1/work_sessions?id=eq.${session.id}`,
+          {
+            body: JSON.stringify({
+              end_at: invalidEnd,
+              start_at: invalidStart,
+            }),
+            headers: supabaseHeaders(
+              prepared.config.supabaseSecretKey,
+              "application/json",
+            ),
+            method: "PATCH",
+          },
+        );
+        expect(response.ok).toBe(false);
+      }
+    }
+  });
+
+  it("terminally finalizes unsupported and stale typed preparation updates exactly once", async () => {
+    const baseUpdateId =
+      9_750_000_000 + randomInt(4_000_000);
+    const prepared = await preparedDraft("free", baseUpdateId);
+    const telegram = new SupabaseTelegramRepository({
+      supabaseSecretKey: prepared.config.supabaseSecretKey,
+      supabaseUrl: prepared.config.supabaseUrl,
+    });
+    const flowRepository = new SupabaseWorkSessionFlowRepository({
+      ownerId: prepared.config.telegramOwnerUserId,
+      supabaseSecretKey: prepared.config.supabaseSecretKey,
+      supabaseUrl: prepared.config.supabaseUrl,
+    });
+    const flow = new WorkSessionFlow({
+      availability: vi.fn(),
+      committer: {
+        commit: vi.fn(async () => ({ kind: "stale" as const })),
+      },
+      repository: flowRepository,
+    });
+    const typedInput = {
+      draftId: prepared.snapshot.id,
+      draftVersion: prepared.snapshot.version,
+      durationMinutes: 45,
+      followUpQuestion: null,
+      nextInput: null,
+      preparationRequired: true,
+      startAt: null,
+      timingConstraints: "mon 08:00-12:00",
+    } as const;
+
+    await expect(
+      telegram.claimUpdate(
+        baseUpdateId + 20,
+        prepared.config.telegramOwnerUserId,
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      flow.handleConversationInput(
+        baseUpdateId + 20,
+        prepared.config.telegramOwnerUserId,
+        typedInput,
+      ),
+    ).resolves.toMatchObject({
+      text: "That action is stale. I didn’t change anything.",
+    });
+    await expect(
+      telegram.claimUpdate(
+        baseUpdateId + 20,
+        prepared.config.telegramOwnerUserId,
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      telegram.claimUpdate(
+        baseUpdateId + 21,
+        prepared.config.telegramOwnerUserId,
+      ),
+    ).resolves.toBe(true);
+    await flow.handleConversationInput(
+      baseUpdateId + 21,
+      prepared.config.telegramOwnerUserId,
+      { ...typedInput, draftVersion: typedInput.draftVersion - 1 },
+    );
+
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "telegram_updates",
+        `&update_id=in.(${baseUpdateId + 20},${baseUpdateId + 21})`,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          processing_result: "unsupported",
+          processing_status: "processed",
+          update_id: baseUpdateId + 20,
+        }),
+        expect.objectContaining({
+          processing_result: "work_session_draft_stale",
+          processing_status: "processed",
+          update_id: baseUpdateId + 21,
+        }),
+      ]),
+    );
+    await expect(
+      flowRepository.cancel(
+        baseUpdateId + 22,
+        prepared.config.telegramOwnerUserId,
+        {
+          id: prepared.snapshot.id,
+          version: prepared.snapshot.version,
+        },
+        prepared.snapshot.stage,
+      ),
+    ).resolves.toMatchObject({ kind: "applied" });
+  });
+
   it("claims each start message once and safely reclaims an unstarted expired lease", async () => {
     const baseUpdateId =
       9_690_000_000 + randomInt(10_000_000);
@@ -721,7 +1028,7 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
     ).toEqual(["cancelled", "cancelled"]);
   });
 
-  it("records partial work first, then appends exactly one confirmed next session", async () => {
+  it("records a typed 45-minute continuation, then appends exactly one confirmed next session and two messages", async () => {
     const baseUpdateId =
       9_700_000_000 + randomInt(10_000_000);
     const prepared = await preparedDraft("free", baseUpdateId);
@@ -758,6 +1065,24 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
     if (outcomeResult.kind !== "more") {
       throw new Error("partial outcome was not persisted");
     }
+    const productContext = await new SupabaseAgentContextReader({
+      ownerId: prepared.config.telegramOwnerUserId,
+      supabaseSecretKey: prepared.config.supabaseSecretKey,
+      supabaseUrl: prepared.config.supabaseUrl,
+    }).readProductContext({
+      chatId: prepared.config.telegramOwnerUserId,
+      focusedEntityId: null,
+      query: null,
+    });
+    expect(productContext.continuations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: outcomeResult.continuationId,
+          stage: "awaiting_duration",
+          version: 1,
+        }),
+      ]),
+    );
 
     expect(
       await rows(
@@ -785,7 +1110,7 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
 
     const nextStartMillis = nextBoundary(Date.now() + 12 * 60 * 60_000);
     const nextWindow = {
-      endAt: singaporeInstant(nextStartMillis + 60 * 60_000),
+      endAt: singaporeInstant(nextStartMillis + 45 * 60_000),
       startAt: singaporeInstant(nextStartMillis),
     };
     const checkedAt = new Date().toISOString();
@@ -812,12 +1137,26 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
       }),
     });
     const intentId = outcomeResult.continuationId;
+    const telegram = new SupabaseTelegramRepository({
+      supabaseSecretKey: prepared.config.supabaseSecretKey,
+      supabaseUrl: prepared.config.supabaseUrl,
+    });
 
     await expect(
-      continuation.handle(
+      telegram.claimUpdate(
         baseUpdateId + 4,
         prepared.config.telegramOwnerUserId,
-        `c:${intentId}:1:duration_60`,
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      continuation.handleDurationInput(
+        baseUpdateId + 4,
+        prepared.config.telegramOwnerUserId,
+        {
+          durationMinutes: 45,
+          intentId,
+          intentVersion: 1,
+        },
       ),
     ).resolves.toMatchObject({
       actions: [
@@ -826,6 +1165,26 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
       ],
     });
     expect(availability).not.toHaveBeenCalled();
+    await expect(
+      telegram.claimUpdate(
+        baseUpdateId + 4,
+        prepared.config.telegramOwnerUserId,
+      ),
+    ).resolves.toBe(false);
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "telegram_updates",
+        `&update_id=eq.${baseUpdateId + 4}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        processing_result: "work_session_continuation_resolved",
+        processing_status: "processed",
+        resolved_action_key: `c:${intentId}:1:natural_duration`,
+      }),
+    ]);
     await expect(
       continuation.handle(
         baseUpdateId + 5,
@@ -868,6 +1227,7 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
       (session) => session.sequence_number === 2,
     )!;
     expect(nextSession).toMatchObject({
+      duration_minutes: 45,
       is_recovery: false,
       source_session_id: sourceSession.id,
       status: "planned",

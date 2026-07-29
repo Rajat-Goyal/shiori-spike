@@ -43,6 +43,17 @@ class Repository implements WorkSessionContinuationRepository {
   readKind: "current" | "expired" | "missing" | "stale" = "current";
   readonly transitions: any[] = [];
   readonly confirmations: any[] = [];
+  readonly finalizations: any[] = [];
+
+  async finalizeConversation(
+    updateId: number,
+    chatId: number,
+    reference: Readonly<{ id: string; version: number }>,
+    result: "domain_error" | "expired" | "invalid" | "stale",
+  ) {
+    this.finalizations.push({ chatId, reference, result, updateId });
+    return { kind: "applied" as const };
+  }
 
   async read() {
     return this.readKind === "current"
@@ -91,6 +102,88 @@ class Repository implements WorkSessionContinuationRepository {
 }
 
 describe("work-session continuation", () => {
+  it("records an exact natural 45-minute duration against one continuation authority", async () => {
+    const repository = new Repository();
+    const availability = vi.fn();
+    const service = new WorkSessionContinuationService({
+      availability,
+      repository,
+    });
+
+    const reply = await service.handleDurationInput(
+      80,
+      123456789,
+      {
+        durationMinutes: 45,
+        intentId,
+        intentVersion: 1,
+      },
+    );
+
+    expect(repository.transitions).toEqual([
+      expect.objectContaining({
+        action: "natural_duration",
+        durationMinutes: 45,
+        expectedStage: "awaiting_duration",
+        nextStage: "offer",
+      }),
+    ]);
+    expect(repository.current.durationMinutes).toBe(45);
+    expect(reply?.actions?.map((item) => item.text)).toEqual([
+      "Find a time",
+      "Not now",
+    ]);
+    expect(availability).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 1_441])(
+    "terminally rejects a typed continuation duration of %i",
+    async (durationMinutes) => {
+      const repository = new Repository();
+      const service = new WorkSessionContinuationService({
+        availability: vi.fn(),
+        repository,
+      });
+
+      await service.handleDurationInput(79, 123456789, {
+        durationMinutes,
+        intentId,
+        intentVersion: 1,
+      });
+
+      expect(repository.transitions).toHaveLength(0);
+      expect(repository.finalizations).toEqual([
+        expect.objectContaining({ result: "invalid", updateId: 79 }),
+      ]);
+    },
+  );
+
+  it.each([
+    ["expired", "expired"],
+    ["missing", "stale"],
+    ["stale", "stale"],
+  ] as const)(
+    "terminally finalizes a typed duration when the continuation is %s",
+    async (readKind, expected) => {
+      const repository = new Repository();
+      repository.readKind = readKind;
+      const service = new WorkSessionContinuationService({
+        availability: vi.fn(),
+        repository,
+      });
+
+      await service.handleDurationInput(78, 123456789, {
+        durationMinutes: 45,
+        intentId,
+        intentVersion: 1,
+      });
+
+      expect(repository.finalizations).toEqual([
+        expect.objectContaining({ result: expected, updateId: 78 }),
+      ]);
+    },
+  );
+
   it("records duration without searching, then requires a separate Find a time action", async () => {
     const repository = new Repository();
     const availability = vi.fn(async () => ({
