@@ -45,3 +45,41 @@ The multi-draft and bounded-context migrations were applied and invoked against
 a disposable local Supabase database inside rolled-back verification
 transactions. Probes verified create, idempotent replay, separate focused draft,
 focus swap, and exact versioned patch behavior.
+
+Independent-review repair — 2026-07-30
+
+Focused repair verification
+Command: npm run test --workspace @shiori/server -- src/agent src/telegram src/conversation
+Result: PASS
+Test files: 14 passed (14)
+Tests: 186 passed (186)
+
+Full repaired repository gate
+Command: npm run check
+Result: PASS
+Server tests: 494 passed
+Release-verifier tests: 22 passed
+Isolated Playwright tests: 50 passed
+Server and web typechecks: PASS
+Server and web production builds: PASS
+
+Repair evidence
+- Exact draft resolution now returns exact, ambiguous, or none. Unique parked
+  references and clarification selections bind `{kind, id, expectedVersion}`;
+  focused patching uses the atomic versioned RPC. Mismatched/stale authority
+  fails closed and ambiguity performs no mutation.
+- Ordinary answers record a `preserve` pending-question disposition. The
+  encrypted session repository retains the prior pending question, callback
+  choice, and draft focus; a later answer advances the same exact draft.
+- `/status` enters ConversationService and dispatches deterministic
+  StatusService output. Active facts and Done/Cancel callbacks, exact empty
+  copy, focus, and pending interaction are verified without agent-authored
+  placeholder prose.
+- Bounded list, focused lookup, and ambiguity inputs consistently exclude
+  expired parked drafts by owner, resumable state, and `expires_at > now()`.
+
+Repair database verification
+The 040000 and 050000 migrations were applied only to disposable local
+Supabase verification transactions and rolled back. Probes verified expired
+parked drafts are excluded, unique and ambiguous resolution, exact
+clarification IDs, focus swaps, versioned patches, and stale authority.
