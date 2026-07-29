@@ -22,6 +22,7 @@ import type { TelegramUpdateHandler } from "./webhook.js";
 const ownerUserId = 123456789;
 const webhookSecret = "unit-test-webhook-secret";
 const config: ServerConfig = {
+  agentSessionRetentionSeconds: 2_592_000,
   dashboardPasswordHash:
     "$argon2id$v=19$m=65536,t=3,p=1$c2hpb3JpLXRlc3Qtc2FsdA$YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ",
   dashboardSessionSecret: Buffer.alloc(32, 9).toString("base64"),

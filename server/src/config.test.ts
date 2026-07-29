@@ -23,6 +23,39 @@ const validEnvironment = {
 };
 
 describe("readServerConfig", () => {
+  it("defaults durable agent-session retention to 30 days", () => {
+    expect(readServerConfig(validEnvironment).agentSessionRetentionSeconds).toBe(
+      2_592_000,
+    );
+  });
+
+  it("accepts an agent-session retention override within the supported bounds", () => {
+    expect(
+      readServerConfig({
+        ...validEnvironment,
+        AGENT_SESSION_RETENTION_SECONDS: "86400",
+      }).agentSessionRetentionSeconds,
+    ).toBe(86_400);
+  });
+
+  it("rejects invalid agent-session retention values", () => {
+    for (const retentionSeconds of [
+      "3599",
+      "2592001",
+      "1.5",
+      "-3600",
+      "not-numeric",
+      "9007199254740992",
+    ]) {
+      expect(() =>
+        readServerConfig({
+          ...validEnvironment,
+          AGENT_SESSION_RETENTION_SECONDS: retentionSeconds,
+        }),
+      ).toThrow(/AGENT_SESSION_RETENTION_SECONDS/);
+    }
+  });
+
   it("allows HTTP only for a loopback Supabase URL", () => {
     expect(readServerConfig(validEnvironment).supabaseUrl).toBe(
       "http://127.0.0.1:54321",

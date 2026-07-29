@@ -1,4 +1,10 @@
+import {
+  AGENT_SESSION_DEFAULT_RETENTION_SECONDS,
+  AGENT_SESSION_MIN_RETENTION_SECONDS,
+} from "./agent/session.js";
+
 export type ServerConfig = Readonly<{
+  agentSessionRetentionSeconds: number;
   dashboardPasswordHash: string;
   dashboardSessionSecret: string;
   googleOAuthClientId: string;
@@ -19,6 +25,35 @@ export type ServerConfig = Readonly<{
 }>;
 
 const PLACEHOLDER = /^<.*>$/;
+
+function optionalBoundedInteger(
+  environment: NodeJS.ProcessEnv,
+  key: string,
+  options: {
+    defaultValue: number;
+    maximum: number;
+    minimum: number;
+  },
+): number {
+  const value = environment[key]?.trim();
+  if (!value) {
+    return options.defaultValue;
+  }
+
+  const parsed = Number(value);
+  if (
+    !/^\d+$/.test(value) ||
+    !Number.isSafeInteger(parsed) ||
+    parsed < options.minimum ||
+    parsed > options.maximum
+  ) {
+    throw new Error(
+      `Invalid server configuration: ${key} must be an integer between ${options.minimum} and ${options.maximum}`,
+    );
+  }
+
+  return parsed;
+}
 
 function required(environment: NodeJS.ProcessEnv, key: string): string {
   const value = environment[key]?.trim();
@@ -138,6 +173,15 @@ function googleOwnerEmail(value: string): string {
 export function readServerConfig(
   environment: NodeJS.ProcessEnv = process.env,
 ): ServerConfig {
+  const agentSessionRetentionSeconds = optionalBoundedInteger(
+    environment,
+    "AGENT_SESSION_RETENTION_SECONDS",
+    {
+      defaultValue: AGENT_SESSION_DEFAULT_RETENTION_SECONDS,
+      maximum: AGENT_SESSION_DEFAULT_RETENTION_SECONDS,
+      minimum: AGENT_SESSION_MIN_RETENTION_SECONDS,
+    },
+  );
   const dashboardPasswordHash = required(environment, "DASHBOARD_PASSWORD_HASH");
   const dashboardSessionSecret = required(environment, "DASHBOARD_SESSION_SECRET");
   const googleOAuthClientId = required(environment, "GOOGLE_OAUTH_CLIENT_ID");
@@ -211,6 +255,7 @@ export function readServerConfig(
   }
 
   return {
+    agentSessionRetentionSeconds,
     dashboardPasswordHash,
     dashboardSessionSecret: sessionSecret(dashboardSessionSecret),
     googleOAuthClientId: boundedIdentifier(

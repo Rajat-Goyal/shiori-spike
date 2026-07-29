@@ -28,6 +28,7 @@ import {
   AGENT_SESSION_COMPACTION_THRESHOLD,
   AGENT_SESSION_DEFAULT_RETENTION_SECONDS,
   AGENT_SESSION_HISTORY_PAGE_LIMIT,
+  AGENT_SESSION_MIN_RETENTION_SECONDS,
   AGENT_SESSION_WORKING_ITEM_LIMIT,
 } from "./session.js";
 
@@ -498,7 +499,7 @@ export class SupabaseAgentSessionRepository
       AGENT_SESSION_DEFAULT_RETENTION_SECONDS;
     if (
       !Number.isSafeInteger(this.#retentionSeconds) ||
-      this.#retentionSeconds < 3_600 ||
+      this.#retentionSeconds < AGENT_SESSION_MIN_RETENTION_SECONDS ||
       this.#retentionSeconds >
         AGENT_SESSION_DEFAULT_RETENTION_SECONDS
     ) {

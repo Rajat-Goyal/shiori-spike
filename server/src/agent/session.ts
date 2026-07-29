@@ -6,6 +6,7 @@ import type {
 export const AGENT_SESSION_WORKING_ITEM_LIMIT = 40;
 export const AGENT_SESSION_HISTORY_PAGE_LIMIT = 40;
 export const AGENT_SESSION_COMPACTION_THRESHOLD = 80;
+export const AGENT_SESSION_MIN_RETENTION_SECONDS = 60 * 60;
 export const AGENT_SESSION_DEFAULT_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 
 export type AgentSessionCallbackChoice = Readonly<{

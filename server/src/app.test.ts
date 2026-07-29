@@ -29,6 +29,7 @@ function passwordHash(password: string): string {
 }
 
 const testConfig: ServerConfig = {
+  agentSessionRetentionSeconds: 2_592_000,
   dashboardPasswordHash: passwordHash("owner-password"),
   dashboardSessionSecret: Buffer.alloc(32, 7).toString("base64"),
   googleOAuthClientId: "google-test-client.apps.googleusercontent.com",

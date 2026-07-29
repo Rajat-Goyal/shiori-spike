@@ -164,6 +164,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     options.agentSessions ??
     new SupabaseAgentSessionRepository({
       cipher: agentSessionCipher,
+      retentionSeconds: options.config.agentSessionRetentionSeconds,
       supabaseSecretKey: options.config.supabaseSecretKey,
       supabaseUrl: options.config.supabaseUrl,
     });
