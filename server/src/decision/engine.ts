@@ -55,8 +55,23 @@ export type DecisionOutcome =
       stage: DecisionFailureStage;
     };
 
+export type DecisionTurnContext = Readonly<{
+  updateId: number;
+}>;
+
+export type DecisionTurnCompletion = Readonly<{
+  activeDraftId: string | null;
+  assistantText: string;
+  status: "active" | "closed" | "expired" | "ignored" | "unchanged";
+  updateId: number;
+}>;
+
 export interface DecisionEngine {
-  decide(input: DecisionInput): Promise<DecisionOutcome>;
+  completeTurn?(completion: DecisionTurnCompletion): Promise<void>;
+  decide(
+    input: DecisionInput,
+    context?: DecisionTurnContext,
+  ): Promise<DecisionOutcome>;
 }
 
 type OpenAIDecisionEngineOptions = {
@@ -228,7 +243,7 @@ function instructions(
     "Tomorrow means the next Singapore calendar day.",
     "When the owner omits a year, use the current Singapore year only when the resulting instant is future.",
     "Never silently roll an explicitly or presumptively past date into a later year.",
-    "Use commitmentMode unresolved while definitionOfDone or targetAt is missing; resolve it to simple_action or possible_work_session only when both are present.",
+    "Use commitmentMode unresolved while definitionOfDone or targetAt is missing. For a complete candidate the field is descriptive only: application code deterministically materializes every newly complete promise as preparation-eligible and preserves an existing complete draft's mode during correction.",
     "Use response only for a useful ordinary-question answer; otherwise return null because workflow replies are application-controlled.",
     "turnRelation is descriptive and never authorizes a transition.",
     "With phase none, turnRelation is ignored and materialized deterministically by the application.",

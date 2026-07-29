@@ -157,9 +157,24 @@ export function materializeProviderDecision(
   decision: ProviderDecisionResult,
   input: DecisionInput,
 ): DecisionResult {
+  const complete =
+    decision.definitionOfDone !== null && decision.targetAt !== null;
+  const existingMode =
+    input.context.fields?.commitmentMode ?? "unresolved";
+  const commitmentMode =
+    decision.inputClass === "ordinary_question" || !complete
+      ? "unresolved"
+      : input.context.phase === "complete" &&
+          decision.turnRelation === "correction"
+        ? existingMode
+        : input.context.phase === "awaiting_permission" &&
+            decision.turnRelation === "permission_accepted"
+          ? existingMode
+          : "possible_work_session";
   return canonicalizeDecision(
     {
       ...decision,
+      commitmentMode,
       missingFields: [],
       nextAction: "answer",
       offerWorkWindowHelp: false,

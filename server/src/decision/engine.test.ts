@@ -90,6 +90,16 @@ const ordinaryDecision: DecisionResult = {
   turnRelation: "none",
 };
 
+function preparationEligible(
+  decision: DecisionResult,
+): DecisionResult {
+  return {
+    ...decision,
+    commitmentMode: "possible_work_session",
+    nextAction: "offer_work_window",
+  };
+}
+
 function contextInput(
   phase: DecisionInput["context"]["phase"],
   fields: DecisionCandidateFields | null,
@@ -224,7 +234,13 @@ describe("DecisionEngine contract", () => {
           ...privateDecisionInput,
           ownerText: "synthetic",
         }),
-      ).resolves.toEqual({ decision, ok: true });
+      ).resolves.toEqual({
+        decision:
+          inputClass === "explicit_commitment"
+            ? preparationEligible(decision)
+            : decision,
+        ok: true,
+      });
       expect(decision.inputClass).toBe(inputClass);
     },
   );
@@ -435,7 +451,10 @@ describe("DecisionEngine contract", () => {
         context: { fields: null, phase: "none" },
         ownerText,
       }),
-    ).resolves.toEqual({ decision: extracted, ok: true });
+    ).resolves.toEqual({
+      decision: preparationEligible(extracted),
+      ok: true,
+    });
     const body = JSON.parse(
       String(fetchFromOpenAI.mock.calls[0]?.[1]?.body),
     ) as { input: string; instructions: string };
@@ -449,6 +468,26 @@ describe("DecisionEngine contract", () => {
       "The immutable decision reference time is 2026-07-29T02:02:00.000+08:00.",
     );
   });
+
+  it.each(["simple_action", "possible_work_session"] as const)(
+    "materializes every newly complete promise as preparation-eligible regardless of provider mode %s",
+    async (commitmentMode) => {
+      const providerDecision = {
+        ...explicitDecision,
+        commitmentMode,
+      };
+      const fetchFromOpenAI = vi.fn(async () =>
+        providerResponse(providerDecision)
+      );
+
+      await expect(
+        engineWith(fetchFromOpenAI).decide(privateDecisionInput),
+      ).resolves.toEqual({
+        decision: preparationEligible(providerDecision),
+        ok: true,
+      });
+    },
+  );
 
   it("retries the exact awaiting-target tomorrow phrase against the same input, clock, validation time, and deadline", async () => {
     const signal = new AbortController().signal;
@@ -497,7 +536,7 @@ describe("DecisionEngine contract", () => {
     });
 
     await expect(engine.decide(input)).resolves.toEqual({
-      decision: recovered,
+      decision: preparationEligible(recovered),
       ok: true,
       recovery: {
         attemptCount: 2,
@@ -560,7 +599,10 @@ describe("DecisionEngine contract", () => {
         context: { fields, phase: "awaiting_target" },
         ownerText: "29 July 9am",
       }),
-    ).resolves.toEqual({ decision, ok: true });
+    ).resolves.toEqual({
+      decision: preparationEligible(decision),
+      ok: true,
+    });
     const body = JSON.parse(
       String(fetchFromOpenAI.mock.calls[0]?.[1]?.body),
     ) as { input: string };
@@ -1099,7 +1141,7 @@ describe("DecisionEngine contract", () => {
           ownerText: "x".repeat(4_096),
         }),
       ).resolves.toEqual({
-        decision: explicitDecision,
+        decision: preparationEligible(explicitDecision),
         ok: true,
       });
       expect(fetchAtMaximum).toHaveBeenCalledOnce();
@@ -1973,7 +2015,7 @@ describe("DecisionEngine contract", () => {
       await expect(
         engineWith(fetchFromOpenAI).decide(input),
       ).resolves.toEqual({
-        decision: separateDecision,
+        decision: preparationEligible(separateDecision),
         ok: true,
       });
       const request = fetchFromOpenAI.mock.calls[0][1];
@@ -2074,7 +2116,10 @@ describe("OpenAI decision failure boundary", () => {
     await expect(
       engineWith(fetchFromOpenAI).decide(privateDecisionInput),
     ).resolves.toEqual({
-      decision: { ...explicitDecision, response: "" },
+      decision: preparationEligible({
+        ...explicitDecision,
+        response: "",
+      }),
       ok: true,
     });
   });
@@ -2127,7 +2172,7 @@ describe("OpenAI decision failure boundary", () => {
     });
 
     await expect(engine.decide(input)).resolves.toEqual({
-      decision: explicitDecision,
+      decision: preparationEligible(explicitDecision),
       ok: true,
       recovery: {
         attemptCount: 2,
