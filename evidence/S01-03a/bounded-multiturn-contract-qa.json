@@ -1,0 +1,163 @@
+{
+  "story_id": "S01-03a",
+  "captured_at": "2026-07-29T01:18:09Z",
+  "implementation_commits": [
+    "7f684f08d597fa06d5689535efc33cc2f744dec2",
+    "e4f29b50ffae8c04d4d727f1ece2d57e38ff5851"
+  ],
+  "result": "pass",
+  "runtime": {
+    "node": "v26.5.0",
+    "npm": "11.17.0"
+  },
+  "verification": [
+    {
+      "command": "npm run test --workspace @shiori/server -- src/decision/engine.test.ts src/telegram/conversation.test.ts src/conversation/repository.test.ts src/telegram/webhook.test.ts",
+      "result": "pass",
+      "test_files_passed": 4,
+      "tests_passed": 184
+    },
+    {
+      "command": "npm run check",
+      "result": "pass",
+      "typecheck": "pass",
+      "server_test_files_passed": 24,
+      "server_tests_passed": 401,
+      "release_verifier_tests_passed": 22,
+      "web_build": "pass",
+      "server_build": "pass",
+      "browser_tests_passed": 50
+    }
+  ],
+  "provider_request_contract": {
+    "result": "pass",
+    "input_keys": [
+      "ownerText",
+      "context",
+      "referenceNow",
+      "timeZone"
+    ],
+    "context_is_bounded_structured_state": true,
+    "reference_time_captured_once": true,
+    "reference_time_uses_singapore_offset": true,
+    "time_zone": "Asia/Singapore",
+    "store": false,
+    "tools": [],
+    "provider_state_reference_present": false,
+    "raw_transcript_present": false
+  },
+  "semantic_retry_contract": {
+    "result": "pass",
+    "maximum_attempts": 2,
+    "shared_serialized_input": true,
+    "shared_validation_time": true,
+    "shared_abort_signal": true,
+    "shared_deadline_milliseconds": 30000,
+    "retry_only_for_semantic_failure": true,
+    "second_attempt_addition": "one fixed bounded corrective instruction",
+    "repository_mutations_between_attempts": 0
+  },
+  "semantic_ownership": {
+    "result": "pass",
+    "provider_field_count": 8,
+    "provider_fields": [
+      "commitmentMode",
+      "definitionOfDone",
+      "durationMinutes",
+      "inputClass",
+      "response",
+      "targetAt",
+      "timingConstraints",
+      "turnRelation"
+    ],
+    "application_materializes": [
+      "missingFields",
+      "nextAction",
+      "offerWorkWindowHelp",
+      "targetTimeZone",
+      "phase-none turnRelation"
+    ],
+    "workflow_copy_application_owned": true,
+    "provider_response_used_only_for_ordinary_question_answer": true
+  },
+  "multi_turn_contract": {
+    "result": "pass",
+    "active_state_precedes_current_turn_classification": true,
+    "permission_acceptance_requires_exact_stored_candidate_copy": true,
+    "clarification_preserves_populated_fields": true,
+    "correction_changes_only_explicitly_corrected_fields": true,
+    "separate_request_does_not_overwrite_active_state": true,
+    "implied_complete_candidate_survives_exact_yes": true,
+    "yes_does_not_reask_for_target": true,
+    "version_bound_atomic_application": true
+  },
+  "target_semantics": {
+    "result": "pass",
+    "failure_reasons": [
+      "target_format_invalid",
+      "target_not_future",
+      "target_pair_invalid",
+      "target_timezone_invalid"
+    ],
+    "relative_time_uses_reference_now": true,
+    "partial_date_uses_current_singapore_year_only_if_future": true,
+    "past_date_not_rolled_forward": true,
+    "invalid_calendar_date_rejected": true,
+    "wrong_offset_rejected": true,
+    "exact_regression_inputs": [
+      "Tomorrow 9am",
+      "29 July 9am",
+      "I have to create a video for telegram setup by tomorrow 9am",
+      "Yes"
+    ],
+    "exact_target_failure_copy_with_draft": "I still need a future Singapore date and time. Your current draft is unchanged. For example: 30 July 2026 at 9:00am Singapore time.",
+    "exact_target_failure_copy_without_draft": "I still need a future Singapore date and time. Nothing was saved. For example: 30 July 2026 at 9:00am Singapore time."
+  },
+  "targeted_failure_lifecycle": {
+    "result": "pass",
+    "atomic_apply_count": 1,
+    "command": {
+      "action": "preserve",
+      "processingResult": "conversation_failed"
+    },
+    "exact_targeted_reply_sent": true,
+    "audit_present": false,
+    "candidate_fields_present": false,
+    "draft_version_unchanged": true,
+    "candidate_unchanged": true,
+    "replay_reaches_decision_engine": false,
+    "replay_reaches_atomic_apply": false,
+    "visible_reply_count": 1,
+    "telegram_update_finalized_once": true
+  },
+  "legacy_audit_payload": {
+    "result": "pass",
+    "key_count": 11,
+    "keys": [
+      "definitionOfDone",
+      "durationMinutes",
+      "missingFields",
+      "nextAction",
+      "offerWorkWindowHelp",
+      "possibleWorkSession",
+      "simpleAction",
+      "targetAt",
+      "targetTimeZone",
+      "timingConstraints",
+      "turnRelation"
+    ],
+    "commitmentMode_present": false,
+    "mode_mapping_to_legacy_booleans_exact": true
+  },
+  "privacy_and_effects": {
+    "raw_owner_input_recorded": false,
+    "raw_provider_output_recorded": false,
+    "provider_error_recorded": false,
+    "credentials_recorded": false,
+    "chain_of_thought_recorded": false,
+    "source_edited_by_qa": false,
+    "state_or_environment_edited": false,
+    "migration_performed": false,
+    "deployment_performed": false
+  }
+}

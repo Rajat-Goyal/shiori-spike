@@ -1,0 +1,69 @@
+{
+  "story_id": "S01-03a",
+  "recorded_at": "2026-07-28T18:51:58Z",
+  "outcome": "resolved_pass",
+  "scope": "Approved bounded multi-turn decision-contract repair",
+  "passing_gates": [
+    "Focused decision, conversation, and repository tests: 176/176",
+    "Full server tests: 400/400",
+    "Server typecheck: pass"
+  ],
+  "pre_final_refinement_gates": [
+    "Release verifier: 22/22",
+    "Production web and server builds: pass"
+  ],
+  "blocked_gate": {
+    "command": "npm run check",
+    "attempts": [
+      {
+        "runner": "implementation squad",
+        "mode": "default",
+        "result": "Chromium exited before test execution"
+      },
+      {
+        "runner": "implementation squad",
+        "mode": "single worker",
+        "result": "Chromium exited before test execution"
+      },
+      {
+        "runner": "project lead",
+        "mode": "host-permission command",
+        "result": "Chromium exited before test execution"
+      }
+    ],
+    "failure_class": "environment_browser_launch",
+    "sanitized_error": "Chromium MachPortRendezvous bootstrap_check_in failed with macOS error 141 before browser assertions ran",
+    "product_assertions_executed": 0
+  },
+  "resolution": {
+    "captured_at": "2026-07-29T01:18:09Z",
+    "implementation_commits": [
+      "7f684f08d597fa06d5689535efc33cc2f744dec2",
+      "e4f29b50ffae8c04d4d727f1ece2d57e38ff5851"
+    ],
+    "command": "npm run check",
+    "runner": "independent QA",
+    "mode": "host permission for localhost binding and Chromium",
+    "result": "pass",
+    "typecheck": "pass",
+    "server_test_files_passed": 24,
+    "server_tests_passed": 401,
+    "release_verifier_tests_passed": 22,
+    "web_build": "pass",
+    "server_build": "pass",
+    "browser_tests_passed": 50,
+    "browser_projects": [
+      "chromium",
+      "mobile-chromium"
+    ],
+    "history_preserved": true,
+    "note": "The earlier browser-launch failures remain above as historical attempts. The final gate passed after the QA runner was allowed to bind the local Playwright server and launch Chromium."
+  },
+  "source_state": {
+    "implementation_committed": true,
+    "evidence_commit_pending_at_capture": true,
+    "deployed": false,
+    "source_edited_by_qa": false
+  },
+  "next_action": "None. The previously blocked browser gate is resolved."
+}
