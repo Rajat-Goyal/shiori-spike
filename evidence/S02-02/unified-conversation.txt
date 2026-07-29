@@ -1,0 +1,47 @@
+S02-02 — Unified conversational focus and tools
+Verified: 2026-07-30T01:48:34+08:00
+
+Focused verification
+Command: npm run test --workspace @shiori/server -- src/agent src/telegram
+Result: PASS
+Test files: 13 passed (13)
+Tests: 157 passed (157)
+
+Server type verification
+Command: npm run typecheck:server
+Result: PASS
+
+Full server regression verification
+Command: npm run test --workspace @shiori/server
+Result: PASS
+Test files: 32 passed (32)
+Tests: 483 passed (483)
+
+Repository gate
+Command: npm run check
+Result: PASS
+Server tests: 483 passed
+Release-verifier tests: 22 passed
+Isolated Playwright tests: 50 passed
+
+Acceptance evidence
+AC1 PASS — ConversationService clarification tests advance the exact current
+draft version; the session engine supplies the authoritative focused draft and
+version to the unified run.
+AC2 PASS — ConversationService separate-request tests create and focus a second
+draft through create_separate_draft; repository transaction tests prove the
+prior draft is parked without being overwritten.
+AC3 PASS — Context-reader tests find multiple plausible report references and
+the session-engine ambiguity test converts the turn to a clarification; the
+ConversationService ordinary-question path applies preserve only.
+AC4 PASS — ConversationService tests answer an ordinary question while applying
+preserve, and /status routing tests prove all typed messages use the same
+conversation boundary.
+AC5 PASS — Session-engine tests pass both the exact pending application question
+and sanitized callback choice in structured context for the next run.
+
+Database verification
+The multi-draft and bounded-context migrations were applied and invoked against
+a disposable local Supabase database inside rolled-back verification
+transactions. Probes verified create, idempotent replay, separate focused draft,
+focus swap, and exact versioned patch behavior.
