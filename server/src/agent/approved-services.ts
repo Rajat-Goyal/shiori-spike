@@ -47,32 +47,6 @@ async function clearActiveSession(
   }
 }
 
-async function recordCallbackReply(
-  sessions: AgentSessionRepository,
-  chatId: number,
-  updateId: number,
-  action: string,
-  reply: TelegramReply | null,
-): Promise<TelegramReply | null> {
-  if (reply === null) {
-    return null;
-  }
-  try {
-    const session = await sessions.open(chatId);
-    if (session.currentSnapshot().version > 0) {
-      await session.recordCallbackChoice({
-        action,
-        assistantText: reply.text,
-        pendingQuestion: (reply.actions?.length ?? 0) > 0,
-        updateId,
-      });
-    }
-  } catch {
-    // The authoritative callback result must not be suppressed by continuity.
-  }
-  return reply;
-}
-
 export class AgentApprovedConfirmationService {
   readonly #gate: AgentApprovalGate;
   readonly #service: CallbackService;
@@ -93,14 +67,6 @@ export class AgentApprovedConfirmationService {
     if (!action) {
       return this.#service.handle(updateId, chatId, callbackData);
     }
-    const finish = (reply: TelegramReply | null) =>
-      recordCallbackReply(
-        this.#sessions,
-        chatId,
-        updateId,
-        action.action,
-        reply,
-      );
     if (action.action === "cancel") {
       await this.#gate.resolve({
         chatId,
@@ -124,7 +90,7 @@ export class AgentApprovedConfirmationService {
           "cancelled",
         );
       }
-      return finish(reply);
+      return reply;
     }
 
     const approval = await this.#gate.resolve({
@@ -137,7 +103,7 @@ export class AgentApprovedConfirmationService {
       return null;
     }
     if (approval.kind !== "approved") {
-      return finish({ text: confirmationCopy.uncertainConfirm });
+      return { text: confirmationCopy.uncertainConfirm };
     }
     if (approval.replayed) {
       await clearActiveSession(
@@ -150,7 +116,7 @@ export class AgentApprovedConfirmationService {
     }
     const reply = approval.reply;
     if (!reply) {
-      return finish({ text: confirmationCopy.uncertainConfirm });
+      return { text: confirmationCopy.uncertainConfirm };
     }
     if (
       reply.text.startsWith("Promise saved.") ||
@@ -163,7 +129,7 @@ export class AgentApprovedConfirmationService {
         "confirmed",
       );
     }
-    return finish(reply);
+    return reply;
   }
 }
 
@@ -187,14 +153,6 @@ export class AgentApprovedWorkSessionService {
     if (!action) {
       return this.#service.handle(updateId, chatId, callbackData);
     }
-    const finish = (reply: TelegramReply | null) =>
-      recordCallbackReply(
-        this.#sessions,
-        chatId,
-        updateId,
-        action.action,
-        reply,
-      );
     if (action.action === "cancel") {
       await this.#gate.resolve({
         chatId,
@@ -215,15 +173,13 @@ export class AgentApprovedWorkSessionService {
           "cancelled",
         );
       }
-      return finish(reply);
+      return reply;
     }
     if (
       action.action !== "confirm" &&
       action.action !== "save_unverified"
     ) {
-      return finish(
-        await this.#service.handle(updateId, chatId, callbackData),
-      );
+      return this.#service.handle(updateId, chatId, callbackData);
     }
 
     const approval = await this.#gate.resolve({
@@ -236,7 +192,7 @@ export class AgentApprovedWorkSessionService {
       return null;
     }
     if (approval.kind !== "approved") {
-      return finish({ text: workSessionFlowCopy.approvalUnavailable });
+      return { text: workSessionFlowCopy.approvalUnavailable };
     }
     if (approval.replayed) {
       await clearActiveSession(
@@ -249,7 +205,7 @@ export class AgentApprovedWorkSessionService {
     }
     const reply = approval.reply;
     if (!reply) {
-      return finish({ text: workSessionFlowCopy.approvalUnavailable });
+      return { text: workSessionFlowCopy.approvalUnavailable };
     }
     if (reply.text.startsWith("Promise and work session saved.")) {
       await clearActiveSession(
@@ -259,6 +215,6 @@ export class AgentApprovedWorkSessionService {
         "confirmed",
       );
     }
-    return finish(reply);
+    return reply;
   }
 }

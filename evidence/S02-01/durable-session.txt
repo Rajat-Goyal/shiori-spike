@@ -6,8 +6,8 @@ Required command:
 
 Result:
   PASS
-  Test Files  6 passed (6)
-  Tests       47 passed (47)
+  Test Files  7 passed (7)
+  Tests       55 passed (55)
 
 Required command:
   npm run typecheck:server
@@ -21,8 +21,8 @@ Additional regression command:
 
 Result:
   PASS
-  Test Files  30 passed (30)
-  Tests       456 passed (456)
+  Test Files  31 passed (31)
+  Tests       467 passed (467)
 
 Acceptance evidence:
   AC1: repository tests persist and restore 16 SDK-compatible items; the
@@ -40,6 +40,17 @@ Acceptance evidence:
        invalid requests. Clean-migration database probes confirm reset/forget
        deletes agent session and approval rows while preserving commitment
        rows.
+
+Review repair evidence:
+  - Callback context tests cover d:, w:, p:, x:, s:, and c: callback families.
+    The recorder receives the callback only after the authoritative service
+    returns, projects it to an allowlisted family.action value, and stores the
+    resulting application reply or pending question. Raw callback data, entity
+    ids, and callback button payloads are not persisted.
+  - AGENT_SESSION_RETENTION_SECONDS is validated as an integer from 3600 to
+    2592000 seconds. Configuration tests cover the 30-day default, a valid
+    override, and malformed/out-of-range rejection. The production repository
+    receives the validated configured value.
 
 Database migration verification:
   A clean all-migrations PostgreSQL run passed. Service-role/RLS probes passed

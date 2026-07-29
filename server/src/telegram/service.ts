@@ -6,6 +6,14 @@ import {
 } from "./repository.js";
 
 type TelegramServiceOptions = {
+  callbackContextService?: {
+    record(
+      updateId: number,
+      chatId: number,
+      callbackData: unknown,
+      reply: TelegramReply,
+    ): Promise<void>;
+  };
   client: TelegramClient;
   confirmationService?: {
     handle(
@@ -146,6 +154,9 @@ function parseUpdate(value: unknown): ParsedUpdate | undefined {
 }
 
 export class TelegramService {
+  readonly #callbackContextService:
+    | TelegramServiceOptions["callbackContextService"]
+    | undefined;
   readonly #client: TelegramClient;
   readonly #confirmationService:
     | TelegramServiceOptions["confirmationService"]
@@ -164,6 +175,7 @@ export class TelegramService {
     | undefined;
 
   constructor(options: TelegramServiceOptions) {
+    this.#callbackContextService = options.callbackContextService;
     this.#client = options.client;
     this.#confirmationService = options.confirmationService;
     this.#conversationService = options.conversationService;
@@ -234,6 +246,14 @@ export class TelegramService {
       if (!reply) {
         return;
       }
+      await this.#callbackContextService
+        ?.record(
+          update.updateId,
+          update.chatId,
+          update.callbackData,
+          reply,
+        )
+        .catch(() => undefined);
       await this.#client
         .answerCallbackQuery?.(update.callbackId)
         .catch(() => undefined);

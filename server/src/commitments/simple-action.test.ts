@@ -349,7 +349,9 @@ describe("Telegram simple commitment callback routing", () => {
       text: simpleCommitmentActionCopy.done,
     }));
     const confirmationHandler = vi.fn();
+    const callbackContext = { record: vi.fn(async () => undefined) };
     const service = new TelegramService({
+      callbackContextService: callbackContext,
       client,
       confirmationService: { handle: confirmationHandler },
       conversationService: { handle: vi.fn() },
@@ -376,6 +378,12 @@ describe("Telegram simple commitment callback routing", () => {
       actionData,
     );
     expect(confirmationHandler).not.toHaveBeenCalled();
+    expect(callbackContext.record).toHaveBeenCalledWith(
+      7007,
+      ownerId,
+      actionData,
+      { text: simpleCommitmentActionCopy.done },
+    );
     expect(claims).not.toHaveBeenCalled();
     expect(completions).not.toHaveBeenCalled();
     expect(sends).toEqual([

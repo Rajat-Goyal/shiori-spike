@@ -428,8 +428,10 @@ describe("authorized Telegram callback boundary", () => {
     const workSession = {
       handle: vi.fn(async () => ({ text: "Work-session result" })),
     };
+    const callbackContext = { record: vi.fn(async () => undefined) };
     const confirmation = { handle: vi.fn() };
     const service = new TelegramService({
+      callbackContextService: callbackContext,
       client,
       confirmationService: confirmation,
       conversationService: { handle: vi.fn() },
@@ -448,6 +450,12 @@ describe("authorized Telegram callback boundary", () => {
       data,
     );
     expect(confirmation.handle).not.toHaveBeenCalled();
+    expect(callbackContext.record).toHaveBeenCalledWith(
+      9090,
+      ownerId,
+      data,
+      { text: "Work-session result" },
+    );
     expect(client.answers).toEqual(["callback-9090"]);
     expect(client.sends).toEqual([
       {

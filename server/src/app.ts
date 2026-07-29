@@ -20,6 +20,7 @@ import {
   AgentApprovedConfirmationService,
   AgentApprovedWorkSessionService,
 } from "./agent/approved-services.js";
+import { AgentCallbackContextRecorder } from "./agent/callback-context.js";
 import { createAgentApprovalGate } from "./agent/approval.js";
 import { SessionBackedAgentDecisionEngine } from "./agent/conversation.js";
 import {
@@ -318,6 +319,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const telegramService =
     options.telegramService ??
     new TelegramService({
+      callbackContextService: new AgentCallbackContextRecorder({
+        sessions: agentSessions,
+      }),
       client: telegramClient,
       confirmationService: new AgentApprovedConfirmationService({
         gate: agentApprovalGate,

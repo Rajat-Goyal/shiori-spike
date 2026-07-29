@@ -25,9 +25,6 @@ function fixture(
   const service = {
     handle: vi.fn(async () => reply),
   };
-  const recordCallbackChoice = vi.fn(async () => ({
-    kind: "stale" as const,
-  }));
   const sdkSession = {
     addItems: vi.fn(async () => undefined),
     chatId: 42,
@@ -51,7 +48,9 @@ function fixture(
     recordApplicationReply: vi.fn(async () => ({
       kind: "stale" as const,
     })),
-    recordCallbackChoice,
+    recordCallbackChoice: vi.fn(async () => ({
+      kind: "stale" as const,
+    })),
     reset: vi.fn(async () => undefined),
     runCompaction: vi.fn(async () => null),
     sessionId: "session-1",
@@ -75,7 +74,7 @@ function fixture(
       },
     })),
   };
-  return { gate, recordCallbackChoice, service, sessions };
+  return { gate, service, sessions };
 }
 
 describe("agent-approved callback services", () => {
@@ -98,12 +97,6 @@ describe("agent-approved callback services", () => {
       chatId: 42,
       reason: "confirmed",
       sessionId: "session-1",
-      updateId: 200,
-    });
-    expect(test.recordCallbackChoice).toHaveBeenCalledWith({
-      action: "confirm",
-      assistantText: "Promise saved. Done.",
-      pendingQuestion: false,
       updateId: 200,
     });
   });
