@@ -27,11 +27,13 @@ import {
   type ActiveDraft,
   type ConversationApplyResult,
   type ConversationCommand,
+  type ConversationDraftRepository,
   type ConversationPhase,
   type ConversationRepository,
   type ConversationSnapshot,
   type DecisionAudit,
   type PermissionCandidate,
+  type PatchFocusedDraftCommand,
 } from "./repository.js";
 import {
   isEligibleWorkSessionCandidate,
@@ -48,7 +50,11 @@ type ConversationServiceOptions = {
     request: ConfirmationApprovalPreparation,
   ) => Promise<boolean>;
   promptVersion: string;
-  repository: ConversationRepository;
+  repository: ConversationRepository &
+    Pick<ConversationDraftRepository, "patchFocusedDraft">;
+  statusService?: {
+    read(): Promise<readonly TelegramReply[]>;
+  };
 };
 
 export type DecisionFailureEvent = {
@@ -68,7 +74,14 @@ type CompleteReply = {
   prefix?: string;
 };
 
+type DecisionDraftTarget = NonNullable<
+  Extract<DecisionOutcome, { ok: true }>["draftTarget"]
+>;
+
 type ConversationReply = string | TelegramReply;
+export type ConversationHandleReply =
+  | ConversationReply
+  | readonly TelegramReply[];
 
 function candidateFields(decision: DecisionResult): DecisionContextFields {
   return {
@@ -280,7 +293,8 @@ export class ConversationService {
     | ConversationServiceOptions["prepareApproval"]
     | undefined;
   readonly #promptVersion: string;
-  readonly #repository: ConversationRepository;
+  readonly #repository: ConversationServiceOptions["repository"];
+  readonly #statusService: ConversationServiceOptions["statusService"];
 
   constructor(options: ConversationServiceOptions) {
     this.#decisionEngine = options.decisionEngine;
@@ -291,17 +305,19 @@ export class ConversationService {
     this.#prepareApproval = options.prepareApproval;
     this.#promptVersion = options.promptVersion;
     this.#repository = options.repository;
+    this.#statusService = options.statusService;
   }
 
   async handle(
     updateId: number,
     ownerText: string,
-  ): Promise<ConversationReply> {
+  ): Promise<ConversationHandleReply> {
     const read = await this.#repository.readTurn(updateId);
     if (read.kind === "expired") {
       await this.#decisionEngine.completeTurn?.({
         activeDraftId: null,
         assistantText: conversationCopy.expired,
+        pendingQuestion: "clear",
         status: "expired",
         updateId,
       });
@@ -315,6 +331,9 @@ export class ConversationService {
     }
 
     const snapshot: ConversationSnapshot = read;
+    if (ownerText.trim() === "/status") {
+      return this.#status(updateId, snapshot);
+    }
     let outcome: DecisionOutcome;
     try {
       outcome = await this.#decisionEngine.decide(
@@ -388,8 +407,52 @@ export class ConversationService {
           outcome.decision,
         );
       case "draft":
-        return this.#withDraft(updateId, snapshot, outcome.decision);
+        return this.#withDraft(
+          updateId,
+          snapshot,
+          outcome.decision,
+          outcome.draftTarget,
+        );
     }
+  }
+
+  async #status(
+    updateId: number,
+    snapshot: ConversationSnapshot,
+  ): Promise<readonly TelegramReply[]> {
+    if (this.#statusService === undefined) {
+      throw new Error("Status service is unavailable");
+    }
+    const statuses = await this.#statusService.read();
+    const replies =
+      statuses.length > 0
+        ? statuses
+        : [{ text: "No active promises." }];
+    const result = await this.#repository.applyTurn({
+      action: "preserve",
+      expected: expectedSnapshot(snapshot),
+      processingResult:
+        statuses.length > 0 ? "status_listed" : "status_empty",
+      updateId,
+    });
+    if (!result.completed) {
+      throw new Error("Conversation update was not completed");
+    }
+    if (result.status !== "applied") {
+      return [{ text: safeFailure(snapshot) }];
+    }
+    const activeDraftId =
+      result.draftReference?.id ??
+      (snapshot.kind === "draft" ? snapshot.id : null);
+    await this.#decisionEngine.completeTurn?.({
+      activeDraftId,
+      assistantText: replies.map((reply) => reply.text).join("\n\n"),
+      pendingQuestion:
+        snapshot.kind === "none" ? "clear" : "preserve",
+      status: snapshot.kind === "none" ? "ignored" : "unchanged",
+      updateId,
+    });
+    return replies;
   }
 
   async #withoutState(
@@ -581,6 +644,7 @@ export class ConversationService {
     updateId: number,
     snapshot: ActiveDraft,
     decision: DecisionResult,
+    draftTarget?: DecisionDraftTarget,
   ): Promise<ConversationReply> {
     if (decision.turnRelation === "none") {
       if (
@@ -603,7 +667,12 @@ export class ConversationService {
     }
 
     if (decision.turnRelation === "separate_request") {
-      if (decision.inputClass !== "explicit_commitment") {
+      if (
+        decision.inputClass !== "explicit_commitment" ||
+        draftTarget === undefined ||
+        draftTarget.authority.id !== snapshot.id ||
+        draftTarget.authority.expectedVersion !== snapshot.version
+      ) {
         return this.#preserveFailure(updateId, snapshot);
       }
       const extractedFields = candidateFields(decision);
@@ -635,26 +704,41 @@ export class ConversationService {
       !["clarification_continuation", "correction"].includes(
         decision.turnRelation,
       ) ||
-      (decision.turnRelation === "clarification_continuation" &&
-        snapshot.phase === "complete") ||
       decision.inputClass !== "explicit_commitment"
     ) {
       return this.#preserveFailure(updateId, snapshot);
     }
 
+    if (draftTarget === undefined) {
+      return this.#preserveFailure(updateId, snapshot);
+    }
+    const selectedSnapshot: ActiveDraft = {
+      expiresAt: snapshot.expiresAt,
+      fields: draftTarget.fields,
+      id: draftTarget.authority.id,
+      kind: "draft",
+      phase: draftTarget.phase,
+      version: draftTarget.authority.expectedVersion,
+    };
+    if (
+      decision.turnRelation === "clarification_continuation" &&
+      selectedSnapshot.phase === "complete"
+    ) {
+      return this.#preserveFailure(updateId, snapshot);
+    }
     const extractedFields = candidateFields(decision);
     const extractedPhase = phaseFor(extractedFields);
     const fields =
-      snapshot.phase === "complete" &&
+      selectedSnapshot.phase === "complete" &&
         extractedPhase === "complete"
-        ? retainCommitmentMode(extractedFields, snapshot.fields)
-        : snapshot.phase !== "complete" &&
+        ? retainCommitmentMode(extractedFields, selectedSnapshot.fields)
+        : selectedSnapshot.phase !== "complete" &&
             extractedPhase === "complete"
         ? preparationFields(extractedFields)
         : extractedFields;
     const phase = phaseFor(fields);
     if (
-      snapshot.phase === "complete" &&
+      selectedSnapshot.phase === "complete" &&
       decision.turnRelation === "correction" &&
       phase !== "complete"
     ) {
@@ -668,8 +752,8 @@ export class ConversationService {
         },
         snapshot,
         confirmationSummary(
-          snapshot.fields,
-          snapshot,
+          selectedSnapshot.fields,
+          selectedSnapshot,
           confirmationCopy.correctionIncomplete,
         ),
       );
@@ -678,17 +762,21 @@ export class ConversationService {
       return this.#preserveRejected(updateId, snapshot, decision);
     }
 
-    return this.#finish(
+    return this.#finishPatch(
       {
-        action: "update_draft",
         audit: this.#audit(decision),
-        expected: expectedSnapshot(snapshot),
+        expectedFocus: {
+          id: snapshot.id,
+          kind: "draft",
+          version: snapshot.version,
+        },
         fields,
         phase,
         processingResult: "conversation",
+        target: draftTarget.authority,
         updateId,
       },
-      snapshot,
+      selectedSnapshot,
       decision.turnRelation === "correction"
         ? phase === "complete"
           ? collectedReply(phase, fields, confirmationCopy.updated)
@@ -738,6 +826,45 @@ export class ConversationService {
     expectDraft = false,
   ): Promise<ConversationReply> {
     const result = await this.#repository.applyTurn(command);
+    return this.#finishResult(
+      command,
+      result,
+      snapshot,
+      copy,
+      expectDraft,
+    );
+  }
+
+  async #finishPatch(
+    command: PatchFocusedDraftCommand,
+    snapshot: ActiveDraft,
+    copy: ConversationReply | CompleteReply,
+  ): Promise<ConversationReply> {
+    const result = await this.#repository.patchFocusedDraft(command);
+    return this.#finishResult(
+      {
+        action: "update_draft",
+        audit: command.audit,
+        expected: command.expectedFocus,
+        fields: command.fields,
+        phase: command.phase,
+        processingResult: command.processingResult,
+        updateId: command.updateId,
+      },
+      result,
+      snapshot,
+      copy,
+      false,
+    );
+  }
+
+  async #finishResult(
+    command: ConversationCommand,
+    result: ConversationApplyResult,
+    snapshot: ConversationSnapshot,
+    copy: ConversationReply | CompleteReply,
+    expectDraft: boolean,
+  ): Promise<ConversationReply> {
     const reply = this.#copyForApply(
       command,
       result,
@@ -806,6 +933,16 @@ export class ConversationService {
   ): DecisionTurnCompletion {
     const assistantText =
       typeof reply === "string" ? reply : reply.text;
+    const expectsOwnerReply =
+      typeof reply === "object" &&
+        (reply.actions?.length ?? 0) > 0 ||
+      assistantText.trimEnd().endsWith("?");
+    const pendingQuestion =
+      command.action === "preserve" && snapshot.kind !== "none"
+        ? "preserve" as const
+        : expectsOwnerReply
+          ? "replace" as const
+          : "clear" as const;
     const activeDraftId =
       result.draftReference?.id ??
       (snapshot.kind === "none" ? null : snapshot.id);
@@ -813,6 +950,7 @@ export class ConversationService {
       return {
         activeDraftId: null,
         assistantText,
+        pendingQuestion: "clear",
         status: "expired",
         updateId: command.updateId,
       };
@@ -821,6 +959,7 @@ export class ConversationService {
       return {
         activeDraftId,
         assistantText,
+        pendingQuestion: "preserve",
         status: "unchanged",
         updateId: command.updateId,
       };
@@ -829,6 +968,7 @@ export class ConversationService {
       return {
         activeDraftId: null,
         assistantText,
+        pendingQuestion: "clear",
         status: "closed",
         updateId: command.updateId,
       };
@@ -846,6 +986,7 @@ export class ConversationService {
     return {
       activeDraftId,
       assistantText,
+      pendingQuestion,
       status: opensState || keepsState ? "active" : "ignored",
       updateId: command.updateId,
     };

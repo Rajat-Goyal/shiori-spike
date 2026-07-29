@@ -103,6 +103,24 @@ export type AgentRuntimeResult = Readonly<{
 }>;
 
 export type AgentRuntimeConversationContext = Readonly<{
+  draftResolution:
+    | Readonly<{
+        authority: Readonly<{
+          expectedVersion: number;
+          id: string;
+          kind: "draft";
+        }>;
+        kind: "exact";
+      }>
+    | Readonly<{
+        candidates: readonly Readonly<{
+          expectedVersion: number;
+          id: string;
+          kind: "draft";
+        }>[];
+        kind: "ambiguous";
+      }>
+    | Readonly<{ kind: "none" }>;
   interaction: AgentSessionInteractionContext;
   olderHistoryAvailable: boolean;
   product: AgentProductContext;
@@ -135,6 +153,11 @@ type RuntimeContext = {
   lastSemanticFailure?: DecisionTelemetryReason;
   mode: "decision" | "execution";
   proposal?: DecisionResult;
+  proposalTarget?: Readonly<{
+    expectedVersion: number;
+    id: string;
+    kind: "draft";
+  }> | null;
 };
 
 export type AgentRunnerInterruption = Readonly<{
@@ -233,6 +256,14 @@ const proposalSchema = z
     ]),
     response: z.string().min(1).max(1_000).nullable(),
     targetAt: z.string().min(1).max(64).nullable(),
+    target: z
+      .object({
+        expectedVersion: z.number().int().positive(),
+        id: z.string().uuid(),
+        kind: z.literal("draft"),
+      })
+      .strict()
+      .nullable(),
     timingConstraints: z.array(z.string().min(1).max(200)).max(4),
     turnRelation: z.enum([
       "none",
@@ -435,6 +466,26 @@ function sanitizeAvailability(
   }));
 }
 
+function expectedDraftAuthority(
+  context: RuntimeContext,
+): Readonly<{
+  expectedVersion: number;
+  id: string;
+  kind: "draft";
+}> | null {
+  if (context.conversation?.draftResolution.kind === "exact") {
+    return context.conversation.draftResolution.authority;
+  }
+  return context.authority.draftId !== null &&
+    context.authority.draftVersion !== null
+    ? {
+        expectedVersion: context.authority.draftVersion,
+        id: context.authority.draftId,
+        kind: "draft",
+      }
+    : null;
+}
+
 function singaporeReferenceTimestamp(now: Date): string {
   const singaporeWallClock = new Date(
     now.getTime() + 8 * 60 * 60 * 1_000,
@@ -467,6 +518,7 @@ function runtimeInstructions(
     "Maintain the exact focused entity for a continuation or an ordinary question.",
     "A clearly separate promise must use turnRelation separate_request; never overwrite the current draft.",
     "If more than one entity plausibly matches a reference, ask which one the owner means and propose no mutation.",
+    "Every clarification_continuation, correction, or separate_request proposal must copy the exact draft target kind, id, and expectedVersion from authoritative context; all non-draft-mutation proposals must use target null.",
     "Every decision that may affect application state, including ordinary-question responses, must be submitted through propose_draft_update.",
     "Only a structurally and semantically accepted proposal can be returned by the application; final prose is never authoritative.",
     "request_sanitized_availability returns free/busy intervals only.",
@@ -545,7 +597,8 @@ function buildTools(
         context.lastSemanticFailure = "input_invalid";
         return { accepted: false, reason: "input_invalid" };
       }
-      const providerDecision = parseProviderDecisionStructure(value);
+      const { target, ...providerValue } = value;
+      const providerDecision = parseProviderDecisionStructure(providerValue);
       if (providerDecision === null) {
         context.lastSemanticFailure = "schema";
         return { accepted: false, reason: "schema" };
@@ -564,7 +617,31 @@ function buildTools(
         context.lastSemanticFailure = semantic.reason;
         return { accepted: false, reason: semantic.reason };
       }
+      const mutatesDraft = [
+        "clarification_continuation",
+        "correction",
+        "separate_request",
+      ].includes(proposal.turnRelation);
+      const expectedTarget = expectedDraftAuthority(context);
+      if (
+        mutatesDraft &&
+        (
+          target === null ||
+          expectedTarget === null ||
+          target.kind !== expectedTarget.kind ||
+          target.id !== expectedTarget.id ||
+          target.expectedVersion !== expectedTarget.expectedVersion
+        )
+      ) {
+        context.lastSemanticFailure = "input_invalid";
+        return { accepted: false, reason: "input_invalid" };
+      }
+      if (!mutatesDraft && target !== null) {
+        context.lastSemanticFailure = "input_invalid";
+        return { accepted: false, reason: "input_invalid" };
+      }
       context.proposal = proposal;
+      context.proposalTarget = target;
       context.lastSemanticFailure = undefined;
       return { accepted: true, decision: proposal };
     },

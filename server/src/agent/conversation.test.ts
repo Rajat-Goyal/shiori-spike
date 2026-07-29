@@ -167,16 +167,21 @@ function fixture(active = true) {
     })),
     readProductContext: vi.fn(async () => productContext(active)),
   };
+  const draftRepository = {
+    resolveDraftReference: vi.fn(async () => ({ kind: "none" as const })),
+  };
   return {
     engine: new SessionBackedAgentDecisionEngine({
       chatId: 42,
       contextReader,
+      draftRepository,
       onContinuityFailure: continuityFailures,
       repository,
       runtime,
     }),
     continuityFailures,
     contextReader,
+    draftRepository,
     records,
     repository,
     runtime,
@@ -205,7 +210,17 @@ describe("SessionBackedAgentDecisionEngine", () => {
 
     await expect(
       test.engine.decide(input, { updateId: 11 }),
-    ).resolves.toEqual({ decision, ok: true });
+    ).resolves.toMatchObject({
+      decision,
+      draftTarget: {
+        authority: {
+          expectedVersion: 3,
+          id: snapshot.activeDraftId,
+          kind: "draft",
+        },
+      },
+      ok: true,
+    });
     expect(test.runtime.run).toHaveBeenCalledWith({
       authority: {
         chatId: 42,
@@ -215,6 +230,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
         updateId: 11,
       },
       conversation: {
+        draftResolution: { kind: "none" },
         interaction: snapshot.interaction,
         olderHistoryAvailable: false,
         product: productContext(true),
@@ -231,6 +247,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
     await test.engine.completeTurn({
       activeDraftId: snapshot.activeDraftId,
       assistantText: "Do you need preparation time?",
+      pendingQuestion: "replace",
       status: "active",
       updateId: 11,
     });
@@ -238,7 +255,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
       {
         activeDraftId: snapshot.activeDraftId,
         assistantText: "Do you need preparation time?",
-        pendingQuestion: true,
+        pendingQuestion: "replace",
         updateId: 11,
       },
     ]);
@@ -256,6 +273,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
     await test.engine.completeTurn({
       activeDraftId: null,
       assistantText: "Singapore uses UTC+08:00.",
+      pendingQuestion: "clear",
       status: "ignored",
       updateId: 12,
     });
@@ -263,7 +281,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
     expect(test.session.recordApplicationReply).toHaveBeenCalledWith({
       activeDraftId: null,
       assistantText: "Singapore uses UTC+08:00.",
-      pendingQuestion: false,
+      pendingQuestion: "clear",
       updateId: 12,
     });
     expect(test.repository.clear).not.toHaveBeenCalled();
@@ -281,6 +299,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
     await test.engine.completeTurn({
       activeDraftId: null,
       assistantText: "Okay. Nothing was saved.",
+      pendingQuestion: "clear",
       status: "closed",
       updateId: 13,
     });
@@ -288,10 +307,126 @@ describe("SessionBackedAgentDecisionEngine", () => {
     expect(test.session.recordApplicationReply).toHaveBeenCalledWith({
       activeDraftId: null,
       assistantText: "Okay. Nothing was saved.",
-      pendingQuestion: false,
+      pendingQuestion: "clear",
       updateId: 13,
     });
     expect(test.repository.clear).not.toHaveBeenCalled();
+  });
+
+  it("resolves a unique parked reference into exact draft authority for the run", async () => {
+    const test = fixture();
+    const parkedId = "22222222-2222-4222-8222-222222222222";
+    const parkedFields = {
+      definitionOfDone: "Review the finance report",
+      durationMinutes: null,
+      offerWorkWindowHelp: false,
+      possibleWorkSession: false,
+      simpleAction: false,
+      targetAt: null,
+      targetTimeZone: null,
+      timingConstraints: [],
+    };
+    vi.mocked(
+      test.draftRepository.resolveDraftReference,
+    ).mockResolvedValueOnce({
+      authority: {
+        expectedVersion: 2,
+        id: parkedId,
+        kind: "draft",
+      },
+      draft: {
+        expiresAt: "2026-08-30T00:00:00.000Z",
+        fields: parkedFields,
+        focused: false,
+        id: parkedId,
+        kind: "draft",
+        phase: "awaiting_target",
+        updatedAt: "2026-07-30T00:00:00.000Z",
+        version: 2,
+      },
+      kind: "exact",
+    });
+    const parkedProduct = productContext(false);
+    const productDraft = {
+      definitionOfDone: "Review the finance report",
+      focused: false,
+      id: parkedId,
+      mode: "unresolved" as const,
+      phase: "awaiting_target" as const,
+      targetAt: null,
+      version: 2,
+    };
+    vi.mocked(
+      test.contextReader.readProductContext,
+    ).mockResolvedValueOnce({
+      ...parkedProduct,
+      drafts: [productDraft],
+      focusedEntity: { entity: productDraft, kind: "draft" },
+    });
+    const parkedDecision = {
+      ...decision,
+      definitionOfDone: "Review the finance report",
+    };
+    vi.mocked(test.runtime.run).mockResolvedValueOnce({
+      outcome: { decision: parkedDecision, ok: true },
+    });
+
+    const outcome = await test.engine.decide(
+      {
+        context: {
+          fields: {
+            commitmentMode: "unresolved",
+            definitionOfDone: "Submit the note",
+            durationMinutes: null,
+            offerWorkWindowHelp: false,
+            targetAt: null,
+            targetTimeZone: null,
+            timingConstraints: [],
+          },
+          phase: "awaiting_target",
+        },
+        ownerText: "Move the finance report to Friday",
+      },
+      { updateId: 15 },
+    );
+
+    expect(outcome).toMatchObject({
+      draftTarget: {
+        authority: {
+          expectedVersion: 2,
+          id: parkedId,
+          kind: "draft",
+        },
+        fields: parkedFields,
+        phase: "awaiting_target",
+      },
+      ok: true,
+    });
+    expect(test.runtime.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authority: expect.objectContaining({
+          draftId: parkedId,
+          draftVersion: 2,
+        }),
+        conversation: expect.objectContaining({
+          draftResolution: {
+            authority: {
+              expectedVersion: 2,
+              id: parkedId,
+              kind: "draft",
+            },
+            kind: "exact",
+          },
+        }),
+        input: expect.objectContaining({
+          context: expect.objectContaining({
+            fields: expect.objectContaining({
+              definitionOfDone: "Review the finance report",
+            }),
+          }),
+        }),
+      }),
+    );
   });
 
   it("turns an ambiguous entity reference into a clarification without mutation intent", async () => {
@@ -341,7 +476,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
       decision: {
         inputClass: "ordinary_question",
         response:
-          "Which one did you mean: “Submit the launch report”, “Review the finance report”? Nothing was changed.",
+          "Nothing was changed. Which one did you mean: “Submit the launch report”, “Review the finance report”?",
         turnRelation: "none",
       },
       ok: true,
@@ -365,6 +500,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
       test.engine.completeTurn({
         activeDraftId: snapshot.activeDraftId,
         assistantText: "When should it be done?",
+        pendingQuestion: "replace",
         status: "active",
         updateId: 14,
       }),

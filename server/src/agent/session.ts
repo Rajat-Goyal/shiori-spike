@@ -53,11 +53,16 @@ export type AgentSessionReadResult =
   | Readonly<{ kind: "none" | "expired" }>
   | Readonly<{ kind: "active"; session: AgentSessionSnapshot }>;
 
+export type AgentPendingQuestionDisposition =
+  | "clear"
+  | "preserve"
+  | "replace";
+
 export type AgentSessionApplicationReplyCommand = Readonly<{
   activeDraftId: string | null;
   assistantText: string;
   chatId: number;
-  pendingQuestion: boolean;
+  pendingQuestion: AgentPendingQuestionDisposition;
   sessionId: string;
   updateId: number;
 }>;

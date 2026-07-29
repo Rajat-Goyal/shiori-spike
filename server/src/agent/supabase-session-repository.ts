@@ -894,7 +894,7 @@ class SupabaseAgentSdkSession implements AgentSdkSession {
     command: Readonly<{
       activeDraftId: string | null;
       assistantText: string;
-      pendingQuestion: boolean;
+      pendingQuestion: boolean | "clear" | "preserve" | "replace";
       updateId: number;
     }>,
     callbackAction: string | null,
@@ -909,15 +909,23 @@ class SupabaseAgentSdkSession implements AgentSdkSession {
       role: "assistant",
       status: "completed",
     };
-    const interaction: AgentSessionInteractionContext = {
-      callbackChoice:
-        callbackAction === null
-          ? null
-          : { action: callbackAction, updateId: command.updateId },
-      pendingQuestion: command.pendingQuestion
-        ? { text: command.assistantText, updateId: command.updateId }
-        : null,
-    };
+    const interaction: AgentSessionInteractionContext =
+      command.pendingQuestion === "preserve"
+        ? structuredClone(this.#snapshot.interaction)
+        : {
+            callbackChoice:
+              callbackAction === null
+                ? null
+                : { action: callbackAction, updateId: command.updateId },
+            pendingQuestion:
+              command.pendingQuestion === true ||
+              command.pendingQuestion === "replace"
+                ? {
+                    text: command.assistantText,
+                    updateId: command.updateId,
+                  }
+                : null,
+          };
     const result = sessionWriteResult(
       await this.#rpc(rpcName, {
         p_active_draft_id: command.activeDraftId,

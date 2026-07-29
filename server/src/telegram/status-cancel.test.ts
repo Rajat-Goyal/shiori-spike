@@ -123,8 +123,13 @@ describe("Telegram active promise status", () => {
     };
     const conversation = vi
       .fn()
-      .mockResolvedValueOnce("Promise summary from the agent.")
-      .mockResolvedValueOnce("No active promises.");
+      .mockResolvedValueOnce(
+        statusReplies(
+          [workStatus, simpleStatus],
+          new Date("2026-07-25T03:00:00.000Z"),
+        ),
+      )
+      .mockResolvedValueOnce([{ text: "No active promises." }]);
     const service = new TelegramService({
       client,
       conversationService: { handle: conversation },
@@ -145,9 +150,20 @@ describe("Telegram active promise status", () => {
 
     expect(sends).toEqual([
       {
-        actions: undefined,
+        actions: [
+          { callbackData: `p:${firstId}:1:done`, text: "Done" },
+          { callbackData: `p:${firstId}:1:cancel`, text: "Cancel" },
+        ],
         chatId: ownerId,
-        text: "Promise summary from the agent.",
+        text: expect.stringContaining("Finish the bounded work"),
+      },
+      {
+        actions: [
+          { callbackData: `p:${secondId}:1:done`, text: "Done" },
+          { callbackData: `p:${secondId}:1:cancel`, text: "Cancel" },
+        ],
+        chatId: ownerId,
+        text: expect.stringContaining("Submit the bounded note"),
       },
       {
         actions: undefined,

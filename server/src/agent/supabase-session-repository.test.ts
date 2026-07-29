@@ -288,6 +288,93 @@ describe("SupabaseAgentSessionRepository", () => {
     expect(replayWrite.p_item_id).not.toBe(firstWrite.p_item_id);
   });
 
+  it("records an ordinary answer without replacing the pending interaction", async () => {
+    const sessionCipher = cipher();
+    const contextId = "55555555-5555-4555-8555-555555555555";
+    const pendingInteraction = {
+      callbackChoice: {
+        action: "work_session.no_preparation",
+        updateId: 74,
+      },
+      pendingQuestion: {
+        text: "Do you need preparation time?",
+        updateId: 73,
+      },
+    };
+    const sealedContext = sessionCipher.seal(
+      JSON.stringify(pendingInteraction),
+      {
+        chatId: 123,
+        contextId,
+        sessionId,
+        type: "session_context",
+      },
+    );
+    const fetchFromSupabase = vi.fn(async (url, options) => {
+      if (String(url).endsWith("/read_agent_sdk_session")) {
+        return Response.json({
+          kind: "active",
+          session: {
+            activeDraftId: draftId,
+            chatId: 123,
+            compaction: null,
+            expiresAt,
+            firstWorkingSequence: null,
+            id: sessionId,
+            interaction: { contextId, sealedContext },
+            itemCount: 0,
+            items: [],
+            version: 7,
+          },
+        });
+      }
+      const body = JSON.parse(String(options?.body));
+      expect(JSON.stringify(body)).not.toContain(
+        "Do you need preparation time?",
+      );
+      return Response.json({
+        kind: "applied",
+        session: {
+          activeDraftId: draftId,
+          chatId: 123,
+          compaction: null,
+          expiresAt,
+          firstWorkingSequence: 1,
+          id: sessionId,
+          interaction: {
+            contextId: body.p_context_id,
+            sealedContext: body.p_sealed_context,
+          },
+          itemCount: 1,
+          items: [{
+            id: body.p_item_id,
+            recordedAt,
+            sealedItem: body.p_sealed_item,
+            sequence: 1,
+          }],
+          version: 8,
+        },
+      });
+    });
+    const session = await sessionRepository(
+      fetchFromSupabase as typeof fetch,
+      sessionCipher,
+    ).open(123);
+
+    await expect(
+      session.recordApplicationReply({
+        activeDraftId: draftId,
+        assistantText: "Singapore uses UTC+08:00.",
+        pendingQuestion: "preserve",
+        updateId: 75,
+      }),
+    ).resolves.toMatchObject({ kind: "applied" });
+
+    expect(session.currentSnapshot().interaction).toEqual(
+      pendingInteraction,
+    );
+  });
+
   it("pages older items without overlap using an encrypted cursor", async () => {
     const sessionCipher = cipher();
     const sealed = (sequence: number) => {

@@ -26,7 +26,7 @@ type TelegramServiceOptions = {
     handle(
       updateId: number,
       ownerText: string,
-    ): Promise<string | TelegramReply>;
+    ): Promise<string | TelegramReply | readonly TelegramReply[]>;
   };
   ownerUserId: number;
   repository: TelegramRepository;
@@ -281,13 +281,16 @@ export class TelegramService {
           update.updateId,
           update.text,
         );
-        const reply =
-          typeof response === "string" ? { text: response } : response;
-        await this.#client.sendText(
-          update.chatId,
-          reply.text,
-          reply.actions,
-        );
+        const replies = Array.isArray(response)
+          ? response
+          : [typeof response === "string" ? { text: response } : response];
+        for (const reply of replies) {
+          await this.#client.sendText(
+            update.chatId,
+            reply.text,
+            reply.actions,
+          );
+        }
         return;
       }
 

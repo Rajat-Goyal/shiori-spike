@@ -62,6 +62,10 @@ import { TelegramBotClient } from "./telegram/client.js";
 import { SupabaseTelegramRepository } from "./telegram/repository.js";
 import { TelegramService } from "./telegram/service.js";
 import {
+  StatusService,
+  SupabaseStatusRepository,
+} from "./telegram/status-cancel.js";
+import {
   SupabaseWorkSessionMessageRepository,
   WorkSessionNotificationScheduler,
 } from "./work-sessions/notifications.js";
@@ -172,6 +176,10 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
   const agentContextReader = new SupabaseAgentContextReader({
     ownerId: options.config.telegramOwnerUserId,
+    supabaseSecretKey: options.config.supabaseSecretKey,
+    supabaseUrl: options.config.supabaseUrl,
+  });
+  const conversationRepository = new SupabaseConversationRepository({
     supabaseSecretKey: options.config.supabaseSecretKey,
     supabaseUrl: options.config.supabaseUrl,
   });
@@ -335,6 +343,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
         decisionEngine: new SessionBackedAgentDecisionEngine({
           chatId: options.config.telegramOwnerUserId,
           contextReader: agentContextReader,
+          draftRepository: conversationRepository,
           onContinuityFailure: (event) => {
             app.log.warn(event);
           },
@@ -351,9 +360,14 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
         ownerChatId: options.config.telegramOwnerUserId,
         prepareApproval: prepareAgentApproval,
         promptVersion: options.config.openaiPromptVersion,
-        repository: new SupabaseConversationRepository({
-          supabaseSecretKey: options.config.supabaseSecretKey,
-          supabaseUrl: options.config.supabaseUrl,
+        repository: conversationRepository,
+        statusService: new StatusService({
+          now,
+          repository: new SupabaseStatusRepository({
+            ownerId: options.config.telegramOwnerUserId,
+            supabaseSecretKey: options.config.supabaseSecretKey,
+            supabaseUrl: options.config.supabaseUrl,
+          }),
         }),
       }),
       ownerUserId: options.config.telegramOwnerUserId,

@@ -43,6 +43,10 @@ const proposal = {
   timingConstraints: [],
   turnRelation: "new_request",
 } as const;
+const proposalInput = {
+  ...proposal,
+  target: null,
+} as const;
 
 const validatedDecision = {
   ...proposal,
@@ -78,6 +82,7 @@ const productContext: AgentProductContext = {
 };
 
 const runtimeConversation = {
+  draftResolution: { kind: "none" as const },
   interaction: {
     callbackChoice: null,
     pendingQuestion: null,
@@ -266,7 +271,7 @@ describe("bounded Agents SDK runtime", () => {
         commitments: [],
         truncated: false,
       });
-      await invoke(request, "propose_draft_update", proposal);
+      await invoke(request, "propose_draft_update", proposalInput);
       return emptyResult();
     });
 
@@ -334,6 +339,11 @@ describe("bounded Agents SDK runtime", () => {
         );
         await invoke(request, "propose_draft_update", {
           ...proposal,
+          target: {
+            expectedVersion: authority.draftVersion!,
+            id: authority.draftId!,
+            kind: "draft",
+          },
           targetAt,
           turnRelation: "clarification_continuation",
         });
@@ -377,6 +387,11 @@ describe("bounded Agents SDK runtime", () => {
     const runner = new ScriptedRunner(async (request) => {
       const result = await invoke(request, "propose_draft_update", {
         ...proposal,
+        target: {
+          expectedVersion: authority.draftVersion!,
+          id: authority.draftId!,
+          kind: "draft",
+        },
         targetAt: "2026-07-29T09:00:00+08:00",
         turnRelation: "clarification_continuation",
       });
@@ -409,6 +424,7 @@ describe("bounded Agents SDK runtime", () => {
         durationMinutes: null,
         inputClass: "ordinary_question",
         response: "I can help turn a promise into a tracked commitment.",
+        target: null,
         targetAt: null,
         timingConstraints: [],
         turnRelation: "none",
@@ -445,6 +461,7 @@ describe("bounded Agents SDK runtime", () => {
     const runner = new ScriptedRunner(async (request) => {
       const response = await invoke(request, "propose_draft_update", {
         ...proposal,
+        target: null,
         targetAt: "2026-07-28T17:00:00+08:00",
       });
       expect(response).toMatchObject({ accepted: false });
@@ -462,6 +479,54 @@ describe("bounded Agents SDK runtime", () => {
       failure: "semantic",
       ok: false,
       stage: "semantic",
+    });
+  });
+
+  it("fails closed when a draft mutation target version is stale or mismatched", async () => {
+    const datedInput: DecisionInput = {
+      context: {
+        fields: {
+          commitmentMode: "unresolved",
+          definitionOfDone: "Publish the video",
+          durationMinutes: null,
+          offerWorkWindowHelp: false,
+          targetAt: null,
+          targetTimeZone: null,
+          timingConstraints: [],
+        },
+        phase: "awaiting_target",
+      },
+      ownerText: "Tomorrow at 5pm",
+    };
+    const runner = new ScriptedRunner(async (request) => {
+      const response = await invoke(request, "propose_draft_update", {
+        ...proposal,
+        target: {
+          expectedVersion: authority.draftVersion! - 1,
+          id: authority.draftId!,
+          kind: "draft",
+        },
+        targetAt: "2026-07-30T17:00:00+08:00",
+        turnRelation: "clarification_continuation",
+      });
+      expect(response).toEqual({
+        accepted: false,
+        reason: "input_invalid",
+      });
+      return emptyResult();
+    });
+
+    const result = await runtimeWith(runner).run({
+      authority,
+      conversation: runtimeConversation,
+      input: datedInput,
+      session: sdkSession(),
+    });
+
+    expect(result.outcome).toMatchObject({
+      failure: "semantic",
+      ok: false,
+      reason: "input_invalid",
     });
   });
 
@@ -494,7 +559,7 @@ describe("bounded Agents SDK runtime", () => {
       status: "executed" as const,
     }));
     const runner = new ScriptedRunner(async (request) => {
-      await invoke(request, "propose_draft_update", proposal);
+      await invoke(request, "propose_draft_update", proposalInput);
       await expect(
         invoke(request, "execute_commitment", {
           draftId: authority.draftId,
@@ -521,7 +586,7 @@ describe("bounded Agents SDK runtime", () => {
     }));
     const runner = new ScriptedRunner(
       async (request) => {
-        await invoke(request, "propose_draft_update", proposal);
+        await invoke(request, "propose_draft_update", proposalInput);
         return emptyResult({
           interruptions: [
             {
@@ -669,7 +734,7 @@ describe("bounded Agents SDK runtime", () => {
     }));
     const runner = new ScriptedRunner(
       async (request) => {
-        await invoke(request, "propose_draft_update", proposal);
+        await invoke(request, "propose_draft_update", proposalInput);
         return emptyResult({
           interruptions: [
             {
@@ -734,7 +799,7 @@ describe("bounded Agents SDK runtime", () => {
         },
       ]);
       expect(JSON.stringify(availability)).not.toContain("Private");
-      await invoke(request, "propose_draft_update", proposal);
+      await invoke(request, "propose_draft_update", proposalInput);
       return emptyResult();
     });
 

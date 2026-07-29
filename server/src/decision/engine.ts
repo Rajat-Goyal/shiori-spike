@@ -1,5 +1,6 @@
 import {
   decisionJsonSchema,
+  type DecisionContextFields,
   type DecisionInput,
   type DecisionResult,
   parseDecisionInputStructure,
@@ -44,6 +45,18 @@ export type DecisionTelemetryReason =
 export type DecisionOutcome =
   | {
       decision: DecisionResult;
+      draftTarget?: Readonly<{
+        authority: Readonly<{
+          expectedVersion: number;
+          id: string;
+          kind: "draft";
+        }>;
+        fields: DecisionContextFields;
+        phase: Exclude<
+          DecisionInput["context"]["phase"],
+          "awaiting_permission" | "none"
+        >;
+      }>;
       ok: true;
       recovery?: DecisionRetryRecovery;
     }
@@ -62,6 +75,7 @@ export type DecisionTurnContext = Readonly<{
 export type DecisionTurnCompletion = Readonly<{
   activeDraftId: string | null;
   assistantText: string;
+  pendingQuestion: "clear" | "preserve" | "replace";
   status: "active" | "closed" | "expired" | "ignored" | "unchanged";
   updateId: number;
 }>;

@@ -29,9 +29,11 @@ import type {
   ConversationReadResult,
   ConversationRepository,
   DecisionAudit,
+  PatchFocusedDraftCommand,
   PermissionCandidate,
 } from "../conversation/repository.js";
 import { ConversationService } from "../conversation/service.js";
+import { StatusService } from "./status-cancel.js";
 import { workSessionPlanningOffer } from "../work-sessions/flow.js";
 
 const completeFields: DecisionContextFields = {
@@ -198,6 +200,19 @@ class ControlledRepository implements ConversationRepository {
     };
   }
 
+  async patchFocusedDraft(
+    command: PatchFocusedDraftCommand,
+  ): Promise<ConversationApplyResult> {
+    const { audit, expectedFocus, ...withoutAudit } = command;
+    this.audits.push(audit);
+    this.commands.push({
+      action: "update_draft",
+      expected: expectedFocus,
+      ...withoutAudit,
+    });
+    return this.applyResult;
+  }
+
   async readTurn(): Promise<ConversationReadResult> {
     return this.readResult;
   }
@@ -210,8 +225,31 @@ function controlled(
   const repository = new ControlledRepository(snapshot);
   const decisionFailureEvents = vi.fn();
   const decisionRetryRecoveredEvents = vi.fn();
+  const completeTurn = vi.fn();
   const decisionEngine: DecisionEngine = {
-    decide: vi.fn(async () => outcome),
+    completeTurn,
+    decide: vi.fn(async () => {
+      if (
+        outcome.ok &&
+        outcome.draftTarget === undefined &&
+        snapshot.kind === "draft" &&
+        outcome.decision.turnRelation !== "none"
+      ) {
+        return {
+          ...outcome,
+          draftTarget: {
+            authority: {
+              expectedVersion: snapshot.version,
+              id: snapshot.id,
+              kind: "draft" as const,
+            },
+            fields: snapshot.fields,
+            phase: snapshot.phase,
+          },
+        };
+      }
+      return outcome;
+    }),
   };
   const service = new ConversationService({
     decisionEngine,
@@ -222,6 +260,7 @@ function controlled(
     repository,
   });
   return {
+    completeTurn,
     decide: vi.mocked(decisionEngine.decide),
     decisionFailureEvents,
     decisionRetryRecoveredEvents,
@@ -299,6 +338,108 @@ function providerResponse(value: unknown): Response {
 }
 
 describe("ConversationService", () => {
+  it("dispatches /status inside the unified boundary and preserves draft interaction authority", async () => {
+    const snapshot = activeDraft(
+      "awaiting_target",
+      targetMissingFields,
+      8,
+    );
+    const repository = new ControlledRepository(snapshot);
+    repository.applyResult = {
+      completed: true,
+      draftCreated: false,
+      draftReference: { id: snapshot.id, version: snapshot.version },
+      status: "applied",
+    };
+    const completeTurn = vi.fn();
+    const decide = vi.fn();
+    const service = new ConversationService({
+      decisionEngine: { completeTurn, decide },
+      modelId: "gpt-test-model",
+      promptVersion: "shiori-test-v1",
+      repository,
+      statusService: new StatusService({
+        now: () => new Date("2026-07-25T03:00:00.000Z"),
+        repository: {
+          listActive: vi.fn(async () => [{
+            calendarCheckedAt: null,
+            calendarStatus: null,
+            definitionOfDone: "Submit the authoritative note",
+            id: "22222222-2222-4222-8222-222222222222",
+            nextAt: "2026-07-25T02:00:00.000Z",
+            nextKind: "simple_reminder",
+            targetAt: "2026-07-25T02:00:00.000Z",
+          }]),
+        },
+      }),
+    });
+
+    const replies = await service.handle(6999, "/status");
+
+    expect(decide).not.toHaveBeenCalled();
+    expect(replies).toEqual([
+      expect.objectContaining({
+        actions: [
+          {
+            callbackData:
+              "p:22222222-2222-4222-8222-222222222222:1:done",
+            text: "Done",
+          },
+          {
+            callbackData:
+              "p:22222222-2222-4222-8222-222222222222:1:cancel",
+            text: "Cancel",
+          },
+        ],
+        text: expect.stringContaining("Submit the authoritative note"),
+      }),
+    ]);
+    expect(repository.commands).toEqual([{
+      action: "preserve",
+      expected: {
+        id: snapshot.id,
+        kind: "draft",
+        version: snapshot.version,
+      },
+      processingResult: "status_listed",
+      updateId: 6999,
+    }]);
+    expect(completeTurn).toHaveBeenCalledWith({
+      activeDraftId: snapshot.id,
+      assistantText: expect.stringContaining(
+        "Submit the authoritative note",
+      ),
+      pendingQuestion: "preserve",
+      status: "unchanged",
+      updateId: 6999,
+    });
+  });
+
+  it("returns exact empty /status copy through the unified boundary", async () => {
+    const repository = new ControlledRepository({ kind: "none" });
+    const decide = vi.fn();
+    const service = new ConversationService({
+      decisionEngine: { decide },
+      modelId: "gpt-test-model",
+      promptVersion: "shiori-test-v1",
+      repository,
+      statusService: new StatusService({
+        repository: { listActive: vi.fn(async () => []) },
+      }),
+    });
+
+    await expect(service.handle(6998, "/status")).resolves.toEqual([
+      { text: "No active promises." },
+    ]);
+    expect(decide).not.toHaveBeenCalled();
+    expect(repository.commands).toEqual([{
+      action: "preserve",
+      expected: { kind: "none" },
+      processingResult: "status_empty",
+      updateId: 6998,
+    }]);
+  });
+
   it("applies repository state once only after a semantic retry succeeds", async () => {
     const repository = new ControlledRepository({ kind: "none" });
     const validDecision = decision(completeFields);
@@ -920,6 +1061,11 @@ describe("ConversationService", () => {
           fields,
           phase: "awaiting_target",
           processingResult: "conversation",
+          target: {
+            expectedVersion: 5,
+            id: snapshot.id,
+            kind: "draft",
+          },
           updateId: 7010,
         },
       ]);
@@ -963,6 +1109,11 @@ describe("ConversationService", () => {
       fields: workFields,
       phase: "complete",
       processingResult: "conversation",
+      target: {
+        expectedVersion: 6,
+        id: snapshot.id,
+        kind: "draft",
+      },
       updateId: 7011,
     });
     expect(test.repository.audits).toHaveLength(1);
@@ -999,6 +1150,132 @@ describe("ConversationService", () => {
       action: "update_draft",
       fields: workFields,
       phase: "complete",
+    });
+  });
+
+  it("focuses and patches the exact uniquely referenced parked draft", async () => {
+    const focused = activeDraft(
+      "awaiting_target",
+      targetMissingFields,
+      8,
+    );
+    const parkedId = "22222222-2222-4222-8222-222222222222";
+    const parkedFields = {
+      ...targetMissingFields,
+      definitionOfDone: "Review the finance report",
+    };
+    const completedParkedFields = {
+      ...parkedFields,
+      simpleAction: true,
+      targetAt: "2026-07-28T10:00:00+08:00",
+      targetTimeZone: "Asia/Singapore",
+    };
+    const test = controlled(
+      focused,
+      {
+        decision: decision(completedParkedFields, {
+          turnRelation: "clarification_continuation",
+        }),
+        draftTarget: {
+          authority: {
+            expectedVersion: 2,
+            id: parkedId,
+            kind: "draft",
+          },
+          fields: parkedFields,
+          phase: "awaiting_target",
+        },
+        ok: true,
+      },
+    );
+    test.repository.applyResult = {
+      completed: true,
+      draftCreated: false,
+      draftReference: { id: parkedId, version: 3 },
+      status: "applied",
+    };
+
+    const reply = await test.service.handle(
+      70115,
+      "Move the finance report to 28 July at 10am",
+    );
+
+    expect(reply).toMatchObject({
+      actions: expect.arrayContaining([
+        expect.objectContaining({
+          callbackData: expect.stringContaining(`${parkedId}:3:`),
+        }),
+      ]),
+    });
+    expect(test.repository.commands[0]).toMatchObject({
+      action: "update_draft",
+      expected: {
+        id: focused.id,
+        kind: "draft",
+        version: focused.version,
+      },
+      fields: {
+        definitionOfDone: "Review the finance report",
+        targetAt: "2026-07-28T10:00:00+08:00",
+      },
+      target: {
+        expectedVersion: 2,
+        id: parkedId,
+        kind: "draft",
+      },
+    });
+  });
+
+  it("fails closed when exact parked-draft authority is stale", async () => {
+    const focused = activeDraft(
+      "awaiting_target",
+      targetMissingFields,
+      8,
+    );
+    const parkedId = "22222222-2222-4222-8222-222222222222";
+    const parkedFields = {
+      ...targetMissingFields,
+      definitionOfDone: "Review the finance report",
+    };
+    const test = controlled(
+      focused,
+      {
+        decision: decision({
+          ...parkedFields,
+          simpleAction: true,
+          targetAt: "2026-07-28T10:00:00+08:00",
+          targetTimeZone: "Asia/Singapore",
+        }, {
+          turnRelation: "clarification_continuation",
+        }),
+        draftTarget: {
+          authority: {
+            expectedVersion: 2,
+            id: parkedId,
+            kind: "draft",
+          },
+          fields: parkedFields,
+          phase: "awaiting_target",
+        },
+        ok: true,
+      },
+    );
+    test.repository.applyResult = {
+      completed: true,
+      draftCreated: false,
+      status: "stale",
+    };
+
+    await expect(
+      test.service.handle(70116, "Move the finance report"),
+    ).resolves.toBe(conversationCopy.failureWithDraft);
+    expect(test.repository.commands).toHaveLength(1);
+    expect(test.repository.commands[0]).toMatchObject({
+      target: {
+        expectedVersion: 2,
+        id: parkedId,
+        kind: "draft",
+      },
     });
   });
 
@@ -1221,6 +1498,95 @@ describe("ConversationService", () => {
       },
       processingResult: "conversation",
       updateId: 7013,
+    });
+    expect(test.completeTurn).toHaveBeenCalledWith({
+      activeDraftId: snapshot.id,
+      assistantText:
+        "The bounded answer.\n\nYour current draft is unchanged.",
+      pendingQuestion: "preserve",
+      status: "active",
+      updateId: 7013,
+    });
+  });
+
+  it("preserves the pending draft question across an ordinary answer and advances the same exact draft afterward", async () => {
+    const snapshot = activeDraft(
+      "awaiting_target",
+      targetMissingFields,
+      12,
+    );
+    const repository = new ControlledRepository(snapshot);
+    repository.applyResult = {
+      completed: true,
+      draftCreated: false,
+      draftReference: { id: snapshot.id, version: 12 },
+      status: "applied",
+    };
+    const completeTurn = vi.fn();
+    const decide = vi
+      .fn()
+      .mockResolvedValueOnce(success(ordinary("Singapore is UTC+08:00.")))
+      .mockResolvedValueOnce({
+        decision: decision({
+          ...targetMissingFields,
+          simpleAction: true,
+          targetAt: "2026-07-30T10:00:00+08:00",
+          targetTimeZone: "Asia/Singapore",
+        }, {
+          turnRelation: "clarification_continuation",
+        }),
+        draftTarget: {
+          authority: {
+            expectedVersion: 12,
+            id: snapshot.id,
+            kind: "draft",
+          },
+          fields: snapshot.fields,
+          phase: snapshot.phase,
+        },
+        ok: true,
+      });
+    const service = new ConversationService({
+      decisionEngine: { completeTurn, decide },
+      modelId: "gpt-test-model",
+      promptVersion: "shiori-test-v1",
+      repository,
+    });
+
+    await service.handle(70131, "What timezone is Singapore?");
+    repository.applyResult = {
+      completed: true,
+      draftCreated: false,
+      draftReference: { id: snapshot.id, version: 13 },
+      status: "applied",
+    };
+    await service.handle(70132, "30 July at 10am");
+
+    expect(completeTurn.mock.calls[0][0]).toMatchObject({
+      activeDraftId: snapshot.id,
+      pendingQuestion: "preserve",
+      status: "active",
+    });
+    expect(repository.commands[0]).toMatchObject({
+      action: "preserve",
+      expected: {
+        id: snapshot.id,
+        kind: "draft",
+        version: 12,
+      },
+    });
+    expect(repository.commands[1]).toMatchObject({
+      action: "update_draft",
+      expected: {
+        id: snapshot.id,
+        kind: "draft",
+        version: 12,
+      },
+      target: {
+        expectedVersion: 12,
+        id: snapshot.id,
+        kind: "draft",
+      },
     });
   });
 

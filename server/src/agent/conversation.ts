@@ -6,6 +6,12 @@ import type {
 } from "../decision/engine.js";
 import type { DecisionInput } from "../decision/schema.js";
 import type {
+  ConversationDraftAuthority,
+  ConversationDraftRepository,
+  ConversationDraftResolution,
+  ConversationDraftSummary,
+} from "../conversation/repository.js";
+import type {
   AgentExecutionAuthority,
   AgentRuntime,
 } from "./runtime.js";
@@ -22,6 +28,10 @@ import type {
 type SessionBackedAgentDecisionEngineOptions = Readonly<{
   chatId: number;
   contextReader: AgentContextReader;
+  draftRepository: Pick<
+    ConversationDraftRepository,
+    "resolveDraftReference"
+  >;
   onContinuityFailure?: (event: AgentSessionContinuityFailureEvent) => void;
   repository: AgentSessionRepository;
   runtime: AgentRuntime;
@@ -62,7 +72,84 @@ function ambiguityQuestion(
   const labels = candidates
     .map((candidate) => `“${candidate.label}”`)
     .join(", ");
-  return `Which one did you mean: ${labels}? Nothing was changed.`;
+  return `Nothing was changed. Which one did you mean: ${labels}?`;
+}
+
+function candidateFields(
+  draft: ConversationDraftSummary,
+): DecisionInput["context"] {
+  return {
+    fields: {
+      commitmentMode: draft.fields.simpleAction
+        ? "simple_action"
+        : draft.fields.possibleWorkSession
+          ? "possible_work_session"
+          : "unresolved",
+      definitionOfDone: draft.fields.definitionOfDone,
+      durationMinutes: draft.fields.durationMinutes,
+      offerWorkWindowHelp: draft.fields.offerWorkWindowHelp,
+      targetAt: draft.fields.targetAt,
+      targetTimeZone: draft.fields.targetTimeZone,
+      timingConstraints: draft.fields.timingConstraints,
+    },
+    phase: draft.phase,
+  };
+}
+
+function fallbackDraftTarget(
+  input: DecisionInput,
+  authorityValue: AgentExecutionAuthority,
+): Extract<DecisionOutcome, { ok: true }>["draftTarget"] {
+  if (
+    input.context.phase === "none" ||
+    input.context.phase === "awaiting_permission" ||
+    input.context.fields === null ||
+    authorityValue.draftId === null ||
+    authorityValue.draftVersion === null
+  ) {
+    return undefined;
+  }
+  return {
+    authority: {
+      expectedVersion: authorityValue.draftVersion,
+      id: authorityValue.draftId,
+      kind: "draft",
+    },
+    fields: {
+      definitionOfDone: input.context.fields.definitionOfDone,
+      durationMinutes: input.context.fields.durationMinutes,
+      offerWorkWindowHelp: input.context.fields.offerWorkWindowHelp,
+      possibleWorkSession:
+        input.context.fields.commitmentMode === "possible_work_session",
+      simpleAction:
+        input.context.fields.commitmentMode === "simple_action",
+      targetAt: input.context.fields.targetAt,
+      targetTimeZone: input.context.fields.targetTimeZone,
+      timingConstraints: input.context.fields.timingConstraints,
+    },
+    phase: input.context.phase,
+  };
+}
+
+function draftResolutionContext(
+  resolution: ConversationDraftResolution,
+) {
+  switch (resolution.kind) {
+    case "none":
+      return { kind: "none" as const };
+    case "exact":
+      return {
+        authority: resolution.authority,
+        kind: "exact" as const,
+      };
+    case "ambiguous":
+      return {
+        candidates: resolution.candidates.map(
+          (candidate) => candidate.authority,
+        ),
+        kind: "ambiguous" as const,
+      };
+  }
 }
 
 /**
@@ -74,6 +161,10 @@ function ambiguityQuestion(
 export class SessionBackedAgentDecisionEngine implements DecisionEngine {
   readonly #chatId: number;
   readonly #contextReader: AgentContextReader;
+  readonly #draftRepository: Pick<
+    ConversationDraftRepository,
+    "resolveDraftReference"
+  >;
   readonly #onContinuityFailure:
     | ((event: AgentSessionContinuityFailureEvent) => void)
     | undefined;
@@ -84,6 +175,7 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
   constructor(options: SessionBackedAgentDecisionEngineOptions) {
     this.#chatId = options.chatId;
     this.#contextReader = options.contextReader;
+    this.#draftRepository = options.draftRepository;
     this.#onContinuityFailure = options.onContinuityFailure;
     this.#repository = options.repository;
     this.#runtime = options.runtime;
@@ -99,39 +191,76 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
     const session = await this.#repository.open(this.#chatId);
     this.#pendingTurns.set(context.updateId, { session });
     const snapshot = session.currentSnapshot();
+    const resolution =
+      await this.#draftRepository.resolveDraftReference(input.ownerText);
+    const runtimeInput =
+      resolution.kind === "exact"
+        ? { ...input, context: candidateFields(resolution.draft) }
+        : input;
     const product = await this.#contextReader.readProductContext({
       chatId: this.#chatId,
-      focusedEntityId: snapshot.activeDraftId,
+      focusedEntityId:
+        resolution.kind === "exact"
+          ? resolution.authority.id
+          : snapshot.activeDraftId,
       query: input.ownerText,
     });
+    const executionAuthority = authority(
+      this.#chatId,
+      context.updateId,
+      session,
+      product,
+    );
     const result = await this.#runtime.run({
-      authority: authority(
-        this.#chatId,
-        context.updateId,
-        session,
-        product,
-      ),
+      authority: executionAuthority,
       conversation: {
+        draftResolution: draftResolutionContext(resolution),
         interaction: structuredClone(snapshot.interaction),
         olderHistoryAvailable:
           snapshot.itemCount > snapshot.items.length,
         product,
       },
-      input,
+      input: runtimeInput,
       session,
     });
-    if (result.outcome.ok && product.ambiguity !== null) {
+    const resolutionAmbiguity =
+      resolution.kind === "ambiguous"
+        ? resolution.candidates.map(({ authority: target, draft }) => ({
+            id: target.id,
+            kind: "draft" as const,
+            label: draft.fields.definitionOfDone ?? "Unnamed draft",
+            version: target.expectedVersion,
+          }))
+        : null;
+    const ambiguityCandidates =
+      resolutionAmbiguity ?? product.ambiguity?.candidates ?? null;
+    if (result.outcome.ok && ambiguityCandidates !== null) {
       return {
         ...result.outcome,
+        draftTarget: undefined,
         decision: {
           ...result.outcome.decision,
           inputClass: "ordinary_question",
-          response: ambiguityQuestion(product.ambiguity.candidates),
+          response: ambiguityQuestion(ambiguityCandidates),
           turnRelation: "none",
         },
       };
     }
-    return result.outcome;
+    if (!result.outcome.ok) {
+      return result.outcome;
+    }
+    const draftTarget =
+      resolution.kind === "exact"
+        ? {
+            authority: resolution.authority,
+            fields: resolution.draft.fields,
+            phase: resolution.draft.phase,
+          }
+        : fallbackDraftTarget(runtimeInput, executionAuthority);
+    return {
+      ...result.outcome,
+      ...(draftTarget ? { draftTarget } : {}),
+    };
   }
 
   async completeTurn(
@@ -150,7 +279,7 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
       const recorded = await pending.session.recordApplicationReply({
         activeDraftId: completion.activeDraftId,
         assistantText: completion.assistantText,
-        pendingQuestion: completion.status === "active",
+        pendingQuestion: completion.pendingQuestion,
         updateId: completion.updateId,
       });
       if (recorded.kind === "stale") {
