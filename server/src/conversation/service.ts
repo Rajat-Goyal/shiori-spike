@@ -19,7 +19,6 @@ import {
 } from "../confirmation.js";
 import {
   collectedDraftCopy,
-  collisionCopy,
   conversationCopy,
   correctionCopy,
   ordinaryWithDraftCopy,
@@ -551,7 +550,7 @@ export class ConversationService {
         }
         return this.#finish(
           {
-            action: "terminate_permission",
+            action: "preserve",
             audit: this.#audit(decision),
             expected: expectedSnapshot(snapshot),
             processingResult: "conversation",
@@ -604,22 +603,31 @@ export class ConversationService {
     }
 
     if (decision.turnRelation === "separate_request") {
+      if (decision.inputClass !== "explicit_commitment") {
+        return this.#preserveFailure(updateId, snapshot);
+      }
+      const extractedFields = candidateFields(decision);
+      const extractedPhase = phaseFor(extractedFields);
+      const fields =
+        extractedPhase === "complete"
+          ? preparationFields(extractedFields)
+          : extractedFields;
+      const phase = phaseFor(fields);
+      if (!draftable(fields) || phase === undefined) {
+        return this.#preserveRejected(updateId, snapshot, decision);
+      }
       return this.#finish(
         {
-          action: "preserve",
+          action: "create_separate_draft",
           audit: this.#audit(decision),
           expected: expectedSnapshot(snapshot),
+          fields,
+          phase,
           processingResult: "conversation",
           updateId,
         },
         snapshot,
-        snapshot.phase === "complete"
-          ? confirmationSummary(
-              snapshot.fields,
-              snapshot,
-              confirmationCopy.secondRequest,
-            )
-          : collisionCopy(snapshot.phase),
+        collectedReply(phase, fields),
       );
     }
 
@@ -829,6 +837,7 @@ export class ConversationService {
       "accept_permission",
       "accept_work_permission",
       "create_draft",
+      "create_separate_draft",
       "create_permission",
       "rearm_permission",
       "update_draft",
@@ -883,6 +892,10 @@ export class ConversationService {
               snapshot.kind === "draft" &&
               snapshot.phase !== "complete" &&
               command.action === "update_draft"
+            ) ||
+            (
+              snapshot.kind === "draft" &&
+              command.action === "create_separate_draft"
             );
           return newlyComplete ||
               isEligibleWorkSessionCandidate(copy.completeFields)

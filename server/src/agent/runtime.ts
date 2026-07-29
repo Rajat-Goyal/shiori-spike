@@ -11,7 +11,6 @@ import {
 import { z } from "zod";
 
 import type { TelegramReply } from "../confirmation.js";
-import type { AgentSdkSession } from "./session.js";
 import {
   type DecisionOutcome,
   type DecisionTelemetryReason,
@@ -28,11 +27,21 @@ import {
   materializeProviderDecision,
   validateDecisionInputSemantics,
 } from "../decision/semantic.js";
+import type {
+  AgentContextReader,
+  AgentProductContext,
+} from "./context-reader.js";
+import type {
+  AgentSdkSession,
+  AgentSessionInteractionContext,
+} from "./session.js";
 
 export const AGENT_RUNTIME_MAX_TURNS = 4;
 export const AGENT_RUNTIME_TIMEOUT_MS = 30_000;
 export const AGENT_RUNTIME_TOOL_NAMES = [
-  "read_active_draft",
+  "read_context",
+  "read_history",
+  "list_commitments",
   "propose_draft_update",
   "request_sanitized_availability",
   "execute_commitment",
@@ -93,8 +102,15 @@ export type AgentRuntimeResult = Readonly<{
   pendingApprovalState?: string;
 }>;
 
+export type AgentRuntimeConversationContext = Readonly<{
+  interaction: AgentSessionInteractionContext;
+  olderHistoryAvailable: boolean;
+  product: AgentProductContext;
+}>;
+
 export type AgentRuntimeRunRequest = Readonly<{
   authority: AgentExecutionAuthority;
+  conversation: AgentRuntimeConversationContext;
   input: DecisionInput;
   session: AgentSdkSession;
 }>;
@@ -112,6 +128,7 @@ export type AgentRuntimeResumeRequest = Readonly<{
 
 type RuntimeContext = {
   authority: AgentExecutionAuthority;
+  conversation: AgentRuntimeConversationContext | null;
   executionApproved: boolean;
   execution?: AgentCommitmentExecutionResult;
   input: DecisionInput | null;
@@ -164,15 +181,13 @@ export interface AgentRunner {
 
 export type AgentRuntimeOptions = Readonly<{
   apiKey: string;
+  contextReader: AgentContextReader;
   executeCommitment: (
     authority: ApprovedAgentExecutionAuthority,
     proposal: DecisionResult,
   ) => Promise<AgentCommitmentExecutionResult>;
   model: string;
   now?: () => Date;
-  readActiveDraft?: (
-    authority: AgentExecutionAuthority,
-  ) => Promise<DecisionInput["context"]>;
   requestSanitizedAvailability: (
     request: SanitizedAvailabilityRequest,
   ) => Promise<readonly SanitizedAvailabilitySlot[]>;
@@ -247,6 +262,17 @@ const executionSchema = z
   .strict();
 
 const noArgumentsSchema = z.object({}).strict();
+const historySchema = z
+  .object({
+    cursor: z.string().min(1).max(4_096).nullable(),
+    limit: z.number().int().min(1).max(40),
+  })
+  .strict();
+const listSchema = z
+  .object({
+    limit: z.number().int().min(1).max(10),
+  })
+  .strict();
 
 function fail(
   failure: Extract<
@@ -418,18 +444,29 @@ function singaporeReferenceTimestamp(now: Date): string {
     .replace(/Z$/, "+08:00");
 }
 
-function runtimeInstructions(input: DecisionInput, now: Date): string {
+function runtimeInstructions(
+  input: DecisionInput,
+  now: Date,
+  conversation: AgentRuntimeConversationContext | null,
+): string {
   const referenceTimestamp = singaporeReferenceTimestamp(now);
   return [
-    "You are Shiori's bounded decision agent.",
-    "You may use exactly the four provided tools and have no direct database, callback, authentication, or provider access.",
+    "You are Shiori's single conversational agent for every typed Telegram message.",
+    "You have no direct database, callback, authentication, or provider access.",
     `The current application-owned decision input is ${JSON.stringify(input)}.`,
+    `The authoritative bounded conversation context is ${JSON.stringify(conversation)}.`,
     `The one immutable decision reference timestamp is ${referenceTimestamp}; its offset and decision timezone are Asia/Singapore (+08:00).`,
     "Resolve every relative or partial date only against that immutable Singapore reference timestamp.",
     "Tomorrow means the next Singapore calendar day.",
     "When the owner omits a year, use the reference timestamp's Singapore calendar year only when the resulting instant is strictly in the future.",
     "Never roll an explicitly or presumptively past date or time into a later day or year.",
-    "Use read_active_draft for authoritative draft context when needed.",
+    "Use read_context for the exact pending application question, sanitized callback choice, focused entity, drafts, commitments, work sessions, and outcomes.",
+    "The pending question and callback choice are separate facts: interpret a choice only as an answer to the supplied pending question.",
+    "Use read_history with its opaque cursor only when the bounded recent session is insufficient.",
+    "Use list_commitments for a bounded view of authoritative commitments.",
+    "Maintain the exact focused entity for a continuation or an ordinary question.",
+    "A clearly separate promise must use turnRelation separate_request; never overwrite the current draft.",
+    "If more than one entity plausibly matches a reference, ask which one the owner means and propose no mutation.",
     "Every decision that may affect application state, including ordinary-question responses, must be submitted through propose_draft_update.",
     "Only a structurally and semantically accepted proposal can be returned by the application; final prose is never authoritative.",
     "request_sanitized_availability returns free/busy intervals only.",
@@ -454,20 +491,48 @@ function buildTools(
   context: RuntimeContext,
   options: AgentRuntimeOptions,
   now: Date,
+  session?: AgentSdkSession,
 ): FunctionTool<RuntimeContext, never, unknown>[] {
-  const readActiveDraft = tool({
+  const readContext = tool({
     description:
-      "Read the application-owned active draft context. This tool cannot mutate it.",
-    name: "read_active_draft",
+      "Read bounded, sanitized, application-owned conversational and product context. This tool cannot mutate it.",
+    name: "read_context",
     parameters: noArgumentsSchema,
     strict: true,
-    execute: async () => {
-      const draft =
-        await options.readActiveDraft?.(context.authority) ??
-        context.input?.context ??
-        { fields: null, phase: "none" as const };
-      return structuredClone(draft);
+    isEnabled: context.conversation !== null,
+    execute: () => structuredClone(context.conversation),
+  });
+  const readHistory = tool({
+    description:
+      "Read one bounded page of older application-encrypted conversation items using an opaque cursor. This tool cannot mutate state.",
+    name: "read_history",
+    parameters: historySchema,
+    strict: true,
+    isEnabled: context.conversation !== null && session !== undefined,
+    execute: async ({ cursor, limit }) => {
+      if (session === undefined) {
+        throw new Error("history_session_unavailable");
+      }
+      return options.contextReader.readHistory(
+        session,
+        cursor ?? undefined,
+        limit,
+      );
     },
+  });
+  const listCommitments = tool({
+    description:
+      "List a bounded set of the owner's sanitized authoritative commitments. This tool cannot mutate state.",
+    name: "list_commitments",
+    parameters: listSchema,
+    strict: true,
+    isEnabled: context.conversation !== null,
+    execute: ({ limit }) => ({
+      commitments:
+        context.conversation?.product.commitments.slice(0, limit) ?? [],
+      truncated:
+        context.conversation?.product.truncated.commitments ?? false,
+    }),
   });
   const proposeDraftUpdate = tool({
     description:
@@ -543,7 +608,9 @@ function buildTools(
     },
   });
   return [
-    readActiveDraft,
+    readContext,
+    readHistory,
+    listCommitments,
     proposeDraftUpdate,
     requestAvailability,
     executeCommitment,
@@ -729,6 +796,8 @@ export function createAgentRuntime(
   function prepare(
     input: DecisionInput,
     authority: AgentExecutionAuthority,
+    conversation: AgentRuntimeConversationContext | null,
+    session?: AgentSdkSession,
     proposal?: DecisionResult,
   ): {
     agent: Agent<RuntimeContext, "text">;
@@ -745,19 +814,24 @@ export function createAgentRuntime(
     }
     const context: RuntimeContext = {
       authority,
+      conversation,
       executionApproved: false,
       input: structured,
       mode: "decision",
       proposal,
     };
     const agent = new Agent<RuntimeContext, "text">({
-      instructions: runtimeInstructions(structured, validationNow),
+      instructions: runtimeInstructions(
+        structured,
+        validationNow,
+        conversation,
+      ),
       model: options.model,
       modelSettings: {
         store: false,
       },
       name: "Shiori bounded decision",
-      tools: buildTools(context, options, validationNow),
+      tools: buildTools(context, options, validationNow, session),
     });
     return { agent, context, validationNow };
   }
@@ -775,6 +849,7 @@ export function createAgentRuntime(
     }
     const context: RuntimeContext = {
       authority,
+      conversation: null,
       executionApproved: false,
       input: null,
       mode: "execution",
@@ -832,7 +907,12 @@ export function createAgentRuntime(
     },
 
     async run(request) {
-      const prepared = prepare(request.input, request.authority);
+      const prepared = prepare(
+        request.input,
+        request.authority,
+        request.conversation,
+        request.session,
+      );
       if (prepared === null) {
         return { outcome: fail("semantic", "input_invalid") };
       }
@@ -882,6 +962,8 @@ export function createAgentRuntime(
             : prepare(
                 envelope.input,
                 request.authority,
+                null,
+                undefined,
                 envelope.proposal,
               );
       if (resumed === null) {

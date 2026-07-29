@@ -10,12 +10,18 @@ import type {
   AgentRuntime,
 } from "./runtime.js";
 import type {
+  AgentAmbiguityCandidate,
+  AgentContextReader,
+  AgentProductContext,
+} from "./context-reader.js";
+import type {
   AgentSdkSession,
   AgentSessionRepository,
 } from "./session.js";
 
 type SessionBackedAgentDecisionEngineOptions = Readonly<{
   chatId: number;
+  contextReader: AgentContextReader;
   onContinuityFailure?: (event: AgentSessionContinuityFailureEvent) => void;
   repository: AgentSessionRepository;
   runtime: AgentRuntime;
@@ -35,15 +41,28 @@ function authority(
   chatId: number,
   updateId: number,
   session: AgentSdkSession,
+  product: AgentProductContext,
 ): AgentExecutionAuthority {
-  const snapshot = session.currentSnapshot();
+  const focusedDraft =
+    product.focusedEntity?.kind === "draft"
+      ? product.focusedEntity.entity
+      : product.drafts.find((draft) => draft.focused) ?? null;
   return {
     chatId,
-    draftId: snapshot.activeDraftId,
-    draftVersion: null,
+    draftId: focusedDraft?.id ?? null,
+    draftVersion: focusedDraft?.version ?? null,
     sessionId: session.sessionId,
     updateId,
   };
+}
+
+function ambiguityQuestion(
+  candidates: readonly AgentAmbiguityCandidate[],
+): string {
+  const labels = candidates
+    .map((candidate) => `“${candidate.label}”`)
+    .join(", ");
+  return `Which one did you mean: ${labels}? Nothing was changed.`;
 }
 
 /**
@@ -54,6 +73,7 @@ function authority(
  */
 export class SessionBackedAgentDecisionEngine implements DecisionEngine {
   readonly #chatId: number;
+  readonly #contextReader: AgentContextReader;
   readonly #onContinuityFailure:
     | ((event: AgentSessionContinuityFailureEvent) => void)
     | undefined;
@@ -63,6 +83,7 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
 
   constructor(options: SessionBackedAgentDecisionEngineOptions) {
     this.#chatId = options.chatId;
+    this.#contextReader = options.contextReader;
     this.#onContinuityFailure = options.onContinuityFailure;
     this.#repository = options.repository;
     this.#runtime = options.runtime;
@@ -77,11 +98,39 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
     }
     const session = await this.#repository.open(this.#chatId);
     this.#pendingTurns.set(context.updateId, { session });
+    const snapshot = session.currentSnapshot();
+    const product = await this.#contextReader.readProductContext({
+      chatId: this.#chatId,
+      focusedEntityId: snapshot.activeDraftId,
+      query: input.ownerText,
+    });
     const result = await this.#runtime.run({
-      authority: authority(this.#chatId, context.updateId, session),
+      authority: authority(
+        this.#chatId,
+        context.updateId,
+        session,
+        product,
+      ),
+      conversation: {
+        interaction: structuredClone(snapshot.interaction),
+        olderHistoryAvailable:
+          snapshot.itemCount > snapshot.items.length,
+        product,
+      },
       input,
       session,
     });
+    if (result.outcome.ok && product.ambiguity !== null) {
+      return {
+        ...result.outcome,
+        decision: {
+          ...result.outcome.decision,
+          inputClass: "ordinary_question",
+          response: ambiguityQuestion(product.ambiguity.candidates),
+          turnRelation: "none",
+        },
+      };
+    }
     return result.outcome;
   }
 

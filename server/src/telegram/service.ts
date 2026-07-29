@@ -37,9 +37,6 @@ type TelegramServiceOptions = {
       callbackData: unknown,
     ): Promise<TelegramReply | null>;
   };
-  statusService?: {
-    read(): Promise<readonly TelegramReply[]>;
-  };
   workSessionActionService?: {
     handle(
       updateId: number,
@@ -167,9 +164,6 @@ export class TelegramService {
   readonly #simpleCommitmentActionService:
     | TelegramServiceOptions["simpleCommitmentActionService"]
     | undefined;
-  readonly #statusService:
-    | TelegramServiceOptions["statusService"]
-    | undefined;
   readonly #workSessionActionService:
     | TelegramServiceOptions["workSessionActionService"]
     | undefined;
@@ -183,7 +177,6 @@ export class TelegramService {
     this.#repository = options.repository;
     this.#simpleCommitmentActionService =
       options.simpleCommitmentActionService;
-    this.#statusService = options.statusService;
     this.#workSessionActionService = options.workSessionActionService;
   }
 
@@ -283,29 +276,6 @@ export class TelegramService {
         result = "refused";
       } else if (update.kind === "callback") {
         throw new Error("Confirmation service is unavailable");
-      } else if (update.text.trim() === "/status") {
-        let replies: readonly TelegramReply[];
-        if (this.#statusService) {
-          replies = await this.#statusService.read();
-        } else {
-          if (await this.#repository.hasActiveCommitments()) {
-            throw new Error("Status service is unavailable");
-          }
-          replies = [];
-        }
-        if (replies.length === 0) {
-          await this.#client.sendText(update.chatId, "No active promises.");
-          result = "status_empty";
-        } else {
-          for (const reply of replies) {
-            await this.#client.sendText(
-              update.chatId,
-              reply.text,
-              reply.actions,
-            );
-          }
-          result = "status_listed";
-        }
       } else {
         const response = await this.#conversationService.handle(
           update.updateId,

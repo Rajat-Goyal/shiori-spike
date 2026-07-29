@@ -193,6 +193,7 @@ class ControlledRepository implements ConversationRepository {
       draftCreated:
         this.applyResult.draftCreated ||
         command.action === "create_draft" ||
+        command.action === "create_separate_draft" ||
         command.action === "accept_work_permission",
     };
   }
@@ -744,7 +745,7 @@ describe("ConversationService", () => {
     {
       copy: "A bounded answer.",
       decision: ordinary("A bounded answer."),
-      action: "terminate_permission",
+      action: "preserve",
     },
   ] as const)(
     "handles permission response with $action and exact copy",
@@ -1154,7 +1155,7 @@ describe("ConversationService", () => {
       definitionOfDone: "Different returned candidate",
     },
   ])(
-    "ignores every separate-request field and preserves complete draft",
+    "creates and focuses a separate draft without overwriting the current one",
     async (returnedFields) => {
       const snapshot = activeDraft("complete", completeFields, 8);
       const test = controlled(
@@ -1165,27 +1166,39 @@ describe("ConversationService", () => {
           }),
         ),
       );
+      test.repository.applyResult = {
+        completed: true,
+        draftCreated: true,
+        draftReference: {
+          id: "33333333-3333-4333-8333-333333333333",
+          version: 1,
+        },
+        status: "applied",
+      };
 
-      await expect(test.service.handle(7012, "second promise")).resolves.toEqual(
-        confirmationSummary(
-          completeFields,
-          snapshot,
-          confirmationCopy.secondRequest,
-        ),
-      );
-      expect(test.repository.commands[0]).toEqual({
-        action: "preserve",
+      const reply = await test.service.handle(7012, "second promise");
+      expect(reply).toMatchObject({
+        text: "Do you need preparation time for this promise? Nothing has been saved yet.",
+      });
+      expect(test.repository.commands[0]).toMatchObject({
+        action: "create_separate_draft",
         expected: {
           id: snapshot.id,
           kind: "draft",
           version: 8,
         },
+        fields: {
+          definitionOfDone: returnedFields.definitionOfDone,
+          possibleWorkSession: true,
+          simpleAction: false,
+        },
+        phase: "complete",
         processingResult: "conversation",
         updateId: 7012,
       });
-      expect(JSON.stringify(test.repository.commands)).not.toContain(
-        returnedFields.definitionOfDone,
-      );
+      expect(test.repository.commands[0]).not.toMatchObject({
+        action: "update_draft",
+      });
     },
   );
 

@@ -21,6 +21,7 @@ import {
   AgentApprovedWorkSessionService,
 } from "./agent/approved-services.js";
 import { AgentCallbackContextRecorder } from "./agent/callback-context.js";
+import { SupabaseAgentContextReader } from "./agent/context-reader.js";
 import { createAgentApprovalGate } from "./agent/approval.js";
 import { SessionBackedAgentDecisionEngine } from "./agent/conversation.js";
 import {
@@ -60,10 +61,6 @@ import {
 import { TelegramBotClient } from "./telegram/client.js";
 import { SupabaseTelegramRepository } from "./telegram/repository.js";
 import { TelegramService } from "./telegram/service.js";
-import {
-  StatusService,
-  SupabaseStatusRepository,
-} from "./telegram/status-cancel.js";
 import {
   SupabaseWorkSessionMessageRepository,
   WorkSessionNotificationScheduler,
@@ -173,6 +170,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     supabaseSecretKey: options.config.supabaseSecretKey,
     supabaseUrl: options.config.supabaseUrl,
   });
+  const agentContextReader = new SupabaseAgentContextReader({
+    ownerId: options.config.telegramOwnerUserId,
+    supabaseSecretKey: options.config.supabaseSecretKey,
+    supabaseUrl: options.config.supabaseUrl,
+  });
   let executeApprovedCommitment:
     | ((
       authority: ApprovedAgentExecutionAuthority,
@@ -181,6 +183,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     | undefined;
   const agentRuntime = createAgentRuntime({
     apiKey: options.config.openaiApiKey,
+    contextReader: agentContextReader,
     executeCommitment: async (authority, proposal) =>
       executeApprovedCommitment
         ? executeApprovedCommitment(authority, proposal)
@@ -331,6 +334,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       conversationService: new ConversationService({
         decisionEngine: new SessionBackedAgentDecisionEngine({
           chatId: options.config.telegramOwnerUserId,
+          contextReader: agentContextReader,
           onContinuityFailure: (event) => {
             app.log.warn(event);
           },
@@ -359,14 +363,6 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       }),
       simpleCommitmentActionService: new SimpleCommitmentActionService({
         repository: new SupabaseSimpleCommitmentActionRepository({
-          ownerId: options.config.telegramOwnerUserId,
-          supabaseSecretKey: options.config.supabaseSecretKey,
-          supabaseUrl: options.config.supabaseUrl,
-        }),
-      }),
-      statusService: new StatusService({
-        now,
-        repository: new SupabaseStatusRepository({
           ownerId: options.config.telegramOwnerUserId,
           supabaseSecretKey: options.config.supabaseSecretKey,
           supabaseUrl: options.config.supabaseUrl,

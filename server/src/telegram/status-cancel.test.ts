@@ -95,7 +95,7 @@ describe("Telegram active promise status", () => {
     );
   });
 
-  it("sends exactly one message per active promise and the exact empty copy", async () => {
+  it("routes /status through the same conversational agent as other text", async () => {
     const sends: Array<{
       actions: unknown;
       chatId: number;
@@ -121,19 +121,15 @@ describe("Telegram active promise status", () => {
         return false;
       },
     };
-    const statuses = vi
-      .fn<() => Promise<readonly ActivePromiseStatus[]>>()
-      .mockResolvedValueOnce([workStatus, simpleStatus])
-      .mockResolvedValueOnce([]);
+    const conversation = vi
+      .fn()
+      .mockResolvedValueOnce("Promise summary from the agent.")
+      .mockResolvedValueOnce("No active promises.");
     const service = new TelegramService({
       client,
-      conversationService: { handle: vi.fn() },
+      conversationService: { handle: conversation },
       ownerUserId: ownerId,
       repository,
-      statusService: new StatusService({
-        now: () => new Date("2026-07-25T03:00:00.000Z"),
-        repository: { listActive: statuses },
-      }),
     });
     const update = (updateId: number) => ({
       message: {
@@ -147,19 +143,22 @@ describe("Telegram active promise status", () => {
     await service.handle(update(7100));
     await service.handle(update(7101));
 
-    expect(sends).toHaveLength(3);
-    expect(sends.slice(0, 2).map((item) => item.text)).toEqual([
-      expect.stringContaining("Promise 1 of 2"),
-      expect.stringContaining("Promise 2 of 2"),
+    expect(sends).toEqual([
+      {
+        actions: undefined,
+        chatId: ownerId,
+        text: "Promise summary from the agent.",
+      },
+      {
+        actions: undefined,
+        chatId: ownerId,
+        text: "No active promises.",
+      },
     ]);
-    expect(sends[2]).toEqual({
-      actions: undefined,
-      chatId: ownerId,
-      text: "No active promises.",
-    });
-    expect(completions).toEqual([
-      { result: "status_listed", updateId: 7100 },
-      { result: "status_empty", updateId: 7101 },
+    expect(conversation.mock.calls).toEqual([
+      [7100, "/status"],
+      [7101, "/status"],
     ]);
+    expect(completions).toEqual([]);
   });
 });

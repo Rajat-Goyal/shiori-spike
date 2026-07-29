@@ -247,8 +247,9 @@ describe("POST /api/telegram/webhook", () => {
     expect(controlled.conversation.turns).toHaveLength(0);
   });
 
-  it("captures the owner private chat and returns a factual empty status", async () => {
+  it("routes the owner /status text through the unified conversation", async () => {
     const controlled = serviceWith();
+    controlled.conversation.response = "No active promises.";
     const app = await appWith(controlled.service);
 
     const response = await app.inject({
@@ -266,14 +267,14 @@ describe("POST /api/telegram/webhook", () => {
     expect(controlled.repository.claims).toEqual([
       { ownerChatId: ownerUserId, updateId: 3001 },
     ]);
-    expect(controlled.repository.activeReads).toBe(1);
+    expect(controlled.repository.activeReads).toBe(0);
     expect(controlled.client.sends).toEqual([
       { chatId: ownerUserId, text: "No active promises." },
     ]);
-    expect(controlled.repository.completions).toEqual([
-      { result: "status_empty", updateId: 3001 },
+    expect(controlled.repository.completions).toEqual([]);
+    expect(controlled.conversation.turns).toEqual([
+      { ownerText: "/status", updateId: 3001 },
     ]);
-    expect(controlled.conversation.turns).toHaveLength(0);
   });
 
   it("routes authorized owner text through the atomic conversation boundary", async () => {

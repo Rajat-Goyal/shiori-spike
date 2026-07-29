@@ -13,6 +13,10 @@ import { ConversationService } from "../conversation/service.js";
 import type { DecisionResult } from "../decision/schema.js";
 import type { AgentRuntime } from "./runtime.js";
 import type {
+  AgentContextReader,
+  AgentProductContext,
+} from "./context-reader.js";
+import type {
   AgentSessionApplicationReplyCommand,
   AgentSdkSession,
   AgentSessionRepository,
@@ -43,7 +47,10 @@ const snapshot: AgentSessionSnapshot = {
   firstWorkingSequence: 1,
   id: "session-1",
   interaction: {
-    callbackChoice: null,
+    callbackChoice: {
+      action: "work_session.no_preparation",
+      updateId: 10,
+    },
     pendingQuestion: {
       text: "When should it be done?",
       updateId: 10,
@@ -74,6 +81,34 @@ const snapshot: AgentSessionSnapshot = {
   ],
   version: 2,
 };
+
+function productContext(active: boolean): AgentProductContext {
+  const draft = {
+    definitionOfDone: "Submit the note",
+    focused: true,
+    id: snapshot.activeDraftId!,
+    mode: "unresolved" as const,
+    phase: "awaiting_target" as const,
+    targetAt: null,
+    version: 3,
+  };
+  return {
+    ambiguity: null,
+    commitments: [],
+    drafts: active ? [draft] : [],
+    focusedEntity: active
+      ? { entity: draft, kind: "draft" as const }
+      : null,
+    recentOutcomes: [],
+    truncated: {
+      commitments: false,
+      drafts: false,
+      recentOutcomes: false,
+      workSessions: false,
+    },
+    workSessions: [],
+  };
+}
 
 function fixture(active = true) {
   const records: Array<
@@ -125,14 +160,23 @@ function fixture(active = true) {
     resume: vi.fn(),
     run: vi.fn(async () => ({ outcome: { decision, ok: true } })),
   };
+  const contextReader: AgentContextReader = {
+    readHistory: vi.fn(async () => ({
+      items: [],
+      nextCursor: null,
+    })),
+    readProductContext: vi.fn(async () => productContext(active)),
+  };
   return {
     engine: new SessionBackedAgentDecisionEngine({
       chatId: 42,
+      contextReader,
       onContinuityFailure: continuityFailures,
       repository,
       runtime,
     }),
     continuityFailures,
+    contextReader,
     records,
     repository,
     runtime,
@@ -166,12 +210,22 @@ describe("SessionBackedAgentDecisionEngine", () => {
       authority: {
         chatId: 42,
         draftId: snapshot.activeDraftId,
-        draftVersion: null,
+        draftVersion: 3,
         sessionId: snapshot.id,
         updateId: 11,
       },
+      conversation: {
+        interaction: snapshot.interaction,
+        olderHistoryAvailable: false,
+        product: productContext(true),
+      },
       input,
       session: test.session,
+    });
+    expect(test.contextReader.readProductContext).toHaveBeenCalledWith({
+      chatId: 42,
+      focusedEntityId: snapshot.activeDraftId,
+      query: input.ownerText,
     });
 
     await test.engine.completeTurn({
@@ -238,6 +292,60 @@ describe("SessionBackedAgentDecisionEngine", () => {
       updateId: 13,
     });
     expect(test.repository.clear).not.toHaveBeenCalled();
+  });
+
+  it("turns an ambiguous entity reference into a clarification without mutation intent", async () => {
+    const test = fixture();
+    const ambiguous = productContext(true);
+    vi.mocked(test.contextReader.readProductContext).mockResolvedValueOnce({
+      ...ambiguous,
+      ambiguity: {
+        candidates: [
+          {
+            id: snapshot.activeDraftId!,
+            kind: "draft",
+            label: "Submit the launch report",
+            version: 3,
+          },
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            kind: "draft",
+            label: "Review the finance report",
+            version: 2,
+          },
+        ],
+        query: "move the report to friday",
+      },
+    });
+
+    const outcome = await test.engine.decide(
+      {
+        context: {
+          fields: {
+            commitmentMode: "unresolved",
+            definitionOfDone: "Submit the note",
+            durationMinutes: null,
+            offerWorkWindowHelp: false,
+            targetAt: null,
+            targetTimeZone: null,
+            timingConstraints: [],
+          },
+          phase: "awaiting_target",
+        },
+        ownerText: "Move the report to Friday",
+      },
+      { updateId: 16 },
+    );
+
+    expect(outcome).toMatchObject({
+      decision: {
+        inputClass: "ordinary_question",
+        response:
+          "Which one did you mean: “Submit the launch report”, “Review the finance report”? Nothing was changed.",
+        turnRelation: "none",
+      },
+      ok: true,
+    });
   });
 
   it("drops stale continuity without suppressing the applied turn", async () => {

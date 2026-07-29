@@ -18,6 +18,10 @@ import {
   type AgentRunnerResumeRequest,
 } from "./runtime.js";
 import type { DecisionInput } from "../decision/schema.js";
+import type {
+  AgentContextReader,
+  AgentProductContext,
+} from "./context-reader.js";
 
 const now = new Date("2026-07-29T02:00:00.000Z");
 
@@ -57,6 +61,30 @@ const authority: AgentExecutionAuthority = {
   sessionId: "session-1",
   updateId: 41,
 };
+
+const productContext: AgentProductContext = {
+  ambiguity: null,
+  commitments: [],
+  drafts: [],
+  focusedEntity: null,
+  recentOutcomes: [],
+  truncated: {
+    commitments: false,
+    drafts: false,
+    recentOutcomes: false,
+    workSessions: false,
+  },
+  workSessions: [],
+};
+
+const runtimeConversation = {
+  interaction: {
+    callbackChoice: null,
+    pendingQuestion: null,
+  },
+  olderHistoryAvailable: false,
+  product: productContext,
+} as const;
 
 const emptyResult = (
   overrides: Partial<AgentRunnerResult> = {},
@@ -113,6 +141,7 @@ class ScriptedRunner implements AgentRunner {
 }
 
 function runtimeWith(runner: AgentRunner, overrides: {
+  contextReader?: AgentContextReader;
   executeCommitment?: Parameters<
     typeof createAgentRuntime
   >[0]["executeCommitment"];
@@ -122,6 +151,15 @@ function runtimeWith(runner: AgentRunner, overrides: {
 } = {}) {
   return createAgentRuntime({
     apiKey: "not-used-by-the-injected-runner",
+    contextReader:
+      overrides.contextReader ??
+      {
+        readHistory: vi.fn(async () => ({
+          items: [],
+          nextCursor: null,
+        })),
+        readProductContext: vi.fn(async () => productContext),
+      },
     executeCommitment:
       overrides.executeCommitment ??
       (async () => ({ status: "executed" })),
@@ -177,13 +215,20 @@ function sdkSession(
 }
 
 describe("bounded Agents SDK runtime", () => {
-  it("exposes only four allowlisted tools and delegates history to the durable SDK session", async () => {
+  it("exposes only the typed allowlist and binds context/history reads to the durable session", async () => {
     const session = sdkSession(
       Array.from({ length: 16 }, (_, index) => ({
         content: `history-${index}`,
         role: "user" as const,
       })),
     );
+    const contextReader: AgentContextReader = {
+      readHistory: vi.fn(async () => ({
+        items: [{ content: "older-item", role: "user" }],
+        nextCursor: "next-opaque-cursor",
+      })),
+      readProductContext: vi.fn(async () => productContext),
+    };
     const runner = new ScriptedRunner(async (request) => {
       expect(request.agent.tools.map((candidate) => candidate.name)).toEqual(
         AGENT_RUNTIME_TOOL_NAMES,
@@ -203,15 +248,39 @@ describe("bounded Agents SDK runtime", () => {
         content: input.ownerText,
         role: "user",
       });
+      await expect(invoke(request, "read_context", {})).resolves.toEqual(
+        runtimeConversation,
+      );
+      await expect(
+        invoke(request, "read_history", {
+          cursor: null,
+          limit: 10,
+        }),
+      ).resolves.toEqual({
+        items: [{ content: "older-item", role: "user" }],
+        nextCursor: "next-opaque-cursor",
+      });
+      await expect(
+        invoke(request, "list_commitments", { limit: 5 }),
+      ).resolves.toEqual({
+        commitments: [],
+        truncated: false,
+      });
       await invoke(request, "propose_draft_update", proposal);
       return emptyResult();
     });
 
-    const result = await runtimeWith(runner).run({
+    const result = await runtimeWith(runner, { contextReader }).run({
       authority,
+      conversation: runtimeConversation,
       input,
       session,
     });
+    expect(contextReader.readHistory).toHaveBeenCalledWith(
+      session,
+      undefined,
+      10,
+    );
 
     expect(result.outcome).toMatchObject({
       decision: {
@@ -273,6 +342,7 @@ describe("bounded Agents SDK runtime", () => {
 
       const result = await runtimeWith(runner).run({
         authority,
+        conversation: runtimeConversation,
         input: datedInput,
         session: sdkSession(),
       });
@@ -319,6 +389,7 @@ describe("bounded Agents SDK runtime", () => {
 
     const result = await runtimeWith(runner).run({
       authority,
+      conversation: runtimeConversation,
       input: datedInput,
       session: sdkSession(),
     });
@@ -353,6 +424,7 @@ describe("bounded Agents SDK runtime", () => {
         sessionId: null,
         updateId: 4,
       },
+      conversation: runtimeConversation,
       input: {
         context: { fields: null, phase: "none" },
         ownerText: "How can you help me?",
@@ -381,6 +453,7 @@ describe("bounded Agents SDK runtime", () => {
 
     const result = await runtimeWith(runner).run({
       authority,
+      conversation: runtimeConversation,
       input,
       session: sdkSession(),
     });
@@ -404,6 +477,7 @@ describe("bounded Agents SDK runtime", () => {
 
     const result = await runtimeWith(runner).run({
       authority,
+      conversation: runtimeConversation,
       input,
       session: sdkSession(),
     });
@@ -432,6 +506,7 @@ describe("bounded Agents SDK runtime", () => {
 
     await runtimeWith(runner, { executeCommitment }).run({
       authority,
+      conversation: runtimeConversation,
       input,
       session: sdkSession(),
     });
@@ -472,6 +547,7 @@ describe("bounded Agents SDK runtime", () => {
     const runtime = runtimeWith(runner, { executeCommitment });
     const staged = await runtime.run({
       authority,
+      conversation: runtimeConversation,
       input,
       session: sdkSession(),
     });
@@ -614,6 +690,7 @@ describe("bounded Agents SDK runtime", () => {
     const runtime = runtimeWith(runner, { executeCommitment });
     const staged = await runtime.run({
       authority,
+      conversation: runtimeConversation,
       input,
       session: sdkSession(),
     });
@@ -665,6 +742,7 @@ describe("bounded Agents SDK runtime", () => {
       requestSanitizedAvailability: async () => leakedSlots,
     }).run({
       authority,
+      conversation: runtimeConversation,
       input,
       session: sdkSession(),
     });
