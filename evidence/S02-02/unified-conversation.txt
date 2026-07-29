@@ -83,3 +83,47 @@ The 040000 and 050000 migrations were applied only to disposable local
 Supabase verification transactions and rolled back. Probes verified expired
 parked drafts are excluded, unique and ambiguous resolution, exact
 clarification IDs, focus swaps, versioned patches, and stale authority.
+
+Second independent-review repair — 2026-07-30T02:18:03+08:00
+
+Focused repair verification
+Command: npm run test --workspace @shiori/server -- src/agent/context-reader.test.ts src/agent/conversation.test.ts src/conversation/repository.test.ts
+Result: PASS
+Test files: 3 passed (3)
+Tests: 41 passed (41)
+
+Full repaired repository gate
+Command: npm run check
+Result: PASS
+Server tests: 498 passed
+Release-verifier tests: 22 passed
+Isolated Playwright tests: 50 passed
+Server and web typechecks: PASS
+Server and web production builds: PASS
+
+Natural-reference repair evidence
+- Natural draft references are tokenized deterministically as lowercase
+  alphanumeric tokens of at least three characters after a fixed stopword
+  filter. Exact meaningful-token overlap is the only scoring rule.
+- A unique highest positive score resolves exactly, a tied highest positive
+  score returns bounded ambiguity, and zero overlap returns none. Exact UUID
+  authority and owner/state/version/expiry filters remain unchanged.
+- The disposable local Supabase migration probe passed and rolled back:
+  "Move the finance report to Friday" and "The finance one" resolved the
+  finance draft; "Move the report to Friday" returned both report drafts as
+  ambiguous; unrelated, expired, cancelled, and nonexistent references
+  returned none.
+- Tracked probes:
+  server/test/draft-resolution-db.integration.ts
+  server/test/draft-resolution-db.probe.sql
+
+Status-preservation repair evidence
+- `status_listed` and `status_empty` accept only the preserve action with all
+  candidate mutation and model-audit fields null.
+- The disposable local Supabase probe passed and rolled back: an active draft
+  retained its exact ID, version, state, and update timestamp with no model
+  decision; pending permission remained; no-focus returned status_empty;
+  stale focus returned conversation_stale; invalid action, audit, and mutation
+  payloads were rejected while their updates remained claimed.
+- Tracked probe:
+  server/test/status-conversation-db.probe.sql
