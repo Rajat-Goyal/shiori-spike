@@ -99,6 +99,29 @@ function ambiguityQuestion(
   return `Nothing was changed. Which one did you mean: ${labels}?`;
 }
 
+function ambiguityDecision(
+  candidates: readonly AgentAmbiguityCandidate[],
+): DecisionOutcome {
+  return {
+    clarification: "ambiguous_reference",
+    decision: {
+      commitmentMode: "unresolved",
+      definitionOfDone: null,
+      durationMinutes: null,
+      inputClass: "ordinary_question",
+      missingFields: [],
+      nextAction: "answer",
+      offerWorkWindowHelp: false,
+      response: ambiguityQuestion(candidates),
+      targetAt: null,
+      targetTimeZone: null,
+      timingConstraints: [],
+      turnRelation: "none",
+    },
+    ok: true,
+  };
+}
+
 function candidateFields(
   draft: ConversationDraftSummary,
 ): DecisionInput["context"] {
@@ -251,6 +274,20 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
       input: runtimeInput,
       session,
     });
+    const resolutionAmbiguity =
+      resolution.kind === "ambiguous"
+        ? resolution.candidates.map(({ authority: target, draft }) => ({
+            id: target.id,
+            kind: "draft" as const,
+            label: draft.fields.definitionOfDone ?? "Unnamed draft",
+            version: target.expectedVersion,
+          }))
+        : null;
+    const ambiguityCandidates =
+      resolutionAmbiguity ?? product.ambiguity?.candidates ?? null;
+    if (ambiguityCandidates !== null) {
+      return ambiguityDecision(ambiguityCandidates);
+    }
     if (
       result.approval !== undefined &&
       result.pendingApprovalState !== undefined &&
@@ -308,29 +345,6 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
                 : "draft",
             version: result.approval.target.version,
           },
-        },
-      };
-    }
-    const resolutionAmbiguity =
-      resolution.kind === "ambiguous"
-        ? resolution.candidates.map(({ authority: target, draft }) => ({
-            id: target.id,
-            kind: "draft" as const,
-            label: draft.fields.definitionOfDone ?? "Unnamed draft",
-            version: target.expectedVersion,
-          }))
-        : null;
-    const ambiguityCandidates =
-      resolutionAmbiguity ?? product.ambiguity?.candidates ?? null;
-    if (result.outcome.ok && ambiguityCandidates !== null) {
-      return {
-        ...result.outcome,
-        draftTarget: undefined,
-        decision: {
-          ...result.outcome.decision,
-          inputClass: "ordinary_question",
-          response: ambiguityQuestion(ambiguityCandidates),
-          turnRelation: "none",
         },
       };
     }

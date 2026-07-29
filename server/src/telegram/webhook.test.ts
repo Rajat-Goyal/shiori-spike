@@ -55,6 +55,7 @@ class ControlledRepository implements TelegramRepository {
     updateId: number;
   }> = [];
   readonly updateIds = new Set<number>();
+  readonly statuses = new Map<number, TelegramProcessingResult | "claimed">();
   activeCommitments = false;
   activeReads = 0;
 
@@ -64,6 +65,7 @@ class ControlledRepository implements TelegramRepository {
       return false;
     }
     this.updateIds.add(updateId);
+    this.statuses.set(updateId, "claimed");
     return true;
   }
 
@@ -72,6 +74,7 @@ class ControlledRepository implements TelegramRepository {
     result: TelegramProcessingResult,
   ): Promise<void> {
     this.completions.push({ result, updateId });
+    this.statuses.set(updateId, result);
   }
 
   async hasActiveCommitments(): Promise<boolean> {
@@ -335,6 +338,49 @@ describe("POST /api/telegram/webhook", () => {
       { ownerText: "Create a promise", updateId: 5001 },
     ]);
     expect(controlled.repository.completions).toHaveLength(0);
+  });
+
+  it("records terminal failure and suppresses replay when a typed finalizer rejects", async () => {
+    const repository = new ControlledRepository();
+    const client = new ControlledClient();
+    const finalizer = vi.fn().mockRejectedValue(
+      new Error("typed preparation finalizer unavailable"),
+    );
+    const conversation = {
+      handle: vi.fn(async () => {
+        await finalizer();
+        return "Must not be sent";
+      }),
+    };
+    const service = new TelegramService({
+      client,
+      conversationService: conversation,
+      ownerUserId,
+      repository,
+    });
+    const app = await appWith(service);
+    const request = {
+      headers: validHeaders,
+      method: "POST" as const,
+      payload: textUpdate({
+        text: "I need 45 minutes to prepare",
+        updateId: 50011,
+      }),
+      url: "/api/telegram/webhook",
+    };
+
+    const first = await app.inject(request);
+    const replay = await app.inject(request);
+
+    expect(first.statusCode).toBe(503);
+    expect(replay.statusCode).toBe(200);
+    expect(repository.statuses.get(50011)).toBe("failed");
+    expect(repository.completions).toEqual([
+      { result: "failed", updateId: 50011 },
+    ]);
+    expect(conversation.handle).toHaveBeenCalledTimes(1);
+    expect(finalizer).toHaveBeenCalledTimes(1);
+    expect(client.sends).toEqual([]);
   });
 
   it("finalizes one targeted decision failure and suppresses its replay", async () => {

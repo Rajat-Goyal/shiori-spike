@@ -417,7 +417,12 @@ function parseRawSummary(value: unknown): RawDashboardSummary {
       ) ||
       !instant(item.startAt) ||
       !instant(item.endAt) ||
-      !positiveInteger(item.durationMinutes) ||
+      !isWorkSessionDuration(item.durationMinutes) ||
+      !isWorkSessionWindow(
+        item.startAt,
+        item.endAt,
+        item.durationMinutes,
+      ) ||
       !instant(item.outcomeAt) ||
       typeof item.isRecovery !== "boolean" ||
       !positiveInteger(item.totalForCommitment)

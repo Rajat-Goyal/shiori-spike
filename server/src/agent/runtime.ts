@@ -589,6 +589,9 @@ function expectedDraftAuthority(
   if (context.conversation?.draftResolution.kind === "exact") {
     return context.conversation.draftResolution.authority;
   }
+  if (context.conversation?.draftResolution.kind === "ambiguous") {
+    return null;
+  }
   return context.authority.draftId !== null &&
     context.authority.draftVersion !== null
     ? {
@@ -658,12 +661,21 @@ function explicitlySupportsInitialPreparation(
       normalized,
     );
   }
-  return (
+  const explicitWork =
     /\b(?:prep|preparation|prepare|preparing|focused?\s+(?:time|work)|work\s+session)\b/.test(
       normalized,
-    ) ||
-    /\b\d{1,4}\s*(?:m|min|mins|minute|minutes)\b/.test(normalized)
-  );
+    );
+  const duration =
+    /\b\d{1,4}\s*(?:m|min|mins|minute|minutes)\b/.test(normalized);
+  const relativeTarget =
+    /\b(?:in|within|after)\s+\d{1,4}\s*(?:m|min|mins|minute|minutes)\b/.test(
+      normalized,
+    );
+  return explicitWork || (duration && !relativeTarget);
+}
+
+function hasAmbiguousDraftResolution(context: RuntimeContext): boolean {
+  return context.conversation?.draftResolution.kind === "ambiguous";
 }
 
 function singaporeReferenceTimestamp(now: Date): string {
@@ -885,6 +897,7 @@ function buildTools(
     parameters: workSessionInputSchema,
     strict: true,
     isEnabled:
+      !hasAmbiguousDraftResolution(context) &&
       context.conversation?.product.drafts.some(
         (draft) =>
           draft.id === context.authority.draftId &&
@@ -1029,6 +1042,7 @@ function buildTools(
     parameters: continuationDurationSchema,
     strict: true,
     isEnabled:
+      !hasAmbiguousDraftResolution(context) &&
       expectedDraftAuthority(context) === null &&
       (
         context.conversation?.product.continuations?.filter(
@@ -1062,6 +1076,7 @@ function buildTools(
     parameters: initialPreparationSchema,
     strict: true,
     isEnabled:
+      !hasAmbiguousDraftResolution(context) &&
       context.conversation !== null &&
       context.conversation.product.drafts.every(
         (draft) =>
@@ -1143,6 +1158,7 @@ function buildTools(
     name: "request_sanitized_availability",
     parameters: availabilitySchema,
     strict: true,
+    isEnabled: !hasAmbiguousDraftResolution(context),
     execute: async (request) =>
       sanitizeAvailability(
         await options.requestSanitizedAvailability(request),
@@ -1154,6 +1170,7 @@ function buildTools(
     name: "execute_commitment",
     needsApproval: true,
     isEnabled:
+      !hasAmbiguousDraftResolution(context) &&
       approvedAuthority(context.authority) !== null &&
       (
         context.resumeToolName === "execute_commitment" ||
@@ -1195,6 +1212,7 @@ function buildTools(
     name: "update_commitment",
     needsApproval: true,
     isEnabled:
+      !hasAmbiguousDraftResolution(context) &&
       options.updateCommitment !== undefined &&
       approvedAuthority(context.authority)?.entityKind ===
         "commitment" &&

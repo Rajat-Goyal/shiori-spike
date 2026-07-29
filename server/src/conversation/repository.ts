@@ -188,6 +188,11 @@ export interface ConversationRepository {
   applyTurn(
     command: ConversationCommand,
   ): Promise<ConversationApplyResult>;
+  recordDecision?(command: Readonly<{
+    audit: DecisionAudit;
+    draftReference: Readonly<{ id: string; version: number }> | null;
+    updateId: number;
+  }>): Promise<void>;
   readTurn(updateId: number): Promise<ConversationReadResult>;
 }
 
@@ -681,6 +686,29 @@ export class SupabaseConversationRepository
       throw new Error("Conversation read failed");
     }
     return parseReadResult(await response.json());
+  }
+
+  async recordDecision(command: Readonly<{
+    audit: DecisionAudit;
+    draftReference: Readonly<{ id: string; version: number }> | null;
+    updateId: number;
+  }>): Promise<void> {
+    const result =
+      await this.#rpc("record_claimed_conversation_decision", {
+        p_audit_input_class: command.audit.inputClass,
+        p_audit_payload: command.audit.payload,
+        p_draft_id: command.draftReference?.id ?? null,
+        p_draft_version: command.draftReference?.version ?? null,
+        p_model_id: command.audit.modelId,
+        p_prompt_version: command.audit.promptVersion,
+        p_update_id: command.updateId,
+      });
+    if (
+      !isRecord(result) ||
+      !["applied", "replay"].includes(String(result.kind))
+    ) {
+      throw new Error("Conversation decision record failed");
+    }
   }
 
   async applyTurn(

@@ -432,6 +432,66 @@ describe("SessionBackedAgentDecisionEngine", () => {
   it("turns an ambiguous entity reference into a clarification without mutation intent", async () => {
     const test = fixture();
     const ambiguous = productContext(true);
+    const secondDraftId = "22222222-2222-4222-8222-222222222222";
+    vi.mocked(
+      test.draftRepository.resolveDraftReference,
+    ).mockResolvedValueOnce({
+      candidates: [
+        {
+          authority: {
+            expectedVersion: 3,
+            id: snapshot.activeDraftId!,
+            kind: "draft",
+          },
+          draft: {
+            expiresAt: "2026-08-30T00:00:00.000Z",
+            fields: {
+              definitionOfDone: "Submit the launch report",
+              durationMinutes: null,
+              offerWorkWindowHelp: false,
+              possibleWorkSession: true,
+              simpleAction: false,
+              targetAt: "2026-08-01T10:00:00+08:00",
+              targetTimeZone: "Asia/Singapore",
+              timingConstraints: [],
+            },
+            focused: true,
+            id: snapshot.activeDraftId!,
+            kind: "draft",
+            phase: "complete",
+            updatedAt: "2026-07-30T00:00:00.000Z",
+            version: 3,
+          },
+        },
+        {
+          authority: {
+            expectedVersion: 2,
+            id: secondDraftId,
+            kind: "draft",
+          },
+          draft: {
+            expiresAt: "2026-08-30T00:00:00.000Z",
+            fields: {
+              definitionOfDone: "Review the finance report",
+              durationMinutes: null,
+              offerWorkWindowHelp: false,
+              possibleWorkSession: true,
+              simpleAction: false,
+              targetAt: "2026-08-02T10:00:00+08:00",
+              targetTimeZone: "Asia/Singapore",
+              timingConstraints: [],
+            },
+            focused: false,
+            id: secondDraftId,
+            kind: "draft",
+            phase: "complete",
+            updatedAt: "2026-07-30T00:00:00.000Z",
+            version: 2,
+          },
+        },
+      ],
+      kind: "ambiguous",
+    });
     vi.mocked(test.contextReader.readProductContext).mockResolvedValueOnce({
       ...ambiguous,
       ambiguity: {
@@ -443,7 +503,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
             version: 3,
           },
           {
-            id: "22222222-2222-4222-8222-222222222222",
+            id: secondDraftId,
             kind: "draft",
             label: "Review the finance report",
             version: 2,
@@ -451,6 +511,36 @@ describe("SessionBackedAgentDecisionEngine", () => {
         ],
         query: "move the report to friday",
       },
+    });
+    vi.mocked(test.runtime.run).mockResolvedValueOnce({
+      approval: {
+        proposal: decision,
+        target: { id: snapshot.activeDraftId!, version: 3 },
+        toolName: "execute_commitment",
+      },
+      outcome: {
+        decision,
+        initialWorkSessionInput: {
+          durationMinutes: 45,
+          followUpQuestion: null,
+          nextInput: "owner_time",
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: null,
+        },
+        ok: true,
+        workSessionInput: {
+          draftId: snapshot.activeDraftId!,
+          draftVersion: 3,
+          durationMinutes: 45,
+          followUpQuestion: null,
+          nextInput: "owner_time",
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: null,
+        },
+      },
+      pendingApprovalState: "must-not-be-prepared",
     });
 
     const outcome = await test.engine.decide(
@@ -473,6 +563,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
     );
 
     expect(outcome).toMatchObject({
+      clarification: "ambiguous_reference",
       decision: {
         inputClass: "ordinary_question",
         response:
@@ -481,6 +572,19 @@ describe("SessionBackedAgentDecisionEngine", () => {
       },
       ok: true,
     });
+    expect(outcome).not.toHaveProperty("approval");
+    expect(outcome).not.toHaveProperty("draftTarget");
+    expect(outcome).not.toHaveProperty("initialWorkSessionInput");
+    expect(outcome).not.toHaveProperty("workSessionInput");
+    expect(test.runtime.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversation: expect.objectContaining({
+          draftResolution: expect.objectContaining({
+            kind: "ambiguous",
+          }),
+        }),
+      }),
+    );
   });
 
   it("stages an exact commitment-edit interruption from the same durable run and returns only application preview copy", async () => {

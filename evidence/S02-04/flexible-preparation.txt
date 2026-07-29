@@ -13,6 +13,7 @@ AC1 — Mandatory preparation decision and exact focus
 - The agent preparation tool requires the exact focused draft id, version, complete phase, possible-work-session mode, and durable preparation stage.
 - ConversationService hands the validated input to WorkSessionFlow without applying a generic draft mutation or changing focus.
 - Ordinary-question behavior continues to preserve the active draft and pending question.
+- Ambiguous two-draft resolution is terminal decision-only: mutation tools are disabled, focused fallback authority is unavailable, all model-supplied mutation payloads are discarded, and ConversationService persists one clarification before any domain call.
 
 AC2 — Flexible bounded durations, including 45 minutes
 - Decision/runtime, scheduling, repository, dashboard, work-session, and approved-edit validation accept integers from 1 through 1440.
@@ -21,6 +22,7 @@ AC2 — Flexible bounded durations, including 45 minutes
 - Application and database boundaries enforce the same Singapore-local :00/:30 start rule and exact end = start + duration invariant.
 - Database coverage verifies 45- and 1440-minute persistence and rejects a :15 start.
 - Dashboard parsing rejects zero, fractional, over-bound, and duration/window-mismatch rows.
+- The same validation is applied to dashboard session history; tests reject 0, 1441, fractional, mismatched, and :15-start rows while accepting exact 45-minute and cross-midnight 1440-minute rows.
 
 AC3 — Natural constraints and owner-selected times in one durable run
 - propose_work_session_input is part of the same Agents SDK run as the typed owner turn.
@@ -29,6 +31,7 @@ AC3 — Natural constraints and owner-selected times in one durable run
 - WorkSessionFlow performs the authoritative availability check and transition.
 - Explicit duration and timing facts included in the original commitment message are applied immediately after draft creation in the same run.
 - The deterministic guard accepts only explicit complete commitment input and does not infer preparation from unrelated phrases.
+- A duration in a relative target phrase (`in`, `within`, or `after N minutes`) is not preparation evidence by itself. Tests keep “Remind me to stretch in 45 minutes” in the mandatory preparation-decision path while separating the 15-minute preparation duration in an explicit mixed target/preparation message.
 
 AC4 — Controlled Calendar outcomes
 - Free generated windows use application-owned sanitized choice copy.
@@ -47,10 +50,12 @@ AC6 — Flexible continuations
 - Context exposes only owner-isolated active continuation intent references and state.
 - Database transition and final confirmation enforce the same duration and exact-window bounds.
 - Database coverage verifies the 45-minute outcome → options → explicit confirmation path creates exactly one session and two messages.
+- The continuation transition locks and consumes the authoritative claimed Telegram row in place. A linked model-decision audit remains byte-for-byte attached to that update through the natural 45-minute transition, which advances the intent exactly once; replay through a new repository instance is inert.
 
 Safety and durability
 - Additive migration only; no prior migration was edited.
 - Typed preparation and continuation outcomes terminally finalize claimed Telegram updates for applied, stale, expired, unsupported, invalid, unavailable, no-fit, provider-failure, domain-error, replay, and restart paths.
+- Typed finalizer failures propagate to the Telegram boundary instead of producing normal success copy; the outer boundary records terminal failure and suppresses replay.
 - Same-message preparation consumes the exact processed creation turn in place without deleting its Telegram row or linked model-decision/draft-operation audit history.
 - Stale draft versions remain inert.
 - Availability transitions store at most two sanitized windows.
@@ -58,12 +63,13 @@ Safety and durability
 - No Google Calendar write path was introduced.
 
 Verification
-- Clean local Supabase reset: PASS (all migrations through 20260730091000).
-- Complete server unit tests: PASS (560/560 across 35 files).
+- Clean local Supabase reset: PASS (all migrations through 20260730092000).
+- Focused repair tests: PASS (180/180 across 8 files).
+- Complete server unit tests: PASS (575/575 across 35 files).
 - Local database integration tests after the clean reset: PASS (38/38 across 13 files).
 - npm run check: PASS.
   - Server and web typechecks: PASS.
-  - Server unit tests: 560/560.
+  - Server unit tests: 575/575.
   - Release verifier: 22/22.
   - Production web and server builds: PASS.
   - Isolated Playwright tests: 50/50.

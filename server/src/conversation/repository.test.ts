@@ -473,6 +473,40 @@ describe("SupabaseConversationRepository", () => {
     ).rejects.toThrow("Conversation apply returned an invalid response");
   });
 
+  it("records a claimed typed-domain decision without completing or replacing its update", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({ kind: "applied" }),
+    );
+    const repository = repositoryWith(
+      fetchFromSupabase as typeof fetch,
+    );
+
+    await expect(
+      repository.recordDecision({
+        audit: explicitAudit,
+        draftReference: {
+          id: focusedDraft.id,
+          version: focusedDraft.version,
+        },
+        updateId: 90101,
+      }),
+    ).resolves.toBeUndefined();
+
+    const [url, options] = fetchFromSupabase.mock.calls[0];
+    expect(url).toBe(
+      "http://127.0.0.1:54321/rest/v1/rpc/record_claimed_conversation_decision",
+    );
+    expect(JSON.parse(String(options?.body))).toEqual({
+      p_audit_input_class: explicitAudit.inputClass,
+      p_audit_payload: explicitAudit.payload,
+      p_draft_id: focusedDraft.id,
+      p_draft_version: focusedDraft.version,
+      p_model_id: explicitAudit.modelId,
+      p_prompt_version: explicitAudit.promptVersion,
+      p_update_id: 90101,
+    });
+  });
+
   it("creates a separately focused draft without weakening the prior focus CAS", async () => {
     const fetchFromSupabase = vi.fn(async () =>
       Response.json({

@@ -453,6 +453,20 @@ export class ConversationService {
       }
     }
 
+    if (outcome.clarification === "ambiguous_reference") {
+      return this.#finish(
+        {
+          action: "preserve",
+          audit: this.#audit(outcome.decision),
+          expected: expectedSnapshot(snapshot),
+          processingResult: "conversation",
+          updateId,
+        },
+        snapshot,
+        responseText(outcome.decision) ?? safeFailure(snapshot),
+      );
+    }
+
     if (outcome.continuationInput !== undefined) {
       if (
         this.#continuationConversation === undefined ||
@@ -461,6 +475,11 @@ export class ConversationService {
       ) {
         return this.#preserveFailure(updateId, snapshot);
       }
+      await this.#repository.recordDecision?.({
+        audit: this.#audit(outcome.decision),
+        draftReference: null,
+        updateId,
+      });
       const reply =
         await this.#continuationConversation.handleDurationInput(
           updateId,
@@ -493,6 +512,14 @@ export class ConversationService {
           snapshot,
         );
       }
+      await this.#repository.recordDecision?.({
+        audit: this.#audit(outcome.decision),
+        draftReference: {
+          id: outcome.workSessionInput.draftId,
+          version: outcome.workSessionInput.draftVersion,
+        },
+        updateId,
+      });
       const reply =
         await this.#workSessionConversation.handleConversationInput(
           updateId,

@@ -1128,13 +1128,15 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
         proposed: { status: "free", window: nextWindow },
         status: "available",
       });
-    const continuation = new WorkSessionContinuationService({
-      availability,
-      repository: new SupabaseWorkSessionContinuationRepository({
+    const continuationRepository =
+      new SupabaseWorkSessionContinuationRepository({
         ownerId: prepared.config.telegramOwnerUserId,
         supabaseSecretKey: prepared.config.supabaseSecretKey,
         supabaseUrl: prepared.config.supabaseUrl,
-      }),
+      });
+    const continuation = new WorkSessionContinuationService({
+      availability,
+      repository: continuationRepository,
     });
     const intentId = outcomeResult.continuationId;
     const telegram = new SupabaseTelegramRepository({
@@ -1148,6 +1150,39 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
         prepared.config.telegramOwnerUserId,
       ),
     ).resolves.toBe(true);
+    const continuationAudit: DecisionAudit = {
+      inputClass: "ordinary_question",
+      modelId: "db-test-model",
+      payload: {
+        definitionOfDone: null,
+        durationMinutes: null,
+        missingFields: [],
+        nextAction: "answer",
+        offerWorkWindowHelp: false,
+        possibleWorkSession: false,
+        simpleAction: false,
+        targetAt: null,
+        targetTimeZone: null,
+        timingConstraints: [],
+        turnRelation: "none",
+      },
+      promptVersion: "db-test-prompt-v1",
+    };
+    await new SupabaseConversationRepository({
+      supabaseSecretKey: prepared.config.supabaseSecretKey,
+      supabaseUrl: prepared.config.supabaseUrl,
+    }).recordDecision({
+      audit: continuationAudit,
+      draftReference: null,
+      updateId: baseUpdateId + 4,
+    });
+    const auditBefore = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "model_decisions",
+      `&update_id=eq.${baseUpdateId + 4}`,
+    );
+    expect(auditBefore).toHaveLength(1);
     await expect(
       continuation.handleDurationInput(
         baseUpdateId + 4,
@@ -1183,6 +1218,59 @@ describe("atomic work-session outcome and continuation on local Supabase", () =>
         processing_result: "work_session_continuation_resolved",
         processing_status: "processed",
         resolved_action_key: `c:${intentId}:1:natural_duration`,
+      }),
+    ]);
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "model_decisions",
+        `&update_id=eq.${baseUpdateId + 4}`,
+      ),
+    ).toEqual(auditBefore);
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "work_session_continuation_intents",
+        `&id=eq.${intentId}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        duration_minutes: 45,
+        stage: "offer",
+        version: 2,
+      }),
+    ]);
+    const restartedRepository =
+      new SupabaseWorkSessionContinuationRepository({
+        ownerId: prepared.config.telegramOwnerUserId,
+        supabaseSecretKey: prepared.config.supabaseSecretKey,
+        supabaseUrl: prepared.config.supabaseUrl,
+      });
+    await expect(
+      restartedRepository.transitionFromConversation({
+        action: "natural_duration",
+        chatId: prepared.config.telegramOwnerUserId,
+        durationMinutes: 45,
+        expectedStage: "awaiting_duration",
+        nextStage: "offer",
+        reference: { id: intentId, version: 1 },
+        updateId: baseUpdateId + 4,
+      }),
+    ).resolves.toEqual({ kind: "replay" });
+    expect(
+      await rows(
+        prepared.config.supabaseUrl,
+        prepared.config.supabaseSecretKey,
+        "work_session_continuation_intents",
+        `&id=eq.${intentId}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        duration_minutes: 45,
+        stage: "offer",
+        version: 2,
       }),
     ]);
     await expect(

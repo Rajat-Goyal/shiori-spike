@@ -367,4 +367,115 @@ describe("SupabaseDashboardRepository", () => {
       );
     },
   );
+
+  it.each([
+    {
+      durationMinutes: 0,
+      endAt: "2026-07-24T09:00:00.000Z",
+      startAt: "2026-07-24T09:00:00.000Z",
+    },
+    {
+      durationMinutes: 1_441,
+      endAt: "2026-07-25T09:01:00.000Z",
+      startAt: "2026-07-24T09:00:00.000Z",
+    },
+    {
+      durationMinutes: 45.5,
+      endAt: "2026-07-24T09:45:30.000Z",
+      startAt: "2026-07-24T09:00:00.000Z",
+    },
+    {
+      durationMinutes: 45,
+      endAt: "2026-07-24T09:46:00.000Z",
+      startAt: "2026-07-24T09:00:00.000Z",
+    },
+    {
+      durationMinutes: 45,
+      endAt: "2026-07-24T10:00:00.000Z",
+      startAt: "2026-07-24T09:15:00.000Z",
+    },
+  ])(
+    "rejects malformed dashboard history interval %#",
+    async ({ durationMinutes, endAt, startAt }) => {
+      const repository = new SupabaseDashboardRepository({
+        fetch: (async () =>
+          Response.json({
+            ...emptyReadModel(),
+            sessionHistoryRows: [{
+              commitmentId: ids.commitment1,
+              definitionOfDone: "Reject malformed session history",
+              durationMinutes,
+              endAt,
+              id: ids.session1,
+              isRecovery: false,
+              outcomeAt: "2026-07-25T10:00:00.000Z",
+              sequenceNumber: 1,
+              startAt,
+              status: "done",
+              totalForCommitment: 1,
+            }],
+          })) as typeof fetch,
+        ownerId: 998877,
+        ownerTimeZone: "Asia/Singapore",
+        supabaseSecretKey: "server-only-test-key",
+        supabaseUrl: "http://127.0.0.1:54321",
+      });
+
+      await expect(repository.readSummary()).rejects.toThrow(
+        "Dashboard session history data is invalid",
+      );
+    },
+  );
+
+  it.each([
+    {
+      durationMinutes: 45,
+      endAt: "2026-07-24T09:45:00.000Z",
+      startAt: "2026-07-24T09:00:00.000Z",
+    },
+    {
+      durationMinutes: 1_440,
+      endAt: "2026-07-25T16:00:00.000Z",
+      startAt: "2026-07-24T16:00:00.000Z",
+    },
+  ])(
+    "accepts exact bounded dashboard history interval %#",
+    async ({ durationMinutes, endAt, startAt }) => {
+      const repository = new SupabaseDashboardRepository({
+        fetch: (async () =>
+          Response.json({
+            ...emptyReadModel(),
+            sessionHistoryRows: [{
+              commitmentId: ids.commitment1,
+              definitionOfDone: "Accept exact session history",
+              durationMinutes,
+              endAt,
+              id: ids.session1,
+              isRecovery: false,
+              outcomeAt: "2026-07-26T10:00:00.000Z",
+              sequenceNumber: 1,
+              startAt,
+              status: "done",
+              totalForCommitment: 1,
+            }],
+          })) as typeof fetch,
+        ownerId: 998877,
+        ownerTimeZone: "Asia/Singapore",
+        supabaseSecretKey: "server-only-test-key",
+        supabaseUrl: "http://127.0.0.1:54321",
+      });
+
+      await expect(repository.readSummary()).resolves.toMatchObject({
+        sessionHistory: [{
+          sessions: [
+            expect.objectContaining({
+              durationMinutes,
+              endAt,
+              startAt,
+            }),
+          ],
+        }],
+      });
+    },
+  );
 });

@@ -184,6 +184,28 @@ describe("work-session continuation", () => {
     },
   );
 
+  it("propagates a typed continuation finalizer failure instead of returning normal success copy", async () => {
+    const repository = new Repository();
+    vi.spyOn(repository, "read").mockRejectedValueOnce(
+      new Error("read unavailable"),
+    );
+    vi.spyOn(repository, "finalizeConversation").mockRejectedValueOnce(
+      new Error("finalizer unavailable"),
+    );
+    const service = new WorkSessionContinuationService({
+      availability: vi.fn(),
+      repository,
+    });
+
+    await expect(
+      service.handleDurationInput(77, 123456789, {
+        durationMinutes: 45,
+        intentId,
+        intentVersion: 1,
+      }),
+    ).rejects.toThrow("finalizer unavailable");
+  });
+
   it("records duration without searching, then requires a separate Find a time action", async () => {
     const repository = new Repository();
     const availability = vi.fn(async () => ({

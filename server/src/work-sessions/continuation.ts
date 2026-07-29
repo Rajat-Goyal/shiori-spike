@@ -655,7 +655,7 @@ export class WorkSessionContinuationService {
         chatId,
         reference,
         "invalid",
-      ).catch(() => undefined);
+      );
       return { text: workSessionContinuationCopy.stale };
     }
     let read;
@@ -667,7 +667,7 @@ export class WorkSessionContinuationService {
         chatId,
         reference,
         "domain_error",
-      ).catch(() => undefined);
+      );
       return { text: workSessionContinuationCopy.uncertain };
     }
     if (read.kind === "expired") {
@@ -718,7 +718,7 @@ export class WorkSessionContinuationService {
         chatId,
         reference,
         "domain_error",
-      ).catch(() => undefined);
+      );
       return { text: workSessionContinuationCopy.uncertain };
     }
   }

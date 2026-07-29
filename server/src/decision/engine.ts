@@ -71,6 +71,7 @@ export type DecisionOutcome =
           "awaiting_permission" | "none"
         >;
       }>;
+      clarification?: "ambiguous_reference";
       ok: true;
       recovery?: DecisionRetryRecovery;
       continuationInput?: WorkSessionContinuationConversationInput;

@@ -904,7 +904,7 @@ export class WorkSessionFlow {
         chatId,
         { id: input.draftId, version: input.draftVersion },
         "domain_error",
-      ).catch(() => undefined);
+      );
       return { text: workSessionFlowCopy.approvalUnavailable };
     }
   }

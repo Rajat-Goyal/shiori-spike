@@ -554,6 +554,31 @@ describe("WorkSessionFlow", () => {
     expect(availability).toHaveBeenCalledTimes(1);
   });
 
+  it("propagates a typed preparation finalizer failure instead of returning normal success copy", async () => {
+    const repository = new MemoryRepository();
+    vi.spyOn(repository, "finalizeConversation").mockRejectedValueOnce(
+      new Error("finalizer unavailable"),
+    );
+    const availability = vi.fn(async () => {
+      throw new Error("provider internals");
+    });
+    const test = setup(repository, availability);
+
+    await expect(
+      test.flow.handleConversationInput(7999, 42, {
+        draftId: ID,
+        draftVersion: 1,
+        durationMinutes: 45,
+        followUpQuestion: null,
+        nextInput: null,
+        preparationRequired: true,
+        startAt: null,
+        timingConstraints: "mon 08:00-12:00",
+      }),
+    ).rejects.toThrow("finalizer unavailable");
+    expect(availability).toHaveBeenCalledTimes(1);
+  });
+
   it("converts declined preparation into a fresh simple confirmation without side effects", async () => {
     const prepareApproval = vi.fn(async () => true);
     const test = setup(

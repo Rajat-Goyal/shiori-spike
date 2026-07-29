@@ -461,6 +461,80 @@ describe("bounded Agents SDK runtime", () => {
     });
   });
 
+  it("disables domain mutation tools when draft resolution is ambiguous", async () => {
+    const runner = new ScriptedRunner(async (request) => {
+      const runContext = new RunContext(request.context);
+      for (const name of [
+        "propose_work_session_input",
+        "propose_continuation_duration",
+        "propose_initial_preparation",
+        "request_sanitized_availability",
+        "execute_commitment",
+      ]) {
+        await expect(
+          functionTool(request, name).isEnabled(
+            runContext,
+            request.agent,
+          ),
+        ).resolves.toBe(false);
+      }
+      return emptyResult();
+    });
+    const ambiguousProduct: AgentProductContext = {
+      ...productContext,
+      continuations: [{
+        commitmentId:
+          "11111111-1111-4111-8111-111111111111",
+        durationMinutes: null,
+        id: "99999999-9999-4999-8999-999999999999",
+        stage: "awaiting_duration",
+        targetAt: "2026-07-30T17:00:00+08:00",
+        timingConstraints: "default",
+        version: 1,
+      }],
+      drafts: productContext.drafts.map((draft) => ({
+        ...draft,
+        preparation: {
+          durationMinutes: null,
+          selectedEndAt: null,
+          selectedStartAt: null,
+          stage: "offer_help" as const,
+          timingConstraints: null,
+        },
+      })),
+    };
+
+    const result = await runtimeWith(runner).run({
+      authority,
+      conversation: {
+        ...runtimeConversation,
+        draftResolution: {
+          candidates: [
+            {
+              expectedVersion: authority.draftVersion!,
+              id: authority.draftId!,
+              kind: "draft",
+            },
+            {
+              expectedVersion: 2,
+              id: "22222222-2222-4222-8222-222222222222",
+              kind: "draft",
+            },
+          ],
+          kind: "ambiguous",
+        },
+        product: ambiguousProduct,
+      },
+      input,
+      session: sdkSession(),
+    });
+
+    expect(result.outcome).toMatchObject({
+      failure: "missing_output",
+      ok: false,
+    });
+  });
+
   it("captures explicit same-message preparation facts and rejects inference from a target time", async () => {
     const noDraftAuthority: AgentExecutionAuthority = {
       ...authority,
@@ -546,6 +620,87 @@ describe("bounded Agents SDK runtime", () => {
     if (inferred.outcome.ok) {
       expect(inferred.outcome.initialWorkSessionInput).toBeUndefined();
     }
+  });
+
+  it("does not treat a relative target duration as preparation but separates an explicit preparation duration", async () => {
+    const noDraftAuthority: AgentExecutionAuthority = {
+      ...authority,
+      draftId: null,
+      draftVersion: null,
+    };
+    const emptyConversation = {
+      ...runtimeConversation,
+      product: {
+        ...productContext,
+        commitments: [],
+        drafts: [],
+        focusedEntity: null,
+      },
+    };
+    const relativeRunner = new ScriptedRunner(async (request) => {
+      await invoke(request, "propose_draft_update", proposalInput);
+      await expect(
+        invoke(request, "propose_initial_preparation", {
+          durationMinutes: 45,
+          followUpQuestion: "When would you like to prepare?",
+          nextInput: "owner_time",
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: null,
+        }),
+      ).resolves.toEqual({
+        accepted: false,
+        reason: "input_invalid",
+      });
+      return emptyResult();
+    });
+    const relative = await runtimeWith(relativeRunner).run({
+      authority: noDraftAuthority,
+      conversation: emptyConversation,
+      input: {
+        context: { fields: null, phase: "none" },
+        ownerText: "Remind me to stretch in 45 minutes",
+      },
+      session: sdkSession([], noDraftAuthority),
+    });
+
+    expect(relative.outcome).toMatchObject({ ok: true });
+    if (relative.outcome.ok) {
+      expect(relative.outcome.initialWorkSessionInput).toBeUndefined();
+    }
+
+    const explicitRunner = new ScriptedRunner(async (request) => {
+      await invoke(request, "propose_draft_update", proposalInput);
+      await expect(
+        invoke(request, "propose_initial_preparation", {
+          durationMinutes: 15,
+          followUpQuestion: "When would you like to prepare?",
+          nextInput: "owner_time",
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: null,
+        }),
+      ).resolves.toEqual({ accepted: true });
+      return emptyResult();
+    });
+    const explicit = await runtimeWith(explicitRunner).run({
+      authority: noDraftAuthority,
+      conversation: emptyConversation,
+      input: {
+        context: { fields: null, phase: "none" },
+        ownerText:
+          "The stretch is due in 45 minutes and I need 15 minutes to prepare.",
+      },
+      session: sdkSession([], noDraftAuthority),
+    });
+
+    expect(explicit.outcome).toMatchObject({
+      initialWorkSessionInput: {
+        durationMinutes: 15,
+        preparationRequired: true,
+      },
+      ok: true,
+    });
   });
 
   it("exposes only the typed allowlist and binds context/history reads to the durable session", async () => {

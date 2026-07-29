@@ -338,6 +338,90 @@ function providerResponse(value: unknown): Response {
 }
 
 describe("ConversationService", () => {
+  it("finalizes an ambiguous clarification before every model-supplied mutation payload", async () => {
+    const snapshot = activeDraft("complete", workFields, 7);
+    const repository = new ControlledRepository(snapshot);
+    const workSessionConversation = {
+      handleConversationInput: vi.fn(),
+    };
+    const continuationConversation = {
+      handleDurationInput: vi.fn(),
+    };
+    const prepareApproval = vi.fn();
+    const clarification =
+      "Nothing was changed. Which one did you mean: “Draft one”, “Draft two”?";
+    const service = new ConversationService({
+      continuationConversation,
+      decisionEngine: {
+        completeTurn: vi.fn(),
+        decide: vi.fn(async () => ({
+          approval: {
+            reply: { text: "Must not be shown" },
+            target: {
+              id: snapshot.id,
+              kind: "draft" as const,
+              version: snapshot.version,
+            },
+          },
+          clarification: "ambiguous_reference" as const,
+          continuationInput: {
+            durationMinutes: 45,
+            intentId: "22222222-2222-4222-8222-222222222222",
+            intentVersion: 1,
+          },
+          decision: ordinary(clarification),
+          initialWorkSessionInput: {
+            durationMinutes: 45,
+            followUpQuestion: null,
+            nextInput: "owner_time" as const,
+            preparationRequired: true,
+            startAt: null,
+            timingConstraints: null,
+          },
+          ok: true as const,
+          workSessionInput: {
+            draftId: snapshot.id,
+            draftVersion: snapshot.version,
+            durationMinutes: 45,
+            followUpQuestion: null,
+            nextInput: "owner_time" as const,
+            preparationRequired: true,
+            startAt: null,
+            timingConstraints: null,
+          },
+        })),
+      },
+      modelId: "gpt-test-model",
+      ownerChatId: 42,
+      prepareApproval,
+      promptVersion: "shiori-test-v1",
+      repository,
+      workSessionConversation,
+    });
+
+    await expect(
+      service.handle(79991, "Use the 45-minute plan for that draft"),
+    ).resolves.toBe(clarification);
+    expect(repository.commands).toEqual([
+      {
+        action: "preserve",
+        expected: {
+          id: snapshot.id,
+          kind: "draft",
+          version: snapshot.version,
+        },
+        processingResult: "conversation",
+        updateId: 79991,
+      },
+    ]);
+    expect(repository.audits).toHaveLength(1);
+    expect(workSessionConversation.handleConversationInput)
+      .not.toHaveBeenCalled();
+    expect(continuationConversation.handleDurationInput)
+      .not.toHaveBeenCalled();
+    expect(prepareApproval).not.toHaveBeenCalled();
+  });
+
   it("hands a validated natural preparation answer to the exact deterministic flow without losing focus", async () => {
     const snapshot = activeDraft("complete", workFields, 7);
     const repository = new ControlledRepository(snapshot);
@@ -471,6 +555,56 @@ describe("ConversationService", () => {
       "Do you need preparation time",
     );
     expect(completeTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a relative target duration out of preparation and asks the mandatory question", async () => {
+    const repository = new ControlledRepository({ kind: "none" });
+    repository.applyResult = {
+      completed: true,
+      draftCreated: true,
+      draftReference: {
+        id: "11111111-1111-4111-8111-111111111111",
+        version: 1,
+      },
+      status: "applied",
+    };
+    const workSessionConversation = {
+      handleConversationInput: vi.fn(),
+    };
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => ({
+          decision: decision(workFields),
+          ok: true as const,
+        })),
+      },
+      modelId: "gpt-test-model",
+      ownerChatId: 42,
+      promptVersion: "shiori-test-v1",
+      repository,
+      workSessionConversation,
+    });
+
+    const reply = await service.handle(
+      79981,
+      "Remind me to stretch in 45 minutes",
+    );
+
+    expect(repository.commands[0]).toMatchObject({
+      action: "create_draft",
+      fields: expect.objectContaining({
+        durationMinutes: null,
+        possibleWorkSession: true,
+      }),
+    });
+    expect(reply).toEqual(
+      workSessionPlanningOffer(workFields, {
+        id: repository.applyResult.draftReference!.id,
+        version: repository.applyResult.draftReference!.version,
+      }),
+    );
+    expect(workSessionConversation.handleConversationInput)
+      .not.toHaveBeenCalled();
   });
 
   it("incorporates explicit no-preparation while creating the promise and proceeds to exact approval", async () => {
