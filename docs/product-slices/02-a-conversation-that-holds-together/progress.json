@@ -1,8 +1,8 @@
 {
   "slice": "02-a-conversation-that-holds-together",
-  "updated_at": "2026-07-29T19:27:50Z",
-  "current_story": "S02-04",
-  "summary": "3/5 done",
+  "updated_at": "2026-07-29T20:52:14Z",
+  "current_story": null,
+  "summary": "4/5 done",
   "log": [
     {
       "story_id": "S02-01",
@@ -187,6 +187,67 @@
         "S02-05: exercise real owner create/edit approval, restart, replay, Calendar recheck, and active-session edit rejection after deployment."
       ],
       "context_for_next": "Creation and active-commitment edits now pause and resume the same encrypted SDK decision run.\nNew approval staging uses only active-session stagePaused; legacy execution envelopes are resolution-only compatibility.\nCreation/edit authority binds owner, session, exact entity/version, tool, proposal hash, expiry, and operation receipt.\nApproved edits atomically version the commitment, append a change event, and replace only exact obsolete unsent schedules.\nTime-changing edits recheck Calendar and never write to it.\nStarted or awaiting-check-in work sessions block plan edits and retain their pending end check-in.\nReal SDK serialize/rehydrate/Runner tests cover approve, reject, absent tool, and mismatch fail-closed paths.\nClean DB suite passes 34/34; full check passes with 522 server, 22 release-verifier, and 50 Playwright tests.\nFlexible duration and natural preparation constraints remain S02-04."
+    },
+    {
+      "story_id": "S02-04",
+      "started_at": "2026-07-29T19:27:50Z",
+      "finished_at": "2026-07-29T20:52:14Z",
+      "squad": "work-session-integration",
+      "outcome": "done",
+      "commits": [
+        "aa3a6c1 chore(S02-04): start flexible preparation",
+        "7706222 feat(S02-04): support flexible preparation conversations",
+        "a9bdf3c fix(S02-04): close flexible preparation gaps",
+        "fd31f21 fix(S02-04): harden flexible preparation safety",
+        "b4b9a9c fix(S02-04): bind preparation duration evidence"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S02-04/flexible-preparation.txt"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S02-04/flexible-preparation.txt"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S02-04/flexible-preparation.txt"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S02-04/flexible-preparation.txt"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S02-04/flexible-preparation.txt"
+        }
+      ],
+      "decisions": [
+        "Preparation duration is an exact positive integer from 1 through 1440 minutes across agent, application, database, scheduling, continuation, edit, and dashboard boundaries.",
+        "Session starts remain on Singapore :00 or :30 boundaries; flexible durations may end on other quarter-hours and may cross midnight within exact constraints and target.",
+        "Natural preparation and continuation input uses exact draft or continuation authority in the same durable run; deterministic services own transitions and controlled Calendar copy.",
+        "A preparation answer supplied with the promise is incorporated immediately; the generic preparation question is asked only when the decision is genuinely missing.",
+        "Preparation duration evidence must bind the exact submitted value to preparation/work text and cannot borrow a relative target duration.",
+        "Every typed preparation or continuation outcome finalizes one authoritative Telegram update; row and audit identity survive transition, replay, and restart.",
+        "Ambiguous entity references are terminal decision-only outcomes before any work-session or continuation mutation dispatch.",
+        "Fixed-duration buttons remain optional shortcuts, while natural typed durations cover the complete bounded range and exactly one next session."
+      ],
+      "deviations_from_plan": [
+        "Independent review required repair cycles for continuation duration coverage, same-message preparation, claimed-update finalization, update-row identity, start granularity, cross-midnight reachability, ambiguity ordering, target/preparation duration separation, finalizer propagation, and dashboard history validation.",
+        "Production-shaped DB tests exposed and repaired unbound repository method dispatch, an old model-audit duration enum, and a delete/reinsert FK conflict in same-message transitions.",
+        "No S02-04 migration or implementation was applied to remote Supabase or deployed to Railway while the story was under review."
+      ],
+      "follow_ups": [
+        "S02-05: run a real owner conversation covering same-message 45-minute preparation, busy/free/unverified choice, approval, restart, replay, and natural 45-minute continuation.",
+        "S02-05: apply all additive Slice 02 migrations and verify the dedicated Railway service only after fresh explicit production approval."
+      ],
+      "context_for_next": "Natural preparation and continuation stay in one durable exact-authority agent run.\nDurations are exact integers 1..1440 throughout app and database; 45 minutes is a first-class case.\nStarts use Singapore :00/:30 boundaries; legal flexible sessions may cross midnight and end on other quarter-hours.\nSame-message prep facts are incorporated without a redundant question, while relative target durations cannot become prep durations.\nFree, busy, unavailable, provider-failure, owner-choice, no-prep, stale, ambiguity, and finalizer-failure paths preserve authority and finalize updates.\nContinuation produces at most one next work session and two scheduled messages; fixed buttons are suggestions only.\nTelegram update and audit row identity survive transitions, replay, and restart.\nClean DB suite passes 38/38; full check passes with 577 server, 22 release-verifier, and 50 Playwright tests.\nS02-05 should deploy and verify these exact paths without adding new capability."
     }
   ]
 }

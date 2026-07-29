@@ -10,7 +10,7 @@ Evidence must not contain secrets, decrypted session payloads, full Telegram web
 | History pagination | Agent retrieves an older required turn by opaque cursor without duplicating recent context | Pass — S02-01 |
 | Multiple drafts | A second draft is created without overwriting the first | Pass — S02-02 |
 | Ambiguous reference | No mutation and one clarification response | Pass — S02-02 |
-| Preparation continuation | Duration and timing answers advance the focused draft through the agent | Pending |
+| Preparation continuation | Duration and timing answers advance the focused draft through the agent | Pass — S02-04 |
 | Create approval | Exact paused run resumes once and creates one commitment | Pass — S02-03 |
 | Commitment edit | Approved edit rechecks time and replaces obsolete schedules atomically | Pass — S02-03 |
 | Stale/replayed approval | No duplicate or mismatched mutation | Pass — S02-03 |
