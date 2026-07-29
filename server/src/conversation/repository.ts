@@ -39,9 +39,12 @@ export type ConversationReadResult =
   | { completed: true; kind: "expired" }
   | { completed: true; kind: "interrupted" };
 
-type ExpectedSnapshot =
+export type ExpectedConversationFocus =
   | { kind: "none" }
-  | Pick<ActiveDraft, "id" | "kind" | "version">
+  | Pick<ActiveDraft, "id" | "kind" | "version">;
+
+type ExpectedSnapshot =
+  | ExpectedConversationFocus
   | Pick<
       PermissionCandidate,
       "correlatedUpdateId" | "id" | "kind" | "sourceUpdateId"
@@ -70,6 +73,7 @@ type ConversationAction =
       action:
         | "accept_work_permission"
         | "create_draft"
+        | "create_separate_draft"
         | "update_draft";
       expected: ExpectedSnapshot;
       updateId: number;
@@ -113,11 +117,81 @@ export type ConversationApplyResult = {
   status: "applied" | "expired" | "interrupted" | "stale";
 };
 
+export type ConversationDraftSummary = ActiveDraft & {
+  focused: boolean;
+  updatedAt: string;
+};
+
+export type ConversationDraftPage = {
+  drafts: ConversationDraftSummary[];
+  nextCursor: string | null;
+};
+
+export type ConversationDraftReadResult =
+  | { draft: ConversationDraftSummary; kind: "draft" }
+  | { kind: "not_found" };
+
+export type ConversationDraftResolution =
+  | { draft: ConversationDraftSummary; kind: "exact" }
+  | {
+      candidates: ConversationDraftSummary[];
+      kind: "ambiguous";
+    }
+  | { kind: "none" };
+
+export type ConversationDraftListRequest = {
+  cursor?: string;
+  limit?: number;
+};
+
+export type ConversationDraftMutationCommand = ConversationCompletion & {
+  audit: DecisionAudit;
+  expectedFocus: ExpectedConversationFocus;
+  updateId: number;
+};
+
+export type CreateFocusedDraftCommand =
+  ConversationDraftMutationCommand & {
+    fields: DecisionContextFields;
+    phase: ConversationPhase;
+  };
+
+export type FocusDraftCommand = ConversationDraftMutationCommand & {
+  draftId: string;
+  expectedVersion: number;
+};
+
+export type PatchFocusedDraftCommand = FocusDraftCommand & {
+  fields: DecisionContextFields;
+  phase: ConversationPhase;
+};
+
 export interface ConversationRepository {
   applyTurn(
     command: ConversationCommand,
   ): Promise<ConversationApplyResult>;
   readTurn(updateId: number): Promise<ConversationReadResult>;
+}
+
+export interface ConversationDraftRepository
+  extends ConversationRepository {
+  createFocusedDraft(
+    command: CreateFocusedDraftCommand,
+  ): Promise<ConversationApplyResult>;
+  focusDraft(
+    command: FocusDraftCommand,
+  ): Promise<ConversationApplyResult>;
+  listDrafts(
+    request?: ConversationDraftListRequest,
+  ): Promise<ConversationDraftPage>;
+  patchFocusedDraft(
+    command: PatchFocusedDraftCommand,
+  ): Promise<ConversationApplyResult>;
+  readDraft(id: string): Promise<ConversationDraftReadResult>;
+  resolveDraftReference(
+    query: string,
+    limit?: number,
+  ): Promise<ConversationDraftResolution>;
 }
 
 type SupabaseConversationRepositoryOptions = {
@@ -276,8 +350,138 @@ function parseApplyResult(value: unknown): ConversationApplyResult {
   };
 }
 
+const DEFAULT_DRAFT_LIST_LIMIT = 10;
+const MAX_DRAFT_LIST_LIMIT = 20;
+
+type DraftCursor = {
+  id: string;
+  updatedAt: string;
+};
+
+function draftSummary(value: unknown): ConversationDraftSummary {
+  if (
+    !isRecord(value) ||
+    typeof value.focused !== "boolean" ||
+    typeof value.updatedAt !== "string" ||
+    !safeInteger(value.version) ||
+    value.version < 1 ||
+    !["awaiting_definition", "awaiting_target", "complete"].includes(
+      String(value.phase),
+    )
+  ) {
+    throw new Error("Conversation draft read returned invalid state");
+  }
+  return {
+    ...storedCandidate(value),
+    focused: value.focused,
+    kind: "draft",
+    phase: value.phase as ConversationPhase,
+    updatedAt: value.updatedAt,
+    version: value.version,
+  };
+}
+
+function boundedLimit(limit = DEFAULT_DRAFT_LIST_LIMIT): number {
+  if (!safeInteger(limit) || limit < 1 || limit > MAX_DRAFT_LIST_LIMIT) {
+    throw new Error(
+      `Conversation draft limit must be between 1 and ${MAX_DRAFT_LIST_LIMIT}`,
+    );
+  }
+  return limit;
+}
+
+function encodeCursor(cursor: DraftCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString(
+    "base64url",
+  );
+}
+
+function decodeCursor(cursor: string | undefined): DraftCursor | null {
+  if (cursor === undefined) {
+    return null;
+  }
+  try {
+    const value = JSON.parse(
+      Buffer.from(cursor, "base64url").toString("utf8"),
+    ) as unknown;
+    if (
+      !isRecord(value) ||
+      typeof value.id !== "string" ||
+      typeof value.updatedAt !== "string"
+    ) {
+      throw new Error("invalid");
+    }
+    return { id: value.id, updatedAt: value.updatedAt };
+  } catch {
+    throw new Error("Conversation draft cursor is invalid");
+  }
+}
+
+function parseDraftPage(value: unknown): ConversationDraftPage {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.drafts) ||
+    !(
+      value.nextCursor === null ||
+      (isRecord(value.nextCursor) &&
+        typeof value.nextCursor.id === "string" &&
+        typeof value.nextCursor.updatedAt === "string")
+    )
+  ) {
+    throw new Error("Conversation draft list returned an invalid response");
+  }
+  return {
+    drafts: value.drafts.map(draftSummary),
+    nextCursor:
+      value.nextCursor === null
+        ? null
+        : encodeCursor({
+            id: value.nextCursor.id as string,
+            updatedAt: value.nextCursor.updatedAt as string,
+          }),
+  };
+}
+
+function parseDraftRead(value: unknown): ConversationDraftReadResult {
+  if (!isRecord(value) || typeof value.kind !== "string") {
+    throw new Error("Conversation draft read returned an invalid response");
+  }
+  if (value.kind === "not_found") {
+    return { kind: "not_found" };
+  }
+  if (value.kind === "draft") {
+    return { draft: draftSummary(value.draft), kind: "draft" };
+  }
+  throw new Error("Conversation draft read returned an unknown response");
+}
+
+function parseDraftResolution(
+  value: unknown,
+): ConversationDraftResolution {
+  if (!isRecord(value) || typeof value.kind !== "string") {
+    throw new Error(
+      "Conversation draft resolution returned an invalid response",
+    );
+  }
+  if (value.kind === "none") {
+    return { kind: "none" };
+  }
+  if (value.kind === "exact") {
+    return { draft: draftSummary(value.draft), kind: "exact" };
+  }
+  if (value.kind === "ambiguous" && Array.isArray(value.candidates)) {
+    return {
+      candidates: value.candidates.map(draftSummary),
+      kind: "ambiguous",
+    };
+  }
+  throw new Error(
+    "Conversation draft resolution returned an unknown response",
+  );
+}
+
 export class SupabaseConversationRepository
-  implements ConversationRepository
+  implements ConversationDraftRepository
 {
   readonly #fetch: typeof fetch;
   readonly #supabaseSecretKey: string;
@@ -287,6 +491,122 @@ export class SupabaseConversationRepository
     this.#fetch = options.fetch ?? fetch;
     this.#supabaseSecretKey = options.supabaseSecretKey;
     this.#supabaseUrl = options.supabaseUrl;
+  }
+
+  async #rpc(name: string, body: Record<string, unknown>): Promise<unknown> {
+    const response = await this.#fetch(
+      `${this.#supabaseUrl}/rest/v1/rpc/${name}`,
+      {
+        body: JSON.stringify(body),
+        headers: supabaseHeaders(
+          this.#supabaseSecretKey,
+          "application/json",
+        ),
+        method: "POST",
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Conversation ${name} failed`);
+    }
+    return response.json();
+  }
+
+  #candidateBody(
+    fields: DecisionContextFields,
+    phase: ConversationPhase,
+  ): Record<string, unknown> {
+    return {
+      p_definition_of_done: fields.definitionOfDone,
+      p_duration_minutes: fields.durationMinutes,
+      p_offer_work_window_help: fields.offerWorkWindowHelp,
+      p_phase: phase,
+      p_possible_work_session: fields.possibleWorkSession,
+      p_simple_action: fields.simpleAction,
+      p_target_at: fields.targetAt,
+      p_target_time_zone: fields.targetTimeZone,
+      p_timing_constraints: fields.timingConstraints,
+    };
+  }
+
+  #focusBody(expected: ExpectedConversationFocus): Record<string, unknown> {
+    return {
+      p_expected_focus_id:
+        expected.kind === "draft" ? expected.id : null,
+      p_expected_focus_version:
+        expected.kind === "draft" ? expected.version : null,
+    };
+  }
+
+  #completionBody(
+    command: ConversationDraftMutationCommand,
+  ): Record<string, unknown> {
+    return {
+      p_audit_input_class: command.audit.inputClass,
+      p_audit_payload: command.audit.payload,
+      p_model_id: command.audit.modelId,
+      p_processing_result: command.processingResult,
+      p_prompt_version: command.audit.promptVersion,
+      p_update_id: command.updateId,
+    };
+  }
+
+  async createFocusedDraft(
+    command: CreateFocusedDraftCommand,
+  ): Promise<ConversationApplyResult> {
+    return parseApplyResult(
+      await this.#rpc("create_focused_conversation_draft", {
+        ...this.#candidateBody(command.fields, command.phase),
+        ...this.#completionBody(command),
+        ...this.#focusBody(command.expectedFocus),
+      }),
+    );
+  }
+
+  async focusDraft(
+    command: FocusDraftCommand,
+  ): Promise<ConversationApplyResult> {
+    return parseApplyResult(
+      await this.#rpc("focus_conversation_draft", {
+        ...this.#completionBody(command),
+        ...this.#focusBody(command.expectedFocus),
+        p_draft_id: command.draftId,
+        p_expected_version: command.expectedVersion,
+      }),
+    );
+  }
+
+  async listDrafts(
+    request: ConversationDraftListRequest = {},
+  ): Promise<ConversationDraftPage> {
+    const cursor = decodeCursor(request.cursor);
+    return parseDraftPage(
+      await this.#rpc("list_conversation_drafts", {
+        p_before_id: cursor?.id ?? null,
+        p_before_updated_at: cursor?.updatedAt ?? null,
+        p_limit: boundedLimit(request.limit),
+      }),
+    );
+  }
+
+  async patchFocusedDraft(
+    command: PatchFocusedDraftCommand,
+  ): Promise<ConversationApplyResult> {
+    return parseApplyResult(
+      await this.#rpc("patch_focused_conversation_draft", {
+        ...this.#candidateBody(command.fields, command.phase),
+        ...this.#completionBody(command),
+        ...this.#focusBody(command.expectedFocus),
+        p_draft_id: command.draftId,
+        p_expected_version: command.expectedVersion,
+      }),
+    );
+  }
+
+  async readDraft(id: string): Promise<ConversationDraftReadResult> {
+    return parseDraftRead(
+      await this.#rpc("read_conversation_draft", { p_draft_id: id }),
+    );
   }
 
   async readTurn(updateId: number): Promise<ConversationReadResult> {
@@ -312,6 +632,29 @@ export class SupabaseConversationRepository
   async applyTurn(
     command: ConversationCommand,
   ): Promise<ConversationApplyResult> {
+    if (command.action === "create_separate_draft") {
+      if (
+        command.processingResult !== "conversation" ||
+        command.audit === undefined
+      ) {
+        throw new Error(
+          "Separate draft creation requires a successful audited decision",
+        );
+      }
+      if (command.expected.kind === "permission") {
+        throw new Error(
+          "Separate draft creation requires a draft or empty focus",
+        );
+      }
+      return this.createFocusedDraft({
+        audit: command.audit,
+        expectedFocus: command.expected,
+        fields: command.fields,
+        phase: command.phase,
+        processingResult: command.processingResult,
+        updateId: command.updateId,
+      });
+    }
     const candidate =
       "fields" in command
         ? {
@@ -384,5 +727,22 @@ export class SupabaseConversationRepository
       );
     }
     return parseApplyResult(await response.json());
+  }
+
+  async resolveDraftReference(
+    query: string,
+    limit = 5,
+  ): Promise<ConversationDraftResolution> {
+    if (query.trim().length === 0 || query.length > 500) {
+      throw new Error(
+        "Conversation draft reference must be between 1 and 500 characters",
+      );
+    }
+    return parseDraftResolution(
+      await this.#rpc("resolve_conversation_draft_reference", {
+        p_limit: boundedLimit(limit),
+        p_query: query,
+      }),
+    );
   }
 }

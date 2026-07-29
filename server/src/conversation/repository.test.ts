@@ -26,6 +26,24 @@ const explicitAudit = {
   },
   promptVersion: "shiori-test-v1",
 } satisfies DecisionAudit;
+const focusedDraft = {
+  ...simpleFields,
+  expiresAt: "2026-07-31T12:00:00.000Z",
+  focused: true,
+  id: "11111111-1111-4111-8111-111111111111",
+  kind: "draft",
+  phase: "complete",
+  updatedAt: "2026-07-30T12:00:00.000Z",
+  version: 4,
+};
+const parkedDraft = {
+  ...focusedDraft,
+  definitionOfDone: "Publish the synthetic report",
+  focused: false,
+  id: "22222222-2222-4222-8222-222222222222",
+  updatedAt: "2026-07-29T12:00:00.000Z",
+  version: 2,
+};
 
 function repositoryWith(fetchFromSupabase: typeof fetch) {
   return new SupabaseConversationRepository({
@@ -355,5 +373,230 @@ describe("SupabaseConversationRepository", () => {
         updateId: 9010,
       }),
     ).rejects.toThrow("Conversation apply returned an invalid response");
+  });
+
+  it("creates a separately focused draft without weakening the prior focus CAS", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({
+        completed: true,
+        draftCreated: true,
+        draftReference: {
+          id: parkedDraft.id,
+          version: 1,
+        },
+        status: "applied",
+      }),
+    );
+
+    await expect(
+      repositoryWith(fetchFromSupabase as typeof fetch).applyTurn({
+        action: "create_separate_draft",
+        audit: explicitAudit,
+        expected: {
+          id: focusedDraft.id,
+          kind: "draft",
+          version: focusedDraft.version,
+        },
+        fields: simpleFields,
+        phase: "complete",
+        processingResult: "conversation",
+        updateId: 9100,
+      }),
+    ).resolves.toEqual({
+      completed: true,
+      draftCreated: true,
+      draftReference: {
+        id: parkedDraft.id,
+        version: 1,
+      },
+      status: "applied",
+    });
+
+    const [url, options] = fetchFromSupabase.mock.calls[0];
+    expect(url).toBe(
+      "http://127.0.0.1:54321/rest/v1/rpc/create_focused_conversation_draft",
+    );
+    expect(JSON.parse(String(options?.body))).toMatchObject({
+      p_definition_of_done: simpleFields.definitionOfDone,
+      p_expected_focus_id: focusedDraft.id,
+      p_expected_focus_version: focusedDraft.version,
+      p_phase: "complete",
+      p_processing_result: "conversation",
+      p_update_id: 9100,
+    });
+  });
+
+  it("lists bounded drafts with an opaque, nonduplicating cursor", async () => {
+    const fetchFromSupabase = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          drafts: [focusedDraft, parkedDraft],
+          nextCursor: {
+            id: parkedDraft.id,
+            updatedAt: parkedDraft.updatedAt,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          drafts: [],
+          nextCursor: null,
+        }),
+      );
+    const repository = repositoryWith(
+      fetchFromSupabase as typeof fetch,
+    );
+
+    const first = await repository.listDrafts({ limit: 2 });
+    expect(first.drafts).toEqual([
+      {
+        expiresAt: focusedDraft.expiresAt,
+        fields: simpleFields,
+        focused: true,
+        id: focusedDraft.id,
+        kind: "draft",
+        phase: "complete",
+        updatedAt: focusedDraft.updatedAt,
+        version: 4,
+      },
+      expect.objectContaining({
+        focused: false,
+        id: parkedDraft.id,
+        version: 2,
+      }),
+    ]);
+    expect(first.nextCursor).toEqual(expect.any(String));
+
+    await repository.listDrafts({
+      cursor: first.nextCursor ?? undefined,
+      limit: 2,
+    });
+    expect(
+      JSON.parse(String(fetchFromSupabase.mock.calls[1][1]?.body)),
+    ).toEqual({
+      p_before_id: parkedDraft.id,
+      p_before_updated_at: parkedDraft.updatedAt,
+      p_limit: 2,
+    });
+  });
+
+  it("reads one exact draft and resolves ambiguity without mutation", async () => {
+    const fetchFromSupabase = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ draft: parkedDraft, kind: "draft" }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          candidates: [focusedDraft, parkedDraft],
+          kind: "ambiguous",
+        }),
+      );
+    const repository = repositoryWith(
+      fetchFromSupabase as typeof fetch,
+    );
+
+    await expect(repository.readDraft(parkedDraft.id)).resolves.toEqual({
+      draft: expect.objectContaining({
+        focused: false,
+        id: parkedDraft.id,
+        version: 2,
+      }),
+      kind: "draft",
+    });
+    await expect(
+      repository.resolveDraftReference("synthetic", 5),
+    ).resolves.toEqual({
+      candidates: [
+        expect.objectContaining({ id: focusedDraft.id }),
+        expect.objectContaining({ id: parkedDraft.id }),
+      ],
+      kind: "ambiguous",
+    });
+
+    expect(fetchFromSupabase).toHaveBeenCalledTimes(2);
+    expect(fetchFromSupabase.mock.calls[1][0]).toBe(
+      "http://127.0.0.1:54321/rest/v1/rpc/resolve_conversation_draft_reference",
+    );
+  });
+
+  it("focuses and patches only an exact target and focus version", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({
+        completed: true,
+        draftCreated: false,
+        draftReference: {
+          id: parkedDraft.id,
+          version: parkedDraft.version,
+        },
+        status: "applied",
+      }),
+    );
+    const repository = repositoryWith(
+      fetchFromSupabase as typeof fetch,
+    );
+    const expectedFocus = {
+      id: focusedDraft.id,
+      kind: "draft" as const,
+      version: focusedDraft.version,
+    };
+
+    await repository.focusDraft({
+      audit: explicitAudit,
+      draftId: parkedDraft.id,
+      expectedFocus,
+      expectedVersion: parkedDraft.version,
+      processingResult: "conversation",
+      updateId: 9101,
+    });
+    await repository.patchFocusedDraft({
+      audit: explicitAudit,
+      draftId: parkedDraft.id,
+      expectedFocus,
+      expectedVersion: parkedDraft.version,
+      fields: simpleFields,
+      phase: "complete",
+      processingResult: "conversation",
+      updateId: 9102,
+    });
+
+    expect(
+      JSON.parse(String(fetchFromSupabase.mock.calls[0][1]?.body)),
+    ).toMatchObject({
+      p_draft_id: parkedDraft.id,
+      p_expected_focus_id: focusedDraft.id,
+      p_expected_focus_version: focusedDraft.version,
+      p_expected_version: parkedDraft.version,
+      p_update_id: 9101,
+    });
+    expect(
+      JSON.parse(String(fetchFromSupabase.mock.calls[1][1]?.body)),
+    ).toMatchObject({
+      p_definition_of_done: simpleFields.definitionOfDone,
+      p_draft_id: parkedDraft.id,
+      p_expected_focus_id: focusedDraft.id,
+      p_expected_focus_version: focusedDraft.version,
+      p_expected_version: parkedDraft.version,
+      p_update_id: 9102,
+    });
+  });
+
+  it("rejects unbounded reads and malformed cursors before I/O", async () => {
+    const fetchFromSupabase = vi.fn();
+    const repository = repositoryWith(
+      fetchFromSupabase as typeof fetch,
+    );
+
+    await expect(repository.listDrafts({ limit: 21 })).rejects.toThrow(
+      "Conversation draft limit must be between 1 and 20",
+    );
+    await expect(
+      repository.listDrafts({ cursor: "not-a-cursor" }),
+    ).rejects.toThrow("Conversation draft cursor is invalid");
+    await expect(repository.resolveDraftReference("")).rejects.toThrow(
+      "Conversation draft reference must be between 1 and 500 characters",
+    );
+    expect(fetchFromSupabase).not.toHaveBeenCalled();
   });
 });
