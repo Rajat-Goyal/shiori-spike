@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   writeFileSync,
@@ -36,6 +38,67 @@ const deploymentId = "11111111-1111-4111-8111-111111111111";
 const imageDigest = `sha256:${"a".repeat(64)}`;
 const releaseManifestHash = "b".repeat(64);
 const migrationVersions = ["20260725010000", "20260725020000"];
+const verifierScript = path.resolve("scripts/verify-release.mjs");
+
+function localVerifierFixture() {
+  const directory = mkdtempSync(path.join(tmpdir(), "local-release-"));
+  const bin = path.join(directory, "bin");
+  const commandLog = path.join(directory, "commands.log");
+  mkdirSync(bin);
+  mkdirSync(path.join(directory, "supabase/migrations"), {
+    recursive: true,
+  });
+  writeFileSync(
+    path.join(
+      directory,
+      "supabase/migrations/20260730000000_local_contract.sql",
+    ),
+    "select 1;\n",
+  );
+  writeFileSync(commandLog, "");
+  const quotedLog = commandLog.replaceAll('"', '\\"');
+  writeFileSync(
+    path.join(bin, "npm"),
+    [
+      "#!/bin/sh",
+      `printf '%s\\n' "$*" >> "${quotedLog}"`,
+      'if [ "$1" = "--version" ]; then',
+      "  printf '11.0.0\\n'",
+      "  exit 0",
+      "fi",
+      'if [ "$1" = "run" ] && [ "$2" = "check" ]; then',
+      "  exit 0",
+      "fi",
+      "exit 90",
+      "",
+    ].join("\n"),
+    { mode: 0o700 },
+  );
+  for (const forbidden of ["npx", "railway"]) {
+    writeFileSync(
+      path.join(bin, forbidden),
+      [
+        "#!/bin/sh",
+        `printf '%s\\n' "FORBIDDEN ${forbidden} $*" >> "${quotedLog}"`,
+        "exit 91",
+        "",
+      ].join("\n"),
+      { mode: 0o700 },
+    );
+  }
+  return { bin, commandLog, directory };
+}
+
+function runVerifier(fixture, args = []) {
+  return spawnSync(process.execPath, [verifierScript, ...args], {
+    cwd: fixture.directory,
+    encoding: "utf8",
+    env: {
+      HOME: fixture.directory,
+      PATH: fixture.bin,
+    },
+  });
+}
 
 function migrationManifest() {
   return migrationVersions.map((version) => ({
@@ -669,6 +732,63 @@ test("post-deploy evidence may be untracked without masking source drift", () =>
     ),
     [" M evidence/S01-12/release-manifest.json"],
   );
+});
+
+test("bare verifier runs only the local repository contract without credentials or remote commands", () => {
+  const fixture = localVerifierFixture();
+  assert.equal(
+    existsSync(path.join(fixture.directory, ".env.local")),
+    false,
+  );
+
+  const result = runVerifier(fixture);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    ok: true,
+    phase: "local",
+    result: {
+      migrationCount: 1,
+      mode: "local",
+      repositoryGate: "passed",
+      runtime: {
+        node: process.versions.node,
+        npm: "11.0.0",
+      },
+    },
+  });
+  assert.deepEqual(
+    readFileSync(fixture.commandLog, "utf8").trim().split("\n"),
+    ["--version", "run check"],
+  );
+});
+
+test("remote verifier phases remain explicit and local mode rejects remote-only arguments", () => {
+  const fixture = localVerifierFixture();
+  const implicitRemote = runVerifier(fixture, [
+    "--execution-mode=verify",
+  ]);
+  assert.notEqual(implicitRemote.status, 0);
+  assert.equal(
+    JSON.parse(implicitRemote.stderr).error,
+    "invalid_local_argument",
+  );
+
+  for (const phase of ["deploy", "journeys", "boundaries", "assess"]) {
+    const args = [`--phase=${phase}`];
+    if (phase !== "deploy") {
+      args.push(
+        "--release-manifest=evidence/S01-12/release-manifest.json",
+      );
+    }
+    const explicitRemote = runVerifier(fixture, args);
+    assert.notEqual(explicitRemote.status, 0);
+    assert.equal(
+      JSON.parse(explicitRemote.stderr).error,
+      "env_unavailable",
+    );
+  }
+  assert.equal(readFileSync(fixture.commandLog, "utf8"), "");
 });
 
 test("CLI failure output never contains configured values", () => {

@@ -59,9 +59,10 @@ function parseArgs(argv) {
     envFile: ".env.local",
     evidenceDir: "evidence/S01-12",
     executionMode: "production",
-    phase: null,
+    phase: "local",
     releaseManifest: null,
   };
+  const localRemoteArguments = new Set();
   for (const argument of argv) {
     const match = /^--([a-z-]+)=(.+)$/.exec(argument);
     if (!match) {
@@ -73,18 +74,22 @@ function parseArgs(argv) {
     switch (match[1]) {
       case "env-file":
         options.envFile = match[2];
+        localRemoteArguments.add(match[1]);
         break;
       case "evidence-dir":
         options.evidenceDir = match[2];
+        localRemoteArguments.add(match[1]);
         break;
       case "execution-mode":
         options.executionMode = match[2];
+        localRemoteArguments.add(match[1]);
         break;
       case "phase":
         options.phase = match[2];
         break;
       case "release-manifest":
         options.releaseManifest = match[2];
+        localRemoteArguments.add(match[1]);
         break;
       default:
         throw new ReleaseVerificationError(
@@ -93,11 +98,28 @@ function parseArgs(argv) {
         );
     }
   }
-  if (!["assess", "boundaries", "deploy", "journeys"].includes(options.phase)) {
+  if (
+    ![
+      "assess",
+      "boundaries",
+      "deploy",
+      "journeys",
+      "local",
+    ].includes(options.phase)
+  ) {
     throw new ReleaseVerificationError(
       "invalid_phase",
-      "Phase must be deploy, journeys, boundaries, or assess",
+      "Phase must be local, deploy, journeys, boundaries, or assess",
     );
+  }
+  if (options.phase === "local") {
+    if (localRemoteArguments.size > 0) {
+      throw new ReleaseVerificationError(
+        "invalid_local_argument",
+        "The local phase accepts no environment, execution, manifest, or evidence arguments",
+      );
+    }
+    return options;
   }
   if (!["production", "verify"].includes(options.executionMode)) {
     throw new ReleaseVerificationError(
@@ -221,12 +243,38 @@ function requireCleanSource(allowedEvidenceDirectory = null) {
   };
 }
 
-function verifyRuntime() {
+function verifyLocalRuntime() {
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   const npmVersion = run("npm", ["--version"], {
     label: "npm version check",
   }).trim();
   const npmMajor = Number(npmVersion.split(".")[0]);
+  if (
+    !Number.isSafeInteger(nodeMajor) ||
+    nodeMajor < 24 ||
+    nodeMajor >= 27 ||
+    !Number.isSafeInteger(npmMajor) ||
+    npmMajor < 11
+  ) {
+    throw new ReleaseVerificationError(
+      "runtime_mismatch",
+      "Local verification requires Node >=24 <27 and npm 11 or newer",
+    );
+  }
+  return {
+    node: process.versions.node,
+    npm: npmVersion,
+  };
+}
+
+function verifyRuntime() {
+  const localRuntime = verifyLocalRuntime();
+  if (Number(process.versions.node.split(".")[0]) !== 24) {
+    throw new ReleaseVerificationError(
+      "runtime_mismatch",
+      "Hosted release verification requires Node 24",
+    );
+  }
   const railwayVersion = run("railway", ["--version"], {
     label: "Railway CLI version check",
   }).trim();
@@ -235,12 +283,6 @@ function verifyRuntime() {
     ["--yes", `supabase@${SUPABASE_CLI_VERSION}`, "--version"],
     { label: "Supabase CLI version check" },
   ).trim();
-  if (nodeMajor !== 24 || !Number.isSafeInteger(npmMajor) || npmMajor < 11) {
-    throw new ReleaseVerificationError(
-      "runtime_mismatch",
-      "Release verification requires Node 24 and npm 11 or newer",
-    );
-  }
   if (
     !/^railway \d+\.\d+\.\d+$/.test(railwayVersion) ||
     supabaseVersion !== SUPABASE_CLI_VERSION
@@ -251,8 +293,7 @@ function verifyRuntime() {
     );
   }
   return {
-    node: process.versions.node,
-    npm: npmVersion,
+    ...localRuntime,
     railway: railwayVersion.replace(/^railway /, ""),
     supabase: supabaseVersion,
   };
@@ -442,6 +483,20 @@ function runRepositoryGates(environment) {
     env: childEnvironment,
     label: "repository gate",
   });
+}
+
+function localPhase() {
+  const runtime = verifyLocalRuntime();
+  const migrations = migrationManifest();
+  run("npm", ["run", "check"], {
+    label: "local repository gate",
+  });
+  return {
+    migrationCount: migrations.length,
+    mode: "local",
+    repositoryGate: "passed",
+    runtime,
+  };
 }
 
 function applyPendingMigrations(environment) {
@@ -910,6 +965,17 @@ let failureSecrets = [];
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (options.phase === "local") {
+    const result = localPhase();
+    process.stdout.write(
+      `${JSON.stringify({
+        ok: true,
+        phase: options.phase,
+        result,
+      })}\n`,
+    );
+    return;
+  }
   let environment;
   try {
     environment = parseEnvFile(readFileSync(options.envFile, "utf8"));

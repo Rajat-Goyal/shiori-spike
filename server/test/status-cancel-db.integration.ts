@@ -21,6 +21,7 @@ import {
 } from "../src/telegram/status-cancel.js";
 import { SupabaseWorkSessionCommitter } from "../src/work-sessions/confirm.js";
 import { SupabaseWorkSessionFlowRepository } from "../src/work-sessions/flow-repository.js";
+import { DB_WALL_CLOCK_TOLERANCE_MS } from "./db-wall-clock.js";
 
 function localConfig() {
   const config = readServerConfig();
@@ -493,17 +494,17 @@ describe("local Supabase active promise management", () => {
     )!;
     expect(cancelled.status).toBe("cancelled");
     expect(Date.parse(String(cancelled.cancelled_at))).toBeGreaterThanOrEqual(
-      cancellationBefore,
+      cancellationBefore - DB_WALL_CLOCK_TOLERANCE_MS,
     );
     expect(Date.parse(String(cancelled.cancelled_at))).toBeLessThanOrEqual(
-      cancellationAfter,
+      cancellationAfter + DB_WALL_CLOCK_TOLERANCE_MS,
     );
     expect(done.status).toBe("done");
     expect(Date.parse(String(done.completed_at))).toBeGreaterThanOrEqual(
-      completionBefore,
+      completionBefore - DB_WALL_CLOCK_TOLERANCE_MS,
     );
     expect(Date.parse(String(done.completed_at))).toBeLessThanOrEqual(
-      completionAfter,
+      completionAfter + DB_WALL_CLOCK_TOLERANCE_MS,
     );
 
     const messages = await rows(

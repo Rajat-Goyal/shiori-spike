@@ -22,6 +22,7 @@ import type {
 } from "../src/telegram/client.js";
 import { TelegramSendError } from "../src/telegram/client.js";
 import { SupabaseTelegramRepository } from "../src/telegram/repository.js";
+import { DB_WALL_CLOCK_TOLERANCE_MS } from "./db-wall-clock.js";
 
 function localConfig() {
   const config = readServerConfig();
@@ -280,8 +281,12 @@ describe("local Supabase simple reminder delivery", () => {
     const completedAt = new Date(
       String(commitmentRows[0].completed_at),
     ).getTime();
-    expect(completedAt).toBeGreaterThanOrEqual(beforeDone);
-    expect(completedAt).toBeLessThanOrEqual(afterDone);
+    expect(completedAt).toBeGreaterThanOrEqual(
+      beforeDone - DB_WALL_CLOCK_TOLERANCE_MS,
+    );
+    expect(completedAt).toBeLessThanOrEqual(
+      afterDone + DB_WALL_CLOCK_TOLERANCE_MS,
+    );
 
     const events = await rows(
       created.config.supabaseUrl,

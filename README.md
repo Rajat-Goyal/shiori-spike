@@ -93,6 +93,18 @@ Run the complete typecheck, API-test, production-build, and browser-test gate:
 npm run check
 ```
 
+Run the default local release contract:
+
+```sh
+npm run verify:release
+```
+
+The bare command is the local-only phase. It checks Node/npm, the ordered local
+migration manifest, and `npm run check`. It does not read `.env.local`, invoke
+Railway or Supabase CLIs, contact hosted services, or require network access.
+Environment, execution-mode, evidence, and manifest arguments are rejected
+unless a remote phase is explicitly selected.
+
 ### Verify one immutable release
 
 The release verifier is fail-closed and value-redacting. It pins the clean Git
