@@ -12,6 +12,20 @@ type AgentCallbackContextRecorderOptions = Readonly<{
   sessions: AgentSessionRepository;
 }>;
 
+const CALLBACK_CONTEXT_CAS_ATTEMPTS = 3;
+
+export const callbackContextReplayReply: TelegramReply = {
+  text:
+    "That action was already handled. Use /status to see the current state.",
+};
+
+function sessionConflict(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message === "Agent session changed concurrently"
+  );
+}
+
 function sanitizedChoice(value: unknown): string | null {
   const draft = parseDraftAction(value);
   if (draft !== null) {
@@ -60,23 +74,45 @@ export class AgentCallbackContextRecorder {
     updateId: number,
     chatId: number,
     callbackData: unknown,
-    reply: TelegramReply,
-  ): Promise<void> {
+    reply: TelegramReply | null,
+  ): Promise<TelegramReply | null> {
     const action = sanitizedChoice(callbackData);
     if (action === null) {
-      return;
+      return reply;
     }
-    const session = await this.#sessions.open(chatId);
-    if (session.currentSnapshot().version === 0) {
-      return;
+    const applicationReply = reply ?? callbackContextReplayReply;
+    for (
+      let attempt = 0;
+      attempt < CALLBACK_CONTEXT_CAS_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        const session = await this.#sessions.open(chatId);
+        if (session.currentSnapshot().version === 0) {
+          await session.addItems([
+            {
+              content: `Owner selected ${action}.`,
+              role: "user",
+            },
+          ]);
+        }
+        const result = await session.recordCallbackChoice({
+          action,
+          assistantText: applicationReply.text,
+          pendingQuestion:
+            (applicationReply.actions?.length ?? 0) > 0 ||
+            applicationReply.text.trimEnd().endsWith("?"),
+          updateId,
+        });
+        if (result.kind !== "stale") {
+          return applicationReply;
+        }
+      } catch (error) {
+        if (!sessionConflict(error)) {
+          throw error;
+        }
+      }
     }
-    await session.recordCallbackChoice({
-      action,
-      assistantText: reply.text,
-      pendingQuestion:
-        (reply.actions?.length ?? 0) > 0 ||
-        reply.text.trimEnd().endsWith("?"),
-      updateId,
-    });
+    throw new Error("Agent callback context changed concurrently");
   }
 }

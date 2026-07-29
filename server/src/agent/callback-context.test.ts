@@ -3,31 +3,36 @@ import type {
   AgentSdkSession,
   AgentSessionRepository,
 } from "./session.js";
-import { AgentCallbackContextRecorder } from "./callback-context.js";
+import {
+  AgentCallbackContextRecorder,
+  callbackContextReplayReply,
+} from "./callback-context.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
 function fixture(persisted = true) {
+  const snapshot = {
+    activeDraftId: null,
+    chatId: 42,
+    compactionCheckpoint: null,
+    expiresAt: "2026-08-30T10:00:00.000Z",
+    firstWorkingSequence: null,
+    id: ID,
+    interaction: { callbackChoice: null, pendingQuestion: null },
+    itemCount: 0,
+    items: [],
+    version: persisted ? 2 : 0,
+  } as const;
   const recordCallbackChoice =
     vi.fn<AgentSdkSession["recordCallbackChoice"]>(
-      async () => ({ kind: "stale" }),
+      async () => ({ kind: "applied", session: snapshot }),
     );
+  const addItems = vi.fn(async () => undefined);
   const session: AgentSdkSession = {
-    addItems: vi.fn(async () => undefined),
+    addItems,
     chatId: 42,
     clearSession: vi.fn(async () => undefined),
-    currentSnapshot: () => ({
-      activeDraftId: null,
-      chatId: 42,
-      compactionCheckpoint: null,
-      expiresAt: "2026-08-30T10:00:00.000Z",
-      firstWorkingSequence: null,
-      id: ID,
-      interaction: { callbackChoice: null, pendingQuestion: null },
-      itemCount: 0,
-      items: [],
-      version: persisted ? 2 : 0,
-    }),
+    currentSnapshot: () => snapshot,
     getItems: vi.fn(async () => []),
     getSessionId: vi.fn(async () => ID),
     popItem: vi.fn(async () => undefined),
@@ -44,9 +49,11 @@ function fixture(persisted = true) {
     read: vi.fn(async () => ({ kind: "none" })),
   };
   return {
+    addItems,
     recordCallbackChoice,
     recorder: new AgentCallbackContextRecorder({ sessions }),
     sessions,
+    snapshot,
   };
 }
 
@@ -85,7 +92,7 @@ describe("AgentCallbackContextRecorder", () => {
     },
   );
 
-  it("ignores malformed callbacks and sessions that have not been persisted", async () => {
+  it("ignores malformed callbacks and creates sanitized context for a lazy session", async () => {
     const malformed = fixture();
     await malformed.recorder.record(91, 42, `p:${ID}:3:unknown`, {
       text: "Ignored",
@@ -96,7 +103,13 @@ describe("AgentCallbackContextRecorder", () => {
     await lazy.recorder.record(92, 42, `s:${ID}:3:missed`, {
       text: "Would you like another work window?",
     });
-    expect(lazy.recordCallbackChoice).not.toHaveBeenCalled();
+    expect(lazy.addItems).toHaveBeenCalledWith([
+      {
+        content: "Owner selected work_session_outcome.missed.",
+        role: "user",
+      },
+    ]);
+    expect(lazy.recordCallbackChoice).toHaveBeenCalledOnce();
   });
 
   it("retains a textual application question even without callback buttons", async () => {
@@ -107,5 +120,63 @@ describe("AgentCallbackContextRecorder", () => {
     expect(test.recordCallbackChoice).toHaveBeenCalledWith(
       expect.objectContaining({ pendingQuestion: true }),
     );
+  });
+
+  it("reloads and retries a bounded CAS conflict", async () => {
+    const test = fixture();
+    test.recordCallbackChoice
+      .mockResolvedValueOnce({ kind: "stale" })
+      .mockResolvedValueOnce({
+        kind: "applied",
+        session: test.snapshot,
+      });
+
+    await expect(
+      test.recorder.record(94, 42, `p:${ID}:3:done`, {
+        text: "Promise completed.",
+      }),
+    ).resolves.toEqual({ text: "Promise completed." });
+    expect(test.sessions.open).toHaveBeenCalledTimes(2);
+    expect(test.recordCallbackChoice).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates a transient write failure and recovers from the process-gap replay", async () => {
+    const test = fixture();
+    test.recordCallbackChoice
+      .mockRejectedValueOnce(new Error("temporary persistence outage"))
+      .mockResolvedValueOnce({
+        kind: "replay",
+        session: test.snapshot,
+      });
+
+    await expect(
+      test.recorder.record(95, 42, `s:${ID}:3:done`, {
+        text: "Promise completed.",
+      }),
+    ).rejects.toThrow("temporary persistence outage");
+    await expect(
+      test.recorder.record(95, 42, `s:${ID}:3:done`, null),
+    ).resolves.toEqual(callbackContextReplayReply);
+  });
+
+  it("returns an application-controlled response for a successful duplicate receipt replay", async () => {
+    const test = fixture();
+    test.recordCallbackChoice
+      .mockResolvedValueOnce({
+        kind: "applied",
+        session: test.snapshot,
+      })
+      .mockResolvedValueOnce({
+        kind: "replay",
+        session: test.snapshot,
+      });
+
+    await test.recorder.record(96, 42, `x:${ID}:3:keep`, {
+      text: "Promise kept active.",
+    });
+    await expect(
+      test.recorder.record(96, 42, `x:${ID}:3:keep`, null),
+    ).resolves.toEqual(callbackContextReplayReply);
+    expect(test.recordCallbackChoice).toHaveBeenCalledTimes(2);
   });
 });

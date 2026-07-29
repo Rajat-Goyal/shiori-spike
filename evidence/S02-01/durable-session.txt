@@ -7,7 +7,7 @@ Required command:
 Result:
   PASS
   Test Files  7 passed (7)
-  Tests       55 passed (55)
+  Tests       58 passed (58)
 
 Required command:
   npm run typecheck:server
@@ -22,7 +22,7 @@ Additional regression command:
 Result:
   PASS
   Test Files  31 passed (31)
-  Tests       467 passed (467)
+  Tests       471 passed (471)
 
 Acceptance evidence:
   AC1: repository tests persist and restore 16 SDK-compatible items; the
@@ -51,6 +51,15 @@ Review repair evidence:
     2592000 seconds. Configuration tests cover the 30-day default, a valid
     override, and malformed/out-of-range rejection. The production repository
     receives the validated configured value.
+  - Callback persistence reloads and retries up to three CAS conflicts. A
+    non-conflict persistence error aborts before callback acknowledgement so
+    Telegram can redeliver the update. On redelivery, a null domain replay is
+    paired with an application-controlled final response and the same update
+    receipt; regenerated encrypted item/context ids replay the existing receipt
+    without adding a second session item.
+  - Tests cover a CAS conflict, a transient context-write failure followed by
+    replay recovery, the domain-commit/process-gap equivalent at Telegram
+    ingress, and a successful duplicate receipt replay.
 
 Database migration verification:
   A clean all-migrations PostgreSQL run passed. Service-role/RLS probes passed

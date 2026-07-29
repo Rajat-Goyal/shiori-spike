@@ -11,8 +11,8 @@ type TelegramServiceOptions = {
       updateId: number,
       chatId: number,
       callbackData: unknown,
-      reply: TelegramReply,
-    ): Promise<void>;
+      reply: TelegramReply | null,
+    ): Promise<TelegramReply | null>;
   };
   client: TelegramClient;
   confirmationService?: {
@@ -238,22 +238,22 @@ export class TelegramService {
       if (!callbackService) {
         throw new Error("Callback service is unavailable");
       }
-      const reply = await callbackService.handle(
+      const domainReply = await callbackService.handle(
         update.updateId,
         update.chatId,
         update.callbackData,
       );
+      const reply = this.#callbackContextService
+        ? await this.#callbackContextService.record(
+            update.updateId,
+            update.chatId,
+            update.callbackData,
+            domainReply,
+          )
+        : domainReply;
       if (!reply) {
         return;
       }
-      await this.#callbackContextService
-        ?.record(
-          update.updateId,
-          update.chatId,
-          update.callbackData,
-          reply,
-        )
-        .catch(() => undefined);
       await this.#client
         .answerCallbackQuery?.(update.callbackId)
         .catch(() => undefined);

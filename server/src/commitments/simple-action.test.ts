@@ -11,6 +11,7 @@ import {
 import type { TelegramClient } from "../telegram/client.js";
 import type { TelegramRepository } from "../telegram/repository.js";
 import { TelegramService } from "../telegram/service.js";
+import type { TelegramReply } from "../confirmation.js";
 
 const ownerId = 123456789;
 const commitmentId = "11111111-1111-4111-8111-111111111111";
@@ -349,7 +350,14 @@ describe("Telegram simple commitment callback routing", () => {
       text: simpleCommitmentActionCopy.done,
     }));
     const confirmationHandler = vi.fn();
-    const callbackContext = { record: vi.fn(async () => undefined) };
+    const callbackContext = {
+      record: vi.fn(async (
+        _updateId: number,
+        _chatId: number,
+        _callbackData: unknown,
+        reply: TelegramReply | null,
+      ) => reply),
+    };
     const service = new TelegramService({
       callbackContextService: callbackContext,
       client,

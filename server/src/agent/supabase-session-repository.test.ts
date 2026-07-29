@@ -185,6 +185,7 @@ describe("SupabaseAgentSessionRepository", () => {
 
   it("encrypts relevant callback and pending-question context", async () => {
     const sessionCipher = cipher();
+    let persistedSnapshot: Record<string, unknown> | undefined;
     const fetchFromSupabase = vi.fn(async (url, options) => {
       if (String(url).endsWith("/read_agent_sdk_session")) {
         return Response.json({
@@ -206,28 +207,35 @@ describe("SupabaseAgentSessionRepository", () => {
       const body = JSON.parse(String(options?.body));
       expect(JSON.stringify(body)).not.toContain("private callback reply");
       expect(JSON.stringify(body)).not.toContain("confirm");
+      if (persistedSnapshot !== undefined) {
+        return Response.json({
+          kind: "replay",
+          session: persistedSnapshot,
+        });
+      }
+      persistedSnapshot = {
+        activeDraftId: draftId,
+        chatId: 123,
+        compaction: null,
+        expiresAt,
+        firstWorkingSequence: 1,
+        id: sessionId,
+        interaction: {
+          contextId: body.p_context_id,
+          sealedContext: body.p_sealed_context,
+        },
+        itemCount: 1,
+        items: [{
+          id: body.p_item_id,
+          recordedAt,
+          sealedItem: body.p_sealed_item,
+          sequence: 1,
+        }],
+        version: 2,
+      };
       return Response.json({
         kind: "applied",
-        session: {
-          activeDraftId: draftId,
-          chatId: 123,
-          compaction: null,
-          expiresAt,
-          firstWorkingSequence: 1,
-          id: sessionId,
-          interaction: {
-            contextId: body.p_context_id,
-            sealedContext: body.p_sealed_context,
-          },
-          itemCount: 1,
-          items: [{
-            id: body.p_item_id,
-            recordedAt,
-            sealedItem: body.p_sealed_item,
-            sequence: 1,
-          }],
-          version: 2,
-        },
+        session: persistedSnapshot,
       });
     });
     const session = await sessionRepository(
@@ -261,6 +269,23 @@ describe("SupabaseAgentSessionRepository", () => {
         },
       }],
     });
+    await expect(
+      session.recordCallbackChoice({
+        action: "confirm",
+        assistantText: "private callback reply",
+        pendingQuestion: true,
+        updateId: 75,
+      }),
+    ).resolves.toMatchObject({ kind: "replay" });
+    expect(session.currentSnapshot().itemCount).toBe(1);
+    const firstWrite = JSON.parse(
+      String(fetchFromSupabase.mock.calls[1][1]?.body),
+    );
+    const replayWrite = JSON.parse(
+      String(fetchFromSupabase.mock.calls[2][1]?.body),
+    );
+    expect(replayWrite.p_operation_id).toBe(firstWrite.p_operation_id);
+    expect(replayWrite.p_item_id).not.toBe(firstWrite.p_item_id);
   });
 
   it("pages older items without overlap using an encrypted cursor", async () => {

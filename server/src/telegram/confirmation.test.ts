@@ -10,6 +10,7 @@ import {
   parseDraftAction,
   SupabaseConfirmationRepository,
   type TelegramInlineAction,
+  type TelegramReply,
 } from "../confirmation.js";
 import {
   TelegramBotClient,
@@ -20,6 +21,7 @@ import type {
   TelegramRepository,
 } from "./repository.js";
 import { TelegramService } from "./service.js";
+import { callbackContextReplayReply } from "../agent/callback-context.js";
 
 const ownerId = 123456789;
 const draft = {
@@ -428,7 +430,14 @@ describe("authorized Telegram callback boundary", () => {
     const workSession = {
       handle: vi.fn(async () => ({ text: "Work-session result" })),
     };
-    const callbackContext = { record: vi.fn(async () => undefined) };
+    const callbackContext = {
+      record: vi.fn(async (
+        _updateId: number,
+        _chatId: number,
+        _callbackData: unknown,
+        reply: TelegramReply | null,
+      ) => reply),
+    };
     const confirmation = { handle: vi.fn() };
     const service = new TelegramService({
       callbackContextService: callbackContext,
@@ -517,6 +526,55 @@ describe("authorized Telegram callback boundary", () => {
     expect(client.answers).toEqual([]);
     expect(client.sends).toEqual([]);
     expect(repository.claims).toEqual([]);
+  });
+
+  it("does not acknowledge a context write failure and recovers when the domain replay returns null", async () => {
+    const client = new ControlledTelegramClient();
+    const repository = new ControlledTelegramRepository();
+    const domainReply = { text: "Promise saved. Done." };
+    const confirmation = {
+      handle: vi.fn()
+        .mockResolvedValueOnce(domainReply)
+        .mockResolvedValueOnce(null),
+    };
+    const callbackContext = {
+      record: vi.fn()
+        .mockRejectedValueOnce(new Error("temporary context failure"))
+        .mockResolvedValueOnce(callbackContextReplayReply),
+    };
+    const service = new TelegramService({
+      callbackContextService: callbackContext,
+      client,
+      confirmationService: confirmation,
+      conversationService: { handle: vi.fn() },
+      ownerUserId: ownerId,
+      repository,
+    });
+    const update = callbackUpdate({ updateId: 9110 });
+
+    await expect(service.handle(update)).rejects.toThrow(
+      "Telegram processing failed",
+    );
+    expect(client.answers).toEqual([]);
+    expect(client.sends).toEqual([]);
+
+    await expect(service.handle(update)).resolves.toBeUndefined();
+    expect(confirmation.handle).toHaveBeenCalledTimes(2);
+    expect(callbackContext.record).toHaveBeenNthCalledWith(
+      2,
+      9110,
+      ownerId,
+      `d:${draft.id}:4:confirm`,
+      null,
+    );
+    expect(client.answers).toEqual(["callback-9110"]);
+    expect(client.sends).toEqual([
+      {
+        actions: undefined,
+        chatId: ownerId,
+        text: callbackContextReplayReply.text,
+      },
+    ]);
   });
 
   it.each([
