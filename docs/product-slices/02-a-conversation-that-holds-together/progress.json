@@ -1,8 +1,8 @@
 {
   "slice": "02-a-conversation-that-holds-together",
-  "updated_at": "2026-07-29T18:21:24Z",
-  "current_story": "S02-03",
-  "summary": "2/5 done",
+  "updated_at": "2026-07-29T19:26:51Z",
+  "current_story": null,
+  "summary": "3/5 done",
   "log": [
     {
       "story_id": "S02-01",
@@ -128,6 +128,65 @@
         "S02-05: run consolidated live migration, restart, regression, privacy, and Telegram conversation verification."
       ],
       "context_for_next": "All typed Telegram input now enters one conversational boundary; /status remains deterministic inside it.\nDurable pending question and sanitized callback choice are preserved separately across ordinary answers.\nThe agent can use bounded owner-scoped context/history/commitment reads with opaque pagination.\nMultiple unconfirmed drafts are supported, but mutations require one exact owner-scoped draft ID and expected version.\nNatural references use exact meaningful-token overlap; ties clarify and make no mutation.\nExpired, terminal, stale, and unavailable drafts cannot become mutation targets.\nSaved-commitment mutation is still unavailable until S02-03; flexible preparation remains S02-04.\nFocused tests pass 186/186; full check passes with 498 server, 22 release-verifier, and 50 Playwright tests.\nDisposable Supabase resolver and status RPC probes passed and rolled back."
+    },
+    {
+      "story_id": "S02-03",
+      "started_at": "2026-07-29T18:21:24Z",
+      "finished_at": "2026-07-29T19:26:51Z",
+      "squad": "domain-transactions",
+      "outcome": "done",
+      "commits": [
+        "074ef9c chore(S02-03): start approved commitment changes",
+        "9c15daa feat(S02-03): add atomic commitment edit transaction",
+        "b8dc718 feat(S02-03): resume exact approvals in conversational run",
+        "772fcb7 test(S02-03): prove edit replay and durable approval safety",
+        "09b965d fix(S02-03): harden approval rehydration and active sessions"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S02-03/approval-and-edit.txt"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S02-03/approval-and-edit.txt"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S02-03/approval-and-edit.txt"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S02-03/approval-and-edit.txt"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S02-03/approval-and-edit.txt"
+        }
+      ],
+      "decisions": [
+        "New commitment creation and active-commitment edits stage only from an interruption in the current durable SDK decision run; disconnected execution staging is removed for new flows.",
+        "SDK resume reconstructs the exact interrupted tool and authoritative proposal before RunState rehydration, then rechecks owner, session, entity, version, hash, expiry, and operation on invocation.",
+        "Approved commitment edits are one owner-scoped versioned transaction with append-only change events, idempotent receipts, and atomic obsolete-schedule replacement.",
+        "Time-changing edits recheck read-only Calendar availability before mutation and apply conflict or unverified-save policy without Calendar writes.",
+        "Target, preparation, and next-session edits are rejected while a related work session is started or awaiting check-in; its pending end check-in is preserved.",
+        "Legacy execution envelopes may still resolve for rollout compatibility but cannot be created by new conversation paths."
+      ],
+      "deviations_from_plan": [
+        "Independent review found and required repairs for real Agents SDK RunState tool rehydration, remaining disconnected creation staging, and active-session end-check-in preservation.",
+        "Two obsolete ephemeral-session DB tests were updated to the durable Session contract so the complete database suite could remain green.",
+        "No S02-03 migration or implementation was applied to remote Supabase or deployed to Railway while the story was under review."
+      ],
+      "follow_ups": [
+        "S02-04: accept flexible bounded preparation duration and natural constraints through the same durable decision run and exact draft authority.",
+        "S02-05: exercise real owner create/edit approval, restart, replay, Calendar recheck, and active-session edit rejection after deployment."
+      ],
+      "context_for_next": "Creation and active-commitment edits now pause and resume the same encrypted SDK decision run.\nNew approval staging uses only active-session stagePaused; legacy execution envelopes are resolution-only compatibility.\nCreation/edit authority binds owner, session, exact entity/version, tool, proposal hash, expiry, and operation receipt.\nApproved edits atomically version the commitment, append a change event, and replace only exact obsolete unsent schedules.\nTime-changing edits recheck Calendar and never write to it.\nStarted or awaiting-check-in work sessions block plan edits and retain their pending end check-in.\nReal SDK serialize/rehydrate/Runner tests cover approve, reject, absent tool, and mismatch fail-closed paths.\nClean DB suite passes 34/34; full check passes with 522 server, 22 release-verifier, and 50 Playwright tests.\nFlexible duration and natural preparation constraints remain S02-04."
     }
   ]
 }
