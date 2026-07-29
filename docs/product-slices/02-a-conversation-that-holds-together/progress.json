@@ -1,7 +1,67 @@
 {
   "slice": "02-a-conversation-that-holds-together",
-  "updated_at": "2026-07-29T16:57:15Z",
-  "current_story": "S02-01",
-  "summary": "0/5 done",
-  "log": []
+  "updated_at": "2026-07-29T17:35:46Z",
+  "current_story": null,
+  "summary": "1/5 done",
+  "log": [
+    {
+      "story_id": "S02-01",
+      "started_at": "2026-07-29T16:57:15Z",
+      "finished_at": "2026-07-29T17:35:46Z",
+      "squad": "agent-session",
+      "outcome": "done",
+      "commits": [
+        "02d6512 chore(S02-01): start durable agent session",
+        "65334b2 feat(S02-01): persist durable agent SDK sessions",
+        "f95e554 fix(S02-01): replay regenerated session writes",
+        "6a258fd feat(S02-01): use one durable agent session",
+        "6079dd6 fix(S02-01): configure session retention",
+        "6ee7d25 fix(S02-01): retain all callback context",
+        "c2e017c fix(S02-01): make callback context retry safe"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S02-01/durable-session.txt"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S02-01/durable-session.txt"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S02-01/durable-session.txt"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S02-01/durable-session.txt"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S02-01/durable-session.txt"
+        }
+      ],
+      "decisions": [
+        "The OpenAI Agents SDK session strategy is now the only conversation continuation strategy; manual replay, provider Conversations, and previous-response chaining are not used.",
+        "SDK-compatible session items, pending questions, callback choices, compaction checkpoints, and paused approval state are application-encrypted; reasoning and provider metadata are excluded.",
+        "AGENT_SESSION_RETENTION_SECONDS defaults to 30 days and is validated between one hour and 30 days.",
+        "All live callback families record only sanitized family.action and authoritative application copy, using bounded CAS retry and idempotent operation receipts.",
+        "Owner reset/forget deletes conversation and approval continuity state while preserving commitments and product events."
+      ],
+      "deviations_from_plan": [
+        "Independent review required three repair cycles: callback-family coverage, operational retention configuration, and retry-safe exactly-once callback context.",
+        "A review agent incorrectly triggered Railway deployment 0eacaf35-fcd8-42b5-aa51-4e9b373f493b before the story release gate. The service reached SUCCESS with no observed HTTP traffic; this deployment is not accepted as story evidence and is reconciled separately."
+      ],
+      "follow_ups": [
+        "S02-02: consume the durable SDK session and callback/pending-question context through one typed-message orchestrator.",
+        "S02-05: include retention configuration, reset/forget, restart, callback replay, and the premature-deployment deviation in consolidated release verification."
+      ],
+      "context_for_next": "The application now uses a real Agents SDK session backed by encrypted Supabase items; manual six-turn replay is gone.\nProvider storage remains false and reasoning/provider metadata are not retained.\nSessions survive draft completion and restart; owner reset/forget preserves domain commitments and events.\nWorking context is bounded while older items are available through opaque non-overlapping cursor pages.\nAll d/w/p/x/s/c callbacks persist sanitized context with bounded CAS retry and idempotent replay recovery.\nAGENT_SESSION_RETENTION_SECONDS is optional, defaults to 30 days, and accepts one hour through 30 days.\nFocused agent tests pass 58/58, full server tests pass 471/471, and server typecheck passes.\nS02-02 may rely on the Session adapter and must not reintroduce manual history replay."
+    }
+  ]
 }
