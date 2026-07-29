@@ -483,6 +483,224 @@ describe("SessionBackedAgentDecisionEngine", () => {
     });
   });
 
+  it("stages an exact commitment-edit interruption from the same durable run and returns only application preview copy", async () => {
+    const test = fixture(false);
+    const commitmentId = "33333333-3333-4333-8333-333333333333";
+    const edit = {
+      calendarPolicy: {
+        conflict: "reject" as const,
+        unavailable: "reject" as const,
+      },
+      commitmentId,
+      definitionOfDone: "Submit the final note",
+      expectedVersion: 6,
+      preparation: {
+        nextWorkSession: null,
+        required: false,
+      },
+      targetAt: "2026-08-01T09:00:00.000Z",
+    };
+    vi.mocked(
+      test.contextReader.readProductContext,
+    ).mockResolvedValueOnce({
+      ...productContext(false),
+      commitments: [{
+        definitionOfDone: "Submit the note",
+        id: commitmentId,
+        status: "active",
+        targetAt: "2026-08-01T08:00:00.000Z",
+        version: 6,
+      }],
+      matchedEntity: {
+        entity: {
+          definitionOfDone: "Submit the note",
+          id: commitmentId,
+          status: "active",
+          targetAt: "2026-08-01T08:00:00.000Z",
+          version: 6,
+        },
+        kind: "commitment",
+      },
+    });
+    vi.mocked(test.runtime.run).mockResolvedValueOnce({
+      approval: {
+        proposal: edit,
+        target: { id: commitmentId, version: 6 },
+        toolName: "update_commitment",
+      },
+      outcome: {
+        decision: {
+          ...decision,
+          commitmentMode: "simple_action",
+          definitionOfDone: edit.definitionOfDone,
+          inputClass: "ordinary_question",
+          missingFields: [],
+          nextAction: "answer",
+          response: "",
+          targetAt: edit.targetAt,
+          targetTimeZone: "Asia/Singapore",
+          turnRelation: "none",
+        },
+        ok: true,
+      },
+      pendingApprovalState: "same-encrypted-run",
+    });
+    const prepareApproval = vi.fn(async () => true);
+    const engine = new SessionBackedAgentDecisionEngine({
+      chatId: 42,
+      contextReader: test.contextReader,
+      draftRepository: test.draftRepository,
+      prepareApproval,
+      repository: test.repository,
+      runtime: test.runtime,
+    });
+
+    const outcome = await engine.decide(
+      {
+        context: { fields: null, phase: "none" },
+        ownerText: "Move the note promise to 5pm",
+      },
+      { updateId: 71 },
+    );
+
+    expect(prepareApproval).toHaveBeenCalledWith({
+      chatId: 42,
+      draft: { id: commitmentId, version: 6 },
+      pendingApprovalState: "same-encrypted-run",
+      sessionId: "session-1",
+      toolName: "update_commitment",
+      updateId: 71,
+    });
+    expect(outcome).toMatchObject({
+      approval: {
+        target: {
+          id: commitmentId,
+          kind: "commitment",
+          version: 6,
+        },
+      },
+      ok: true,
+    });
+    expect(outcome.ok && outcome.approval?.reply.text).toContain(
+      "Nothing has been changed yet.",
+    );
+    expect(test.runtime.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authority: expect.objectContaining({
+          draftId: commitmentId,
+          draftVersion: 6,
+          entityKind: "commitment",
+        }),
+        session: test.session,
+      }),
+    );
+  });
+
+  it("stages exact draft creation from the same durable run", async () => {
+    const test = fixture();
+    const completeDecision: DecisionResult = {
+      commitmentMode: "simple_action",
+      definitionOfDone: "Submit the note",
+      durationMinutes: null,
+      inputClass: "explicit_commitment",
+      missingFields: [],
+      nextAction: "ready",
+      offerWorkWindowHelp: false,
+      response: "",
+      targetAt: "2026-07-31T17:00:00+08:00",
+      targetTimeZone: "Asia/Singapore",
+      timingConstraints: [],
+      turnRelation: "correction",
+    };
+    const completeDraft = {
+      definitionOfDone: completeDecision.definitionOfDone,
+      focused: true,
+      id: snapshot.activeDraftId!,
+      mode: "simple_action" as const,
+      phase: "complete" as const,
+      targetAt: completeDecision.targetAt,
+      version: 3,
+    };
+    vi.mocked(
+      test.contextReader.readProductContext,
+    ).mockResolvedValueOnce({
+      ...productContext(false),
+      drafts: [completeDraft],
+      focusedEntity: { entity: completeDraft, kind: "draft" },
+    });
+    vi.mocked(test.runtime.run).mockResolvedValueOnce({
+      approval: {
+        proposal: completeDecision,
+        target: { id: completeDraft.id, version: 3 },
+        toolName: "execute_commitment",
+      },
+      outcome: { decision: completeDecision, ok: true },
+      pendingApprovalState: "same-creation-run",
+    });
+    const prepareApproval = vi.fn(async () => true);
+    const engine = new SessionBackedAgentDecisionEngine({
+      chatId: 42,
+      contextReader: test.contextReader,
+      draftRepository: test.draftRepository,
+      prepareApproval,
+      repository: test.repository,
+      runtime: test.runtime,
+    });
+
+    const outcome = await engine.decide(
+      {
+        context: {
+          fields: {
+            commitmentMode: "simple_action",
+            definitionOfDone: "Submit the note",
+            durationMinutes: null,
+            offerWorkWindowHelp: false,
+            targetAt: completeDecision.targetAt,
+            targetTimeZone: "Asia/Singapore",
+            timingConstraints: [],
+          },
+          phase: "complete",
+        },
+        ownerText: "Confirm that promise",
+      },
+      { updateId: 72 },
+    );
+
+    expect(prepareApproval).toHaveBeenCalledWith({
+      chatId: 42,
+      draft: { id: completeDraft.id, version: 3 },
+      pendingApprovalState: "same-creation-run",
+      sessionId: "session-1",
+      toolName: "execute_commitment",
+      updateId: 72,
+    });
+    expect(outcome).toMatchObject({
+      approval: {
+        reply: {
+          actions: [
+            {
+              callbackData: `d:${completeDraft.id}:3:confirm`,
+              text: "Confirm",
+            },
+            {
+              callbackData: `d:${completeDraft.id}:3:cancel`,
+              text: "Cancel",
+            },
+          ],
+        },
+        target: {
+          id: completeDraft.id,
+          kind: "draft",
+          version: 3,
+        },
+      },
+      ok: true,
+    });
+    expect(outcome.ok && outcome.approval?.reply.text).toContain(
+      "Nothing has been saved yet.",
+    );
+  });
+
   it("drops stale continuity without suppressing the applied turn", async () => {
     const test = fixture();
     vi.mocked(test.session.recordApplicationReply).mockResolvedValueOnce({

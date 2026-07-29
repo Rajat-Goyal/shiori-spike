@@ -4,6 +4,10 @@ import {
   type TelegramReply,
 } from "../confirmation.js";
 import {
+  commitmentChangeCopy,
+  parseCommitmentEditApproval,
+} from "../commitments/approved-change.js";
+import {
   parseWorkSessionAction,
   workSessionFlowCopy,
 } from "../work-sessions/flow.js";
@@ -216,5 +220,64 @@ export class AgentApprovedWorkSessionService {
       );
     }
     return reply;
+  }
+}
+
+export class AgentApprovedCommitmentChangeService {
+  readonly #gate: AgentApprovalGate;
+  readonly #sessions: AgentSessionRepository;
+
+  constructor(
+    options: Pick<ApprovedServiceOptions, "gate" | "sessions">,
+  ) {
+    this.#gate = options.gate;
+    this.#sessions = options.sessions;
+  }
+
+  async handle(
+    updateId: number,
+    chatId: number,
+    callbackData: unknown,
+  ): Promise<TelegramReply | null> {
+    const action = parseCommitmentEditApproval(callbackData);
+    if (action === null) {
+      return { text: commitmentChangeCopy.malformed };
+    }
+    const resolution = await this.#gate.resolve({
+      chatId,
+      decision:
+        action.action === "approve" ? "approve" : "reject",
+      draft: {
+        id: action.commitmentId,
+        version: action.version,
+      },
+      toolName: "update_commitment",
+      updateId,
+    });
+    if (resolution.kind === "replay") {
+      return null;
+    }
+    if (action.action === "reject") {
+      return {
+        text:
+          resolution.kind === "rejected"
+            ? commitmentChangeCopy.rejected
+            : commitmentChangeCopy.uncertain,
+      };
+    }
+    if (resolution.kind !== "approved") {
+      return { text: commitmentChangeCopy.uncertain };
+    }
+    await clearActiveSession(
+      { gate: this.#gate, sessions: this.#sessions },
+      chatId,
+      updateId,
+      "confirmed",
+    );
+    if (resolution.replayed) {
+      return { text: commitmentChangeCopy.replay };
+    }
+    return resolution.reply ??
+      { text: commitmentChangeCopy.uncertain };
   }
 }

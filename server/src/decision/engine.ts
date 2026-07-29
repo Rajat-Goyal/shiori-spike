@@ -12,6 +12,7 @@ import {
   materializeProviderDecision,
   validateDecisionInputSemantics,
 } from "./semantic.js";
+import type { TelegramReply } from "../confirmation.js";
 
 export type DecisionFailureClass =
   | "http"
@@ -45,6 +46,14 @@ export type DecisionTelemetryReason =
 export type DecisionOutcome =
   | {
       decision: DecisionResult;
+      approval?: Readonly<{
+        reply: TelegramReply;
+        target: Readonly<{
+          id: string;
+          kind: "commitment" | "draft";
+          version: number;
+        }>;
+      }>;
       draftTarget?: Readonly<{
         authority: Readonly<{
           expectedVersion: number;

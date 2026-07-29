@@ -252,6 +252,94 @@ describe("agent approval gate", () => {
     });
   });
 
+  it("stages a paused commitment edit without treating another focused draft as authority", async () => {
+    const { agentRuntime, approvals, gate, sessions } = fixture();
+    sessions.activeDraftId = "another-focused-draft";
+    agentRuntime.resume.mockResolvedValueOnce(
+      runtimeResult({
+        execution: {
+          reply: { text: "Promise updated." },
+          status: "executed",
+        },
+      }),
+    );
+
+    await expect(
+      gate.stagePaused({
+        chatId: 42,
+        draft: {
+          id: "11111111-1111-4111-8111-111111111111",
+          version: 7,
+        },
+        pendingApprovalState: "same-sdk-run",
+        sessionId: "session-1",
+        toolName: "update_commitment",
+        updateId: 300,
+      }),
+    ).resolves.toEqual({ kind: "prepared" });
+    expect(approvals.stageCommands[0]).toMatchObject({
+      draftId: "11111111-1111-4111-8111-111111111111",
+      draftVersion: 7,
+      toolName: "update_commitment",
+      updateId: 300,
+    });
+
+    await expect(
+      gate.resolve({
+        chatId: 42,
+        decision: "approve",
+        draft: {
+          id: "11111111-1111-4111-8111-111111111111",
+          version: 7,
+        },
+        toolName: "update_commitment",
+        updateId: 301,
+      }),
+    ).resolves.toEqual({
+      kind: "approved",
+      reply: { text: "Promise updated." },
+    });
+    expect(agentRuntime.resume).toHaveBeenCalledWith({
+      approval: "approve",
+      authority: {
+        chatId: 42,
+        draftId: "11111111-1111-4111-8111-111111111111",
+        draftVersion: 7,
+        entityKind: "commitment",
+        sessionId: "session-1",
+        updateId: 301,
+      },
+      pendingApprovalState: "same-sdk-run",
+    });
+  });
+
+  it("stages paused draft creation without launching a separate execution run", async () => {
+    const { agentRuntime, approvals, gate } = fixture();
+
+    await expect(
+      gate.stagePaused({
+        chatId: 42,
+        draft,
+        pendingApprovalState: "same-creation-run",
+        sessionId: "session-1",
+        toolName: "execute_commitment",
+        updateId: 302,
+      }),
+    ).resolves.toEqual({ kind: "prepared" });
+
+    expect(agentRuntime.prepareExecution).not.toHaveBeenCalled();
+    expect(approvals.stageCommands).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        draftVersion: draft.version,
+        sealedRunState: expect.any(String),
+        sessionId: "session-1",
+        toolName: "execute_commitment",
+        updateId: 302,
+      }),
+    ]);
+  });
+
   it("reuses an exact staged binding without rerunning preparation", async () => {
     const { agentRuntime, approvals, gate } = fixture();
     const command = {

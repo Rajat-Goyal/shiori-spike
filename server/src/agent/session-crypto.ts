@@ -43,7 +43,7 @@ export type AgentStateBinding =
       draftId: string;
       draftVersion: number;
       sessionId: string;
-      toolName: "execute_commitment";
+      toolName: "execute_commitment" | "update_commitment";
       type: "pending_approval";
     }>;
 

@@ -138,7 +138,9 @@ export interface AgentSessionRepository {
   read(chatId: number): Promise<AgentSessionReadResult>;
 }
 
-export type AgentApprovalToolName = "execute_commitment";
+export type AgentApprovalToolName =
+  | "execute_commitment"
+  | "update_commitment";
 
 export type AgentPendingApprovalSnapshot = Readonly<{
   chatId: number;

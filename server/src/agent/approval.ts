@@ -11,12 +11,13 @@ import type {
 } from "./session-crypto.js";
 import type {
   AgentApprovalRepository,
+  AgentApprovalToolName,
   AgentPendingApprovalSnapshot,
   AgentSessionClearReason,
   AgentSessionRepository,
 } from "./session.js";
 
-const EXECUTION_TOOL = "execute_commitment";
+const EXECUTION_TOOL: AgentApprovalToolName = "execute_commitment";
 
 export type AgentApprovalGateTelemetryEvent =
   | "clear_unavailable"
@@ -47,6 +48,16 @@ export type AgentApprovalResolveCommand = Readonly<{
   chatId: number;
   decision: "approve" | "reject";
   draft: Readonly<{ id: string; version: number }>;
+  toolName?: AgentApprovalToolName;
+  updateId: number;
+}>;
+
+export type AgentApprovalStagePausedCommand = Readonly<{
+  chatId: number;
+  draft: Readonly<{ id: string; version: number }>;
+  pendingApprovalState: string;
+  sessionId: string;
+  toolName: AgentApprovalToolName;
   updateId: number;
 }>;
 
@@ -71,6 +82,9 @@ export interface AgentApprovalGate {
   ): Promise<Readonly<{ kind: "cleared" | "replay" | "unavailable" }>>;
   prepare(
     command: AgentApprovalPrepareCommand,
+  ): Promise<AgentApprovalGateResult>;
+  stagePaused(
+    command: AgentApprovalStagePausedCommand,
   ): Promise<AgentApprovalGateResult>;
   resolve(
     command: AgentApprovalResolveCommand,
@@ -100,13 +114,14 @@ function exactApproval(
     draftId: string;
     draftVersion: number;
     sessionId?: string;
+    toolName: AgentApprovalToolName;
   }>,
 ): boolean {
   return (
     approval.chatId === expected.chatId &&
     approval.draftId === expected.draftId &&
     approval.draftVersion === expected.draftVersion &&
-    approval.toolName === EXECUTION_TOOL &&
+    approval.toolName === expected.toolName &&
     (expected.sessionId === undefined ||
       approval.sessionId === expected.sessionId)
   );
@@ -114,13 +129,14 @@ function exactApproval(
 
 function binding(
   authority: Omit<ApprovedAgentExecutionAuthority, "updateId">,
+  toolName: AgentApprovalToolName,
 ): AgentStateBinding {
   return {
     chatId: authority.chatId,
     draftId: authority.draftId,
     draftVersion: authority.draftVersion,
     sessionId: authority.sessionId,
-    toolName: EXECUTION_TOOL,
+    toolName,
     type: "pending_approval" as const,
   };
 }
@@ -143,6 +159,116 @@ export function createAgentApprovalGate(
     } catch {
       // Telemetry is observational and must never affect the approval gate.
     }
+  }
+
+  async function stagePaused(
+    command: AgentApprovalStagePausedCommand,
+  ): Promise<AgentApprovalGateResult> {
+    if (
+      !validIdentity(command.chatId, command.draft, command.updateId) ||
+      command.sessionId.length === 0 ||
+      command.pendingApprovalState.length === 0
+    ) {
+      return { kind: "unavailable" };
+    }
+    let sessionRead: Awaited<ReturnType<AgentSessionRepository["read"]>>;
+    try {
+      sessionRead = await options.sessions.read(command.chatId);
+    } catch {
+      report("prepare_session_unavailable");
+      return { kind: "unavailable" };
+    }
+    if (
+      sessionRead.kind !== "active" ||
+      sessionRead.session.id !== command.sessionId ||
+      (
+        command.toolName === EXECUTION_TOOL &&
+        sessionRead.session.activeDraftId !== command.draft.id
+      )
+    ) {
+      report("prepare_session_unavailable");
+      return { kind: "unavailable" };
+    }
+    try {
+      const existing = await options.approvals.read(
+        command.chatId,
+        command.draft.id,
+        command.draft.version,
+        command.toolName,
+      );
+      if (
+        existing.kind === "current" &&
+        exactApproval(existing.approval, {
+          chatId: command.chatId,
+          draftId: command.draft.id,
+          draftVersion: command.draft.version,
+          sessionId: command.sessionId,
+          toolName: command.toolName,
+        })
+      ) {
+        return { kind: "prepared" };
+      }
+      if (existing.kind === "expired") {
+        return { kind: "unavailable" };
+      }
+      await options.approvals.clearForSession(
+        command.sessionId,
+        "cancelled",
+      );
+    } catch {
+      report("prepare_repository_unavailable");
+      return { kind: "unavailable" };
+    }
+    let sealedRunState: string;
+    try {
+      sealedRunState = options.cipher.seal(
+        command.pendingApprovalState,
+        binding(
+          {
+            chatId: command.chatId,
+            draftId: command.draft.id,
+            draftVersion: command.draft.version,
+            sessionId: command.sessionId,
+          },
+          command.toolName,
+        ),
+      );
+    } catch {
+      report("prepare_runtime_unavailable");
+      return { kind: "unavailable" };
+    }
+    try {
+      const staged = await options.approvals.stage({
+        chatId: command.chatId,
+        draftId: command.draft.id,
+        draftVersion: command.draft.version,
+        expected: { kind: "none" },
+        sealedRunState,
+        sessionId: command.sessionId,
+        toolName: command.toolName,
+        updateId: command.updateId,
+      });
+      if (staged.kind === "replay") {
+        return { kind: "replay" };
+      }
+      if (
+        staged.kind === "staged" &&
+        exactApproval(staged.approval, {
+          chatId: command.chatId,
+          draftId: command.draft.id,
+          draftVersion: command.draft.version,
+          sessionId: command.sessionId,
+          toolName: command.toolName,
+        })
+      ) {
+        return { kind: "prepared" };
+      }
+    } catch {
+      report("prepare_repository_unavailable");
+      return { kind: "unavailable" };
+    }
+    report("prepare_repository_unavailable");
+    return { kind: "unavailable" };
   }
 
   return {
@@ -200,6 +326,7 @@ export function createAgentApprovalGate(
             draftId: command.draft.id,
             draftVersion: command.draft.version,
             sessionId: sessionRead.session.id,
+            toolName: EXECUTION_TOOL,
           })
         ) {
           return { kind: "prepared" };
@@ -240,7 +367,7 @@ export function createAgentApprovalGate(
       try {
         sealedRunState = options.cipher.seal(
           runtimeResult.pendingApprovalState!,
-          binding(authority),
+          binding(authority, EXECUTION_TOOL),
         );
       } catch {
         report("prepare_runtime_unavailable");
@@ -267,6 +394,7 @@ export function createAgentApprovalGate(
             draftId: command.draft.id,
             draftVersion: command.draft.version,
             sessionId: sessionRead.session.id,
+            toolName: EXECUTION_TOOL,
           })
         ) {
           return { kind: "prepared" };
@@ -279,17 +407,20 @@ export function createAgentApprovalGate(
       return { kind: "unavailable" };
     },
 
+    stagePaused,
+
     async resolve(command) {
       if (!validIdentity(command.chatId, command.draft, command.updateId)) {
         return { kind: "unavailable" };
       }
       let current: Awaited<ReturnType<AgentApprovalRepository["read"]>>;
+      const toolName = command.toolName ?? EXECUTION_TOOL;
       try {
         current = await options.approvals.read(
           command.chatId,
           command.draft.id,
           command.draft.version,
-          EXECUTION_TOOL,
+          toolName,
         );
       } catch {
         report("resolve_repository_unavailable");
@@ -301,6 +432,7 @@ export function createAgentApprovalGate(
           chatId: command.chatId,
           draftId: command.draft.id,
           draftVersion: command.draft.version,
+          toolName,
         })
       ) {
         return { kind: "unavailable" };
@@ -314,7 +446,7 @@ export function createAgentApprovalGate(
           decision: command.decision,
           draftId: command.draft.id,
           draftVersion: command.draft.version,
-          toolName: EXECUTION_TOOL,
+          toolName,
           updateId: command.updateId,
         });
       } catch {
@@ -338,12 +470,15 @@ export function createAgentApprovalGate(
       try {
         pendingApprovalState = options.cipher.open(
           resolved.sealedRunState,
-          binding({
-            chatId: command.chatId,
-            draftId: command.draft.id,
-            draftVersion: command.draft.version,
-            sessionId: resolved.sessionId,
-          }),
+          binding(
+            {
+              chatId: command.chatId,
+              draftId: command.draft.id,
+              draftVersion: command.draft.version,
+              sessionId: resolved.sessionId,
+            },
+            toolName,
+          ),
         );
       } catch {
         report("resolve_binding_invalid");
@@ -357,6 +492,9 @@ export function createAgentApprovalGate(
             chatId: command.chatId,
             draftId: command.draft.id,
             draftVersion: command.draft.version,
+            ...(toolName === "update_commitment"
+              ? { entityKind: "commitment" as const }
+              : {}),
             sessionId: resolved.sessionId,
             updateId: command.updateId,
           },

@@ -397,6 +397,20 @@ export class ConversationService {
       }
     }
 
+    if (outcome.approval) {
+      return this.#finish(
+        {
+          action: "preserve",
+          audit: this.#audit(outcome.decision),
+          expected: expectedSnapshot(snapshot),
+          processingResult: "conversation",
+          updateId,
+        },
+        snapshot,
+        outcome.approval.reply,
+      );
+    }
+
     switch (snapshot.kind) {
       case "none":
         return this.#withoutState(updateId, snapshot, outcome.decision);

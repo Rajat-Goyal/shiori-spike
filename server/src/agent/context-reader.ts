@@ -75,18 +75,25 @@ export type AgentDraftContext = Readonly<{
 export type AgentCommitmentContext = Readonly<{
   definitionOfDone: string;
   id: string;
+  preparationNeeded?: boolean;
   status: CommitmentStatus;
   targetAt: string;
   version: number;
 }>;
 
 export type AgentWorkSessionContext = Readonly<{
+  calendarAttemptedAt?: string;
+  calendarCheckedAt?: string | null;
+  calendarStatus?: "conflict_kept" | "free" | "unverified";
   commitmentId: string;
+  conflictConsent?: boolean;
   durationMinutes: number;
   endAt: string;
+  finalCalendarObservation?: "conflict" | "free" | "unavailable";
   id: string;
   startAt: string;
   status: WorkSessionStatus;
+  timingConstraints?: string;
 }>;
 
 export type AgentRecentOutcomeContext = Readonly<{
@@ -115,6 +122,7 @@ export type AgentProductContext = Readonly<{
   commitments: readonly AgentCommitmentContext[];
   drafts: readonly AgentDraftContext[];
   focusedEntity: AgentFocusedEntity | null;
+  matchedEntity?: AgentFocusedEntity | null;
   recentOutcomes: readonly AgentRecentOutcomeContext[];
   truncated: Readonly<{
     commitments: boolean;
@@ -253,13 +261,20 @@ function parseCommitment(value: unknown): AgentCommitmentContext {
     !positiveInteger(item.version) ||
     !definition(item.definitionOfDone) ||
     !oneOf(item.status, ["active", "cancelled", "done"]) ||
-    !instant(item.targetAt)
+    !instant(item.targetAt) ||
+    !(
+      item.preparationNeeded === undefined ||
+      typeof item.preparationNeeded === "boolean"
+    )
   ) {
     throw new Error("Agent commitment context is invalid");
   }
   return {
     definitionOfDone: item.definitionOfDone,
     id: item.id,
+    ...(typeof item.preparationNeeded === "boolean"
+      ? { preparationNeeded: item.preparationNeeded }
+      : {}),
     status: item.status,
     targetAt: item.targetAt,
     version: item.version,
@@ -285,17 +300,81 @@ function parseWorkSession(value: unknown): AgentWorkSessionContext {
     !instant(item.endAt) ||
     Date.parse(item.endAt) <= Date.parse(item.startAt) ||
     !positiveInteger(item.durationMinutes) ||
-    item.durationMinutes > 1_440
+    item.durationMinutes > 1_440 ||
+    !(
+      item.timingConstraints === undefined ||
+      (
+        typeof item.timingConstraints === "string" &&
+        item.timingConstraints.trim().length > 0 &&
+        item.timingConstraints.length <= 500
+      )
+    ) ||
+    !(
+      item.calendarStatus === undefined ||
+      oneOf(item.calendarStatus, [
+        "conflict_kept",
+        "free",
+        "unverified",
+      ])
+    ) ||
+    !(
+      item.calendarAttemptedAt === undefined ||
+      instant(item.calendarAttemptedAt)
+    ) ||
+    !(
+      item.calendarCheckedAt === undefined ||
+      item.calendarCheckedAt === null ||
+      instant(item.calendarCheckedAt)
+    ) ||
+    !(
+      item.conflictConsent === undefined ||
+      typeof item.conflictConsent === "boolean"
+    ) ||
+    !(
+      item.finalCalendarObservation === undefined ||
+      oneOf(item.finalCalendarObservation, [
+        "conflict",
+        "free",
+        "unavailable",
+      ])
+    )
   ) {
     throw new Error("Agent work-session context is invalid");
   }
   return {
+    ...(item.calendarAttemptedAt === undefined
+      ? {}
+      : { calendarAttemptedAt: item.calendarAttemptedAt as string }),
+    ...(item.calendarCheckedAt === undefined
+      ? {}
+      : {
+          calendarCheckedAt:
+            item.calendarCheckedAt as string | null,
+        }),
+    ...(item.calendarStatus === undefined
+      ? {}
+      : {
+          calendarStatus:
+            item.calendarStatus as AgentWorkSessionContext["calendarStatus"],
+        }),
     commitmentId: item.commitmentId,
+    ...(item.conflictConsent === undefined
+      ? {}
+      : { conflictConsent: item.conflictConsent as boolean }),
     durationMinutes: item.durationMinutes,
     endAt: item.endAt,
     id: item.id,
+    ...(item.finalCalendarObservation === undefined
+      ? {}
+      : {
+          finalCalendarObservation:
+            item.finalCalendarObservation as AgentWorkSessionContext["finalCalendarObservation"],
+        }),
     startAt: item.startAt,
     status: item.status,
+    ...(item.timingConstraints === undefined
+      ? {}
+      : { timingConstraints: item.timingConstraints as string }),
   };
 }
 
@@ -395,14 +474,17 @@ function normalizedQuery(value: string | null): string | null {
   return normalized;
 }
 
-function ambiguity(
+function referenceMatch(
   query: string | null,
   drafts: readonly AgentDraftContext[],
   commitments: readonly AgentCommitmentContext[],
-): AgentProductContext["ambiguity"] {
+): Readonly<{
+  ambiguity: AgentProductContext["ambiguity"];
+  exact: AgentFocusedEntity | null;
+}> {
   const normalized = normalizedQuery(query);
   if (normalized === null) {
-    return null;
+    return { ambiguity: null, exact: null };
   }
   const queryTokens = new Set(
     normalized
@@ -457,9 +539,31 @@ function ambiguity(
     .filter((item) => highest > 0 && item.score === highest)
     .slice(0, AMBIGUITY_CANDIDATE_LIMIT)
     .map((item) => item.candidate);
-  return candidates.length > 1
-    ? { candidates, query: normalized }
-    : null;
+  if (candidates.length > 1) {
+    return {
+      ambiguity: { candidates, query: normalized },
+      exact: null,
+    };
+  }
+  if (candidates.length === 0) {
+    return { ambiguity: null, exact: null };
+  }
+  const candidate = candidates[0]!;
+  return {
+    ambiguity: null,
+    exact:
+      candidate.kind === "draft"
+        ? {
+            entity: drafts.find((draft) => draft.id === candidate.id)!,
+            kind: "draft",
+          }
+        : {
+            entity: commitments.find(
+              (commitment) => commitment.id === candidate.id,
+            )!,
+            kind: "commitment",
+          },
+  };
 }
 
 function boundedLimit(value: number | undefined, maximum: number): number {
@@ -556,11 +660,13 @@ export class SupabaseAgentContextReader implements AgentContextReader {
     ) {
       throw new Error("Supabase agent context read exceeded its bounds");
     }
+    const match = referenceMatch(request.query, drafts, commitments);
     return {
-      ambiguity: ambiguity(request.query, drafts, commitments),
+      ambiguity: match.ambiguity,
       commitments,
       drafts,
       focusedEntity: parseFocusedEntity(raw.focusedEntity, observedAt),
+      matchedEntity: match.exact,
       recentOutcomes,
       truncated: parseTruncated(raw.truncated),
       workSessions,

@@ -62,6 +62,7 @@ describe("AgentCallbackContextRecorder", () => {
     [`d:${ID}:3:confirm`, "draft.confirm"],
     [`w:${ID}:3:no_preparation`, "work_session.no_preparation"],
     [`p:${ID}:3:done`, "commitment.done"],
+    [`e:${ID}:3:approve`, "commitment_edit.approve"],
     [`x:${ID}:3:confirm_cancel`, "commitment_cancel.confirm_cancel"],
     [`s:${ID}:3:more`, "work_session_outcome.more"],
     [

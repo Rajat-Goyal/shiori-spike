@@ -372,7 +372,9 @@ function approvalSnapshot(value: unknown): AgentPendingApprovalSnapshot {
     !nonempty(item.sessionId) ||
     !nonempty(item.draftId) ||
     !safeInteger(item.draftVersion, true) ||
-    item.toolName !== "execute_commitment" ||
+    !["execute_commitment", "update_commitment"].includes(
+      String(item.toolName),
+    ) ||
     !nonempty(item.sealedRunState) ||
     !safeInteger(item.version, true) ||
     !instant(item.expiresAt)
@@ -387,7 +389,7 @@ function approvalSnapshot(value: unknown): AgentPendingApprovalSnapshot {
     id: item.id,
     sealedRunState: item.sealedRunState,
     sessionId: item.sessionId,
-    toolName: item.toolName,
+    toolName: item.toolName as AgentApprovalToolName,
     version: item.version,
   };
 }
@@ -987,12 +989,17 @@ export class SupabaseAgentApprovalRepository
     toolName: AgentApprovalToolName,
   ): Promise<AgentApprovalReadResult> {
     return approvalReadResult(
-      await this.rpc("read_agent_approval", {
+      await this.rpc(
+        toolName === "update_commitment"
+          ? "read_agent_commitment_edit_approval"
+          : "read_agent_approval",
+        {
         p_chat_id: chatId,
         p_draft_id: draftId,
         p_draft_version: draftVersion,
         p_tool_name: toolName,
-      }),
+        },
+      ),
     );
   }
 
@@ -1000,7 +1007,11 @@ export class SupabaseAgentApprovalRepository
     command: AgentApprovalResolveCommand,
   ): Promise<AgentApprovalResolveResult> {
     return approvalResolveResult(
-      await this.rpc("resolve_agent_approval", {
+      await this.rpc(
+        command.toolName === "update_commitment"
+          ? "resolve_agent_commitment_edit_approval"
+          : "resolve_agent_approval",
+        {
         p_approval_id: command.approvalId,
         p_approval_version: command.approvalVersion,
         p_chat_id: command.chatId,
@@ -1009,7 +1020,8 @@ export class SupabaseAgentApprovalRepository
         p_draft_version: command.draftVersion,
         p_tool_name: command.toolName,
         p_update_id: command.updateId,
-      }),
+        },
+      ),
     );
   }
 
@@ -1017,7 +1029,11 @@ export class SupabaseAgentApprovalRepository
     command: AgentApprovalStageCommand,
   ): Promise<AgentApprovalStageResult> {
     return approvalStageResult(
-      await this.rpc("stage_agent_approval", {
+      await this.rpc(
+        command.toolName === "update_commitment"
+          ? "stage_agent_commitment_edit_approval"
+          : "stage_agent_approval",
+        {
         p_chat_id: command.chatId,
         p_draft_id: command.draftId,
         p_draft_version: command.draftVersion,
@@ -1026,7 +1042,8 @@ export class SupabaseAgentApprovalRepository
         p_session_id: command.sessionId,
         p_tool_name: command.toolName,
         p_update_id: command.updateId,
-      }),
+        },
+      ),
     );
   }
 }

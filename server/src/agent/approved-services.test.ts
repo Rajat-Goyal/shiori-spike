@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { TelegramReply } from "../confirmation.js";
 import type { AgentApprovalGate } from "./approval.js";
 import {
+  AgentApprovedCommitmentChangeService,
   AgentApprovedConfirmationService,
   AgentApprovedWorkSessionService,
 } from "./approved-services.js";
@@ -16,6 +17,7 @@ function fixture(
   const gate: AgentApprovalGate = {
     clearAfterTerminal: vi.fn(async () => ({ kind: "cleared" })),
     prepare: vi.fn(async () => ({ kind: "prepared" })),
+    stagePaused: vi.fn(async () => ({ kind: "prepared" })),
     resolve: vi.fn(async () =>
       result.kind === "approved" && result.reply === undefined
         ? { ...result, reply }
@@ -173,5 +175,30 @@ describe("agent-approved callback services", () => {
     await allowedWrapper.handle(302, 42, `w:${ID}:7:option_1`);
     expect(allowed.gate.resolve).not.toHaveBeenCalled();
     expect(allowed.service.handle).toHaveBeenCalledOnce();
+  });
+
+  it("resumes only the exact approved commitment edit and clears its paused state", async () => {
+    const test = fixture(
+      { kind: "approved" },
+      { text: "Promise updated." },
+    );
+    const wrapper = new AgentApprovedCommitmentChangeService(test);
+
+    await expect(
+      wrapper.handle(401, 42, `e:${ID}:9:approve`),
+    ).resolves.toEqual({ text: "Promise updated." });
+    expect(test.gate.resolve).toHaveBeenCalledWith({
+      chatId: 42,
+      decision: "approve",
+      draft: { id: ID, version: 9 },
+      toolName: "update_commitment",
+      updateId: 401,
+    });
+    expect(test.gate.clearAfterTerminal).toHaveBeenCalledWith({
+      chatId: 42,
+      reason: "confirmed",
+      sessionId: "session-1",
+      updateId: 401,
+    });
   });
 });

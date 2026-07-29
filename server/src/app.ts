@@ -18,6 +18,7 @@ import {
 } from "./confirmation.js";
 import {
   AgentApprovedConfirmationService,
+  AgentApprovedCommitmentChangeService,
   AgentApprovedWorkSessionService,
 } from "./agent/approved-services.js";
 import { AgentCallbackContextRecorder } from "./agent/callback-context.js";
@@ -35,6 +36,10 @@ import {
   SupabaseAgentApprovalRepository,
   SupabaseAgentSessionRepository,
 } from "./agent/supabase-session-repository.js";
+import {
+  ApprovedCommitmentChangeService,
+  SupabaseCommitmentChangeRepository,
+} from "./commitments/approved-change.js";
 import {
   SimpleCommitmentActionService,
   SupabaseSimpleCommitmentActionRepository,
@@ -189,6 +194,14 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       proposal: DecisionResult,
     ) => Promise<AgentCommitmentExecutionResult>)
     | undefined;
+  let executeApprovedCommitmentChange:
+    | ((
+      authority: ApprovedAgentExecutionAuthority,
+      proposal: Parameters<
+        ApprovedCommitmentChangeService["apply"]
+      >[1],
+    ) => Promise<AgentCommitmentExecutionResult>)
+    | undefined;
   const agentRuntime = createAgentRuntime({
     apiKey: options.config.openaiApiKey,
     contextReader: agentContextReader,
@@ -222,6 +235,10 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
         status: busy ? "busy" : "free",
       }];
     },
+    updateCommitment: async (authority, proposal) =>
+      executeApprovedCommitmentChange
+        ? executeApprovedCommitmentChange(authority, proposal)
+        : { status: "rejected" },
   });
   const agentApprovalGate = createAgentApprovalGate({
     approvals: agentApprovals,
@@ -238,6 +255,48 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     const result = await agentApprovalGate.prepare(request);
     return result.kind === "prepared" || result.kind === "replay";
   };
+  const preparePausedAgentApproval = async (
+    request: Parameters<typeof agentApprovalGate.stagePaused>[0],
+  ) => {
+    const result = await agentApprovalGate.stagePaused(request);
+    return result.kind === "prepared" || result.kind === "replay";
+  };
+  const approvedCommitmentChange =
+    new ApprovedCommitmentChangeService({
+      calendar: {
+        async verify(window) {
+          const attemptedAt = now().toISOString();
+          const result = await calendar.read({
+            calendarId: "primary",
+            range: window,
+          });
+          if (result.status !== "ok") {
+            return {
+              attemptedAt,
+              checkedAt: null,
+              status: "unavailable",
+            };
+          }
+          const start = Date.parse(window.startAt);
+          const end = Date.parse(window.endAt);
+          const conflict = result.busyIntervals.some(
+            (interval) =>
+              Date.parse(interval.startAt) < end &&
+              Date.parse(interval.endAt) > start,
+          );
+          return {
+            attemptedAt,
+            checkedAt: result.checkedAt,
+            status: conflict ? "conflict" : "free",
+          };
+        },
+      },
+      repository: new SupabaseCommitmentChangeRepository({
+        ownerId: options.config.telegramOwnerUserId,
+        supabaseSecretKey: options.config.supabaseSecretKey,
+        supabaseUrl: options.config.supabaseUrl,
+      }),
+    });
   const telegramClient = new TelegramBotClient({
     botToken: options.config.telegramBotToken,
   });
@@ -305,6 +364,16 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       ? { reply, status: "executed" }
       : { status: "replay" };
   };
+  executeApprovedCommitmentChange = async (authority, proposal) =>
+    approvedCommitmentChange.apply(
+      {
+        chatId: authority.chatId,
+        commitmentId: authority.draftId,
+        expectedVersion: authority.draftVersion,
+        updateId: authority.updateId,
+      },
+      proposal,
+    );
   const approvedWorkSessionFlow = new AgentApprovedWorkSessionService({
     gate: agentApprovalGate,
     service: workSessionFlow,
@@ -333,6 +402,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       callbackContextService: new AgentCallbackContextRecorder({
         sessions: agentSessions,
       }),
+      commitmentEditService:
+        new AgentApprovedCommitmentChangeService({
+          gate: agentApprovalGate,
+          sessions: agentSessions,
+        }),
       client: telegramClient,
       confirmationService: new AgentApprovedConfirmationService({
         gate: agentApprovalGate,
@@ -347,6 +421,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
           onContinuityFailure: (event) => {
             app.log.warn(event);
           },
+          prepareApproval: preparePausedAgentApproval,
           repository: agentSessions,
           runtime: agentRuntime,
         }),

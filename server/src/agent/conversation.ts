@@ -5,6 +5,11 @@ import type {
   DecisionTurnContext,
 } from "../decision/engine.js";
 import type { DecisionInput } from "../decision/schema.js";
+import { confirmationSummary } from "../confirmation.js";
+import {
+  commitmentChangeCopy,
+  commitmentEditPreview,
+} from "../commitments/approved-change.js";
 import type {
   ConversationDraftAuthority,
   ConversationDraftRepository,
@@ -21,6 +26,7 @@ import type {
   AgentProductContext,
 } from "./context-reader.js";
 import type {
+  AgentApprovalToolName,
   AgentSdkSession,
   AgentSessionRepository,
 } from "./session.js";
@@ -33,6 +39,14 @@ type SessionBackedAgentDecisionEngineOptions = Readonly<{
     "resolveDraftReference"
   >;
   onContinuityFailure?: (event: AgentSessionContinuityFailureEvent) => void;
+  prepareApproval?: (command: Readonly<{
+    chatId: number;
+    draft: Readonly<{ id: string; version: number }>;
+    pendingApprovalState: string;
+    sessionId: string;
+    toolName: AgentApprovalToolName;
+    updateId: number;
+  }>) => Promise<boolean>;
   repository: AgentSessionRepository;
   runtime: AgentRuntime;
 }>;
@@ -53,14 +67,24 @@ function authority(
   session: AgentSdkSession,
   product: AgentProductContext,
 ): AgentExecutionAuthority {
-  const focusedDraft =
-    product.focusedEntity?.kind === "draft"
-      ? product.focusedEntity.entity
-      : product.drafts.find((draft) => draft.focused) ?? null;
+  const focusedEntity =
+    product.matchedEntity ??
+    product.focusedEntity ??
+    (
+      product.drafts.find((draft) => draft.focused)
+        ? {
+            entity: product.drafts.find((draft) => draft.focused)!,
+            kind: "draft" as const,
+          }
+        : null
+    );
   return {
     chatId,
-    draftId: focusedDraft?.id ?? null,
-    draftVersion: focusedDraft?.version ?? null,
+    draftId: focusedEntity?.entity.id ?? null,
+    draftVersion: focusedEntity?.entity.version ?? null,
+    ...(focusedEntity?.kind === "commitment"
+      ? { entityKind: "commitment" as const }
+      : {}),
     sessionId: session.sessionId,
     updateId,
   };
@@ -169,6 +193,9 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
     | ((event: AgentSessionContinuityFailureEvent) => void)
     | undefined;
   readonly #pendingTurns = new Map<number, PendingTurn>();
+  readonly #prepareApproval:
+    | SessionBackedAgentDecisionEngineOptions["prepareApproval"]
+    | undefined;
   readonly #repository: AgentSessionRepository;
   readonly #runtime: AgentRuntime;
 
@@ -177,6 +204,7 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
     this.#contextReader = options.contextReader;
     this.#draftRepository = options.draftRepository;
     this.#onContinuityFailure = options.onContinuityFailure;
+    this.#prepareApproval = options.prepareApproval;
     this.#repository = options.repository;
     this.#runtime = options.runtime;
   }
@@ -223,6 +251,66 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
       input: runtimeInput,
       session,
     });
+    if (
+      result.approval !== undefined &&
+      result.pendingApprovalState !== undefined &&
+      result.outcome.ok
+    ) {
+      let prepared = false;
+      try {
+        prepared =
+          this.#prepareApproval !== undefined &&
+          await this.#prepareApproval({
+            chatId: this.#chatId,
+            draft: {
+              id: result.approval.target.id,
+              version: result.approval.target.version,
+            },
+            pendingApprovalState: result.pendingApprovalState,
+            sessionId: session.sessionId,
+            toolName: result.approval.toolName,
+            updateId: context.updateId,
+          });
+      } catch {
+        prepared = false;
+      }
+      if (!prepared) {
+        return {
+          ...result.outcome,
+          decision: {
+            ...result.outcome.decision,
+            response: commitmentChangeCopy.uncertain,
+          },
+        };
+      }
+      return {
+        ...result.outcome,
+        approval: {
+          reply:
+            result.approval.toolName === "update_commitment"
+              ? commitmentEditPreview(result.approval.proposal)
+              : confirmationSummary(
+                  {
+                    definitionOfDone:
+                      result.approval.proposal.definitionOfDone,
+                    targetAt: result.approval.proposal.targetAt,
+                  },
+                  {
+                    id: result.approval.target.id,
+                    version: result.approval.target.version,
+                  },
+                ),
+          target: {
+            id: result.approval.target.id,
+            kind:
+              result.approval.toolName === "update_commitment"
+                ? "commitment"
+                : "draft",
+            version: result.approval.target.version,
+          },
+        },
+      };
+    }
     const resolutionAmbiguity =
       resolution.kind === "ambiguous"
         ? resolution.candidates.map(({ authority: target, draft }) => ({

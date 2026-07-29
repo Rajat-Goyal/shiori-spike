@@ -3,6 +3,7 @@ import {
   type TelegramReply,
 } from "../confirmation.js";
 import { parseSimpleCommitmentAction } from "../commitments/simple-action.js";
+import { parseCommitmentEditApproval } from "../commitments/approved-change.js";
 import { parseWorkSessionContinuationAction } from "../work-sessions/continuation.js";
 import { parseWorkSessionAction } from "../work-sessions/flow.js";
 import { parseWorkSessionOutcome } from "../work-sessions/outcomes.js";
@@ -43,6 +44,10 @@ function sanitizedChoice(value: unknown): string | null {
         ? "commitment_cancel"
         : "commitment";
     return `${family}.${commitment.action}`;
+  }
+  const edit = parseCommitmentEditApproval(value);
+  if (edit !== null) {
+    return `commitment_edit.${edit.action}`;
   }
   const outcome = parseWorkSessionOutcome(value);
   if (outcome !== null) {

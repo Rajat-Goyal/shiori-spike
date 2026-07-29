@@ -69,8 +69,29 @@ const authority: AgentExecutionAuthority = {
 const productContext: AgentProductContext = {
   ambiguity: null,
   commitments: [],
-  drafts: [],
-  focusedEntity: null,
+  drafts: [
+    {
+      definitionOfDone: validatedDecision.definitionOfDone,
+      focused: true,
+      id: authority.draftId!,
+      mode: "possible_work_session",
+      phase: "complete",
+      targetAt: validatedDecision.targetAt,
+      version: authority.draftVersion!,
+    },
+  ],
+  focusedEntity: {
+    entity: {
+      definitionOfDone: validatedDecision.definitionOfDone,
+      focused: true,
+      id: authority.draftId!,
+      mode: "possible_work_session",
+      phase: "complete",
+      targetAt: validatedDecision.targetAt,
+      version: authority.draftVersion!,
+    },
+    kind: "draft",
+  },
   recentOutcomes: [],
   truncated: {
     commitments: false,
@@ -153,6 +174,9 @@ function runtimeWith(runner: AgentRunner, overrides: {
   requestSanitizedAvailability?: Parameters<
     typeof createAgentRuntime
   >[0]["requestSanitizedAvailability"];
+  updateCommitment?: Parameters<
+    typeof createAgentRuntime
+  >[0]["updateCommitment"];
 } = {}) {
   return createAgentRuntime({
     apiKey: "not-used-by-the-injected-runner",
@@ -173,6 +197,9 @@ function runtimeWith(runner: AgentRunner, overrides: {
     requestSanitizedAvailability:
       overrides.requestSanitizedAvailability ?? (async () => []),
     runner,
+    ...(overrides.updateCommitment
+      ? { updateCommitment: overrides.updateCommitment }
+      : {}),
   });
 }
 
@@ -617,6 +644,14 @@ describe("bounded Agents SDK runtime", () => {
       session: sdkSession(),
     });
     expect(staged.pendingApprovalState).toBeTypeOf("string");
+    expect(staged.approval).toEqual({
+      proposal: validatedDecision,
+      target: {
+        id: authority.draftId,
+        version: authority.draftVersion,
+      },
+      toolName: "execute_commitment",
+    });
 
     const result = await runtime.resume({
       approval: "approve",
@@ -768,6 +803,122 @@ describe("bounded Agents SDK runtime", () => {
 
     expect(executeCommitment).not.toHaveBeenCalled();
     expect(result.outcome).toMatchObject({ ok: true });
+  });
+
+  it("pauses and resumes one exact active commitment edit in the same serialized run", async () => {
+    const commitmentAuthority = {
+      chatId: 42,
+      draftId: "11111111-1111-4111-8111-111111111111",
+      draftVersion: 4,
+      entityKind: "commitment" as const,
+      sessionId: "session-1",
+      updateId: 501,
+    };
+    const edit = {
+      calendarPolicy: {
+        conflict: "reject" as const,
+        unavailable: "reject" as const,
+      },
+      commitmentId: commitmentAuthority.draftId,
+      definitionOfDone: "Publish the final video",
+      expectedVersion: commitmentAuthority.draftVersion,
+      preparation: {
+        nextWorkSession: {
+          durationMinutes: 60 as const,
+          endAt: "2026-07-30T04:00:00.000Z",
+          startAt: "2026-07-30T03:00:00.000Z",
+          timingConstraints: "before lunch",
+        },
+        required: true,
+      },
+      targetAt: "2026-07-30T09:00:00.000Z",
+    };
+    const updateCommitment = vi.fn(async () => ({
+      reply: { text: "Promise updated." },
+      status: "executed" as const,
+    }));
+    const runner = new ScriptedRunner(
+      async () =>
+        emptyResult({
+          interruptions: [{
+            arguments: JSON.stringify(edit),
+            toolName: "update_commitment",
+          }],
+        }),
+      async (request) => {
+        expect(request.serializedState).toBe("sdk-state");
+        await invoke(request, "update_commitment", edit);
+        return emptyResult();
+      },
+    );
+    const runtime = runtimeWith(runner, { updateCommitment });
+    const staged = await runtime.run({
+      authority: commitmentAuthority,
+      conversation: {
+        ...runtimeConversation,
+        product: {
+          ...productContext,
+          commitments: [{
+            definitionOfDone: "Publish the video",
+            id: commitmentAuthority.draftId,
+            status: "active",
+            targetAt: "2026-07-30T08:00:00.000Z",
+            version: commitmentAuthority.draftVersion,
+          }],
+        },
+      },
+      input: {
+        context: { fields: null, phase: "none" },
+        ownerText: "Move the video promise and add preparation",
+      },
+      session: sdkSession(),
+    });
+
+    expect(staged.approval).toEqual({
+      proposal: edit,
+      target: {
+        id: commitmentAuthority.draftId,
+        version: commitmentAuthority.draftVersion,
+      },
+      toolName: "update_commitment",
+    });
+    expect(updateCommitment).not.toHaveBeenCalled();
+
+    const applied = await runtime.resume({
+      approval: "approve",
+      authority: {
+        ...commitmentAuthority,
+        updateId: 502,
+      },
+      pendingApprovalState: staged.pendingApprovalState!,
+    });
+
+    expect(updateCommitment).toHaveBeenCalledOnce();
+    expect(updateCommitment).toHaveBeenCalledWith(
+      { ...commitmentAuthority, updateId: 502 },
+      edit,
+    );
+    expect(applied.execution?.reply).toEqual({
+      text: "Promise updated.",
+    });
+
+    await expect(
+      runtime.resume({
+        approval: "approve",
+        authority: {
+          ...commitmentAuthority,
+          draftVersion: 5,
+          updateId: 503,
+        },
+        pendingApprovalState: staged.pendingApprovalState!,
+      }),
+    ).resolves.toMatchObject({
+      outcome: {
+        ok: false,
+        reason: "input_invalid",
+      },
+    });
+    expect(updateCommitment).toHaveBeenCalledOnce();
   });
 
   it("strips calendar titles and all non-free-busy fields", async () => {

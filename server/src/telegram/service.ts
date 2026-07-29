@@ -15,6 +15,13 @@ type TelegramServiceOptions = {
     ): Promise<TelegramReply | null>;
   };
   client: TelegramClient;
+  commitmentEditService?: {
+    handle(
+      updateId: number,
+      chatId: number,
+      callbackData: unknown,
+    ): Promise<TelegramReply | null>;
+  };
   confirmationService?: {
     handle(
       updateId: number,
@@ -155,6 +162,9 @@ export class TelegramService {
     | TelegramServiceOptions["callbackContextService"]
     | undefined;
   readonly #client: TelegramClient;
+  readonly #commitmentEditService:
+    | TelegramServiceOptions["commitmentEditService"]
+    | undefined;
   readonly #confirmationService:
     | TelegramServiceOptions["confirmationService"]
     | undefined;
@@ -171,6 +181,7 @@ export class TelegramService {
   constructor(options: TelegramServiceOptions) {
     this.#callbackContextService = options.callbackContextService;
     this.#client = options.client;
+    this.#commitmentEditService = options.commitmentEditService;
     this.#confirmationService = options.confirmationService;
     this.#conversationService = options.conversationService;
     this.#ownerUserId = options.ownerUserId;
@@ -206,6 +217,7 @@ export class TelegramService {
       isOwnerPrivate &&
       (
         this.#confirmationService ||
+        this.#commitmentEditService ||
         this.#simpleCommitmentActionService ||
         this.#workSessionActionService
       )
@@ -223,8 +235,13 @@ export class TelegramService {
           update.callbackData.startsWith("c:") ||
           update.callbackData.startsWith("w:")
         );
+      const useCommitmentEdit =
+        typeof update.callbackData === "string" &&
+        update.callbackData.startsWith("e:");
       const callbackService = useSimpleCommitmentAction
         ? this.#simpleCommitmentActionService
+        : useCommitmentEdit
+          ? this.#commitmentEditService
         : useWorkSessionAction
           ? this.#workSessionActionService
           : this.#confirmationService;

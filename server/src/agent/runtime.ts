@@ -12,6 +12,10 @@ import { z } from "zod";
 
 import type { TelegramReply } from "../confirmation.js";
 import {
+  commitmentEditSchema,
+  type CommitmentEditProposal,
+} from "../commitments/approved-change.js";
+import {
   type DecisionOutcome,
   type DecisionTelemetryReason,
 } from "../decision/engine.js";
@@ -45,6 +49,7 @@ export const AGENT_RUNTIME_TOOL_NAMES = [
   "propose_draft_update",
   "request_sanitized_availability",
   "execute_commitment",
+  "update_commitment",
 ] as const;
 
 const EXECUTION_RUN_INPUT: readonly AgentInputItem[] = [
@@ -62,6 +67,7 @@ export type AgentExecutionAuthority = Readonly<{
   chatId: number;
   draftId: string | null;
   draftVersion: number | null;
+  entityKind?: "commitment" | "draft";
   sessionId: string | null;
   updateId: number | null;
 }>;
@@ -70,6 +76,7 @@ export type ApprovedAgentExecutionAuthority = Readonly<{
   chatId: number;
   draftId: string;
   draftVersion: number;
+  entityKind?: "commitment" | "draft";
   sessionId: string;
   updateId: number;
 }>;
@@ -97,6 +104,17 @@ export type AgentCommitmentExecutionResult = Readonly<{
 }>;
 
 export type AgentRuntimeResult = Readonly<{
+  approval?:
+    | Readonly<{
+        proposal: DecisionResult;
+        target: Readonly<{ id: string; version: number }>;
+        toolName: "execute_commitment";
+      }>
+    | Readonly<{
+        proposal: CommitmentEditProposal;
+        target: Readonly<{ id: string; version: number }>;
+        toolName: "update_commitment";
+      }>;
   execution?: AgentCommitmentExecutionResult;
   outcome: DecisionOutcome;
   pendingApprovalState?: string;
@@ -147,6 +165,7 @@ export type AgentRuntimeResumeRequest = Readonly<{
 type RuntimeContext = {
   authority: AgentExecutionAuthority;
   conversation: AgentRuntimeConversationContext | null;
+  editProposal?: CommitmentEditProposal;
   executionApproved: boolean;
   execution?: AgentCommitmentExecutionResult;
   input: DecisionInput | null;
@@ -215,6 +234,10 @@ export type AgentRuntimeOptions = Readonly<{
     request: SanitizedAvailabilityRequest,
   ) => Promise<readonly SanitizedAvailabilitySlot[]>;
   runner?: AgentRunner;
+  updateCommitment?: (
+    authority: ApprovedAgentExecutionAuthority,
+    proposal: CommitmentEditProposal,
+  ) => Promise<AgentCommitmentExecutionResult>;
 }>;
 
 export interface AgentRuntime {
@@ -227,12 +250,13 @@ export interface AgentRuntime {
 
 type PendingApprovalEnvelope = Readonly<{
   authority: BoundAgentExecutionAuthority;
+  editProposal: CommitmentEditProposal | null;
   input: DecisionInput | null;
   mode: "decision" | "execution";
-  proposal: DecisionResult;
+  proposal: DecisionResult | null;
   sdkRunState: string;
-  toolName: "execute_commitment";
-  version: 1;
+  toolName: "execute_commitment" | "update_commitment";
+  version: 1 | 2;
 }>;
 
 const proposalSchema = z
@@ -339,6 +363,8 @@ function sameAuthority(
     left.chatId === right.chatId &&
     left.draftId === right.draftId &&
     left.draftVersion === right.draftVersion &&
+    (left.entityKind ?? "draft") ===
+      (right.entityKind ?? "draft") &&
     left.sessionId === right.sessionId
   );
 }
@@ -360,10 +386,13 @@ function approvedAuthority(
     Number.isSafeInteger(authority.updateId) &&
     authority.updateId > 0
   )
-    ? {
+      ? {
         chatId: authority.chatId,
         draftId: authority.draftId,
         draftVersion: authority.draftVersion,
+        ...(authority.entityKind === undefined
+          ? {}
+          : { entityKind: authority.entityKind }),
         sessionId: authority.sessionId,
         updateId: authority.updateId,
       }
@@ -410,8 +439,10 @@ function parsePendingEnvelope(value: string): PendingApprovalEnvelope | null {
   const record = parsed as Record<string, unknown>;
   const authority = record.authority;
   if (
-    record.version !== 1 ||
-    record.toolName !== "execute_commitment" ||
+    ![1, 2].includes(Number(record.version)) ||
+    !["execute_commitment", "update_commitment"].includes(
+      String(record.toolName),
+    ) ||
     typeof record.sdkRunState !== "string" ||
     authority === null ||
     typeof authority !== "object" ||
@@ -424,6 +455,9 @@ function parsePendingEnvelope(value: string): PendingApprovalEnvelope | null {
     chatId: Number(authorityRecord.chatId),
     draftId: String(authorityRecord.draftId ?? ""),
     draftVersion: Number(authorityRecord.draftVersion),
+    ...(authorityRecord.entityKind === "commitment"
+      ? { entityKind: "commitment" as const }
+      : {}),
     sessionId: String(authorityRecord.sessionId ?? ""),
   };
   const input =
@@ -431,6 +465,11 @@ function parsePendingEnvelope(value: string): PendingApprovalEnvelope | null {
       ? null
       : parseDecisionInputStructure(record.input);
   const proposal = parseMaterializedDecision(record.proposal);
+  const editProposal =
+    record.editProposal === null || record.editProposal === undefined
+      ? null
+      : commitmentEditSchema.safeParse(record.editProposal);
+  const toolName = record.toolName as PendingApprovalEnvelope["toolName"];
   if (
     !Number.isSafeInteger(normalizedAuthority.chatId) ||
     normalizedAuthority.chatId === 0 ||
@@ -440,19 +479,38 @@ function parsePendingEnvelope(value: string): PendingApprovalEnvelope | null {
     normalizedAuthority.sessionId.length === 0 ||
     !["decision", "execution"].includes(String(record.mode)) ||
     (record.mode === "decision" && input === null) ||
-    proposal === null ||
-    !isCompleteProposal(proposal)
+    (
+      toolName === "execute_commitment" &&
+      (proposal === null || !isCompleteProposal(proposal))
+    ) ||
+    (
+      toolName === "update_commitment" &&
+      (
+        record.mode !== "decision" ||
+        editProposal === null ||
+        !editProposal.success ||
+        normalizedAuthority.entityKind !== "commitment" ||
+        editProposal.data.commitmentId !==
+          normalizedAuthority.draftId ||
+        editProposal.data.expectedVersion !==
+          normalizedAuthority.draftVersion
+      )
+    )
   ) {
     return null;
   }
   return {
     authority: normalizedAuthority,
+    editProposal:
+      editProposal !== null && editProposal.success
+        ? editProposal.data
+        : null,
     input,
     mode: record.mode as "decision" | "execution",
     proposal,
     sdkRunState: record.sdkRunState,
-    toolName: "execute_commitment",
-    version: 1,
+    toolName,
+    version: Number(record.version) as 1 | 2,
   };
 }
 
@@ -523,6 +581,8 @@ function runtimeInstructions(
     "Only a structurally and semantically accepted proposal can be returned by the application; final prose is never authoritative.",
     "request_sanitized_availability returns free/busy intervals only.",
     "execute_commitment is exclusively for an exact application-owned draft id and version and always requires explicit human approval.",
+    "update_commitment is exclusively for one exact active commitment id and current version, must contain the complete desired definition, target, preparation choice, next work session, and explicit Calendar conflict/unavailable policies, and always requires human approval.",
+    "Never use update_commitment for a completed or cancelled commitment, to create recurrence, to write Calendar, or to reopen terminal state.",
     "Never claim that a draft was saved, confirmed, scheduled, or executed unless the corresponding tool reports success.",
   ].join(" ");
 }
@@ -537,6 +597,48 @@ function executionInstructions(
     "Do not reinterpret, summarize, correct, or reclassify the decision.",
     "The application, not model prose, owns the final Telegram reply.",
   ].join(" ");
+}
+
+function editExecutionInstructions(
+  authority: ApprovedAgentExecutionAuthority,
+): string {
+  return [
+    "This is the continuation of one application-owned approved commitment-edit run, not a new owner conversation turn.",
+    `The exact active commitment id is ${JSON.stringify(authority.draftId)} and its approved expected version is ${authority.draftVersion}.`,
+    "Request update_commitment exactly once using the application-bound complete edit.",
+    "Do not reinterpret, summarize, correct, broaden, or target another commitment.",
+    "The application rechecks Calendar when required and owns all final mutation and Telegram copy.",
+  ].join(" ");
+}
+
+function exactCreationProposal(context: RuntimeContext): boolean {
+  if (!isCompleteProposal(context.proposal)) {
+    return false;
+  }
+  if (context.mode === "execution") {
+    return true;
+  }
+  if (context.executionApproved && context.conversation === null) {
+    return true;
+  }
+  const authority = approvedAuthority(context.authority);
+  const draft =
+    authority === null
+      ? null
+      : context.conversation?.product.drafts.find(
+          (candidate) =>
+            candidate.id === authority.draftId &&
+            candidate.version === authority.draftVersion,
+        ) ?? null;
+  return (
+    authority?.entityKind !== "commitment" &&
+    draft !== null &&
+    draft.phase === "complete" &&
+    draft.mode !== "unresolved" &&
+    draft.definitionOfDone === context.proposal.definitionOfDone &&
+    draft.targetAt === context.proposal.targetAt &&
+    draft.mode === context.proposal.commitmentMode
+  );
 }
 
 function buildTools(
@@ -662,23 +764,81 @@ function buildTools(
       "Execute the exact application-owned commitment draft after a human approves this call.",
     name: "execute_commitment",
     needsApproval: true,
-    isEnabled: approvedAuthority(context.authority) !== null,
+    isEnabled:
+      approvedAuthority(context.authority) !== null &&
+      (
+        context.mode === "execution" ||
+        context.conversation?.product.drafts.some(
+          (draft) =>
+            draft.id === context.authority.draftId &&
+            draft.version === context.authority.draftVersion &&
+            draft.phase === "complete" &&
+            draft.mode !== "unresolved",
+        ) === true
+      ),
     parameters: executionSchema,
     strict: true,
     execute: async ({ draftId, draftVersion }) => {
       const authority = approvedAuthority(context.authority);
+      const proposal = context.proposal;
       if (
         !context.executionApproved ||
         authority === null ||
         draftId !== context.authority.draftId ||
         draftVersion !== context.authority.draftVersion ||
-        !isCompleteProposal(context.proposal)
+        !isCompleteProposal(proposal) ||
+        !exactCreationProposal(context)
       ) {
         throw new Error("execution_authority_mismatch");
       }
       const result = await options.executeCommitment(
         authority,
-        context.proposal,
+        proposal,
+      );
+      context.execution = result;
+      return { status: result.status };
+    },
+  });
+  const updateCommitment = tool({
+    description:
+      "Request one exact versioned material edit to an active commitment. The complete desired state and Calendar policies are application-validated and require owner approval.",
+    name: "update_commitment",
+    needsApproval: true,
+    isEnabled:
+      options.updateCommitment !== undefined &&
+      approvedAuthority(context.authority)?.entityKind ===
+        "commitment" &&
+      (
+        context.editProposal !== undefined ||
+        context.conversation?.product.commitments.some(
+          (commitment) =>
+            commitment.id === context.authority.draftId &&
+            commitment.version === context.authority.draftVersion &&
+            commitment.status === "active",
+        ) === true
+      ),
+    parameters: commitmentEditSchema,
+    strict: true,
+    execute: async (value) => {
+      const authority = approvedAuthority(context.authority);
+      const proposal = commitmentEditSchema.safeParse(value);
+      if (
+        !context.executionApproved ||
+        authority === null ||
+        authority.entityKind !== "commitment" ||
+        proposal.success === false ||
+        proposal.data.commitmentId !== authority.draftId ||
+        proposal.data.expectedVersion !== authority.draftVersion ||
+        context.editProposal === undefined ||
+        JSON.stringify(proposal.data) !==
+          JSON.stringify(context.editProposal) ||
+        options.updateCommitment === undefined
+      ) {
+        throw new Error("commitment_edit_authority_mismatch");
+      }
+      const result = await options.updateCommitment(
+        authority,
+        proposal.data,
       );
       context.execution = result;
       return { status: result.status };
@@ -691,6 +851,7 @@ function buildTools(
     proposeDraftUpdate,
     requestAvailability,
     executeCommitment,
+    updateCommitment,
   ] as FunctionTool<RuntimeContext, never, unknown>[];
 }
 
@@ -734,7 +895,9 @@ class OpenAIAgentsRunner implements AgentRunner {
     );
     const interruptions = state.getInterruptions();
     const executionInterruption = interruptions.find(
-      (item) => item.name === "execute_commitment",
+      (item) =>
+        item.name === "execute_commitment" ||
+        item.name === "update_commitment",
     );
     if (
       executionInterruption === undefined ||
@@ -798,39 +961,140 @@ function executionArgumentsMatch(
   );
 }
 
+function commitmentEditFromInterruption(
+  interruption: AgentRunnerInterruption,
+  context: RuntimeContext,
+): CommitmentEditProposal | null {
+  if (
+    interruption.toolName !== "update_commitment" ||
+    interruption.arguments === undefined
+  ) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(interruption.arguments);
+  } catch {
+    return null;
+  }
+  const checked = commitmentEditSchema.safeParse(parsed);
+  const authority = approvedAuthority(context.authority);
+  if (
+    !checked.success ||
+    authority === null ||
+    authority.entityKind !== "commitment" ||
+    checked.data.commitmentId !== authority.draftId ||
+    checked.data.expectedVersion !== authority.draftVersion
+  ) {
+    return null;
+  }
+  const current =
+    context.conversation?.product.commitments.find(
+      (commitment) =>
+        commitment.id === checked.data.commitmentId &&
+        commitment.version === checked.data.expectedVersion,
+    ) ?? null;
+  if (
+    context.conversation !== null &&
+    (current === null || current.status !== "active")
+  ) {
+    return null;
+  }
+  return checked.data;
+}
+
+function editDecision(
+  proposal: CommitmentEditProposal,
+): DecisionResult {
+  return {
+    commitmentMode: proposal.preparation.required
+      ? "possible_work_session"
+      : "simple_action",
+    definitionOfDone: proposal.definitionOfDone,
+    durationMinutes:
+      proposal.preparation.nextWorkSession?.durationMinutes ?? null,
+    inputClass: "ordinary_question",
+    missingFields: [],
+    nextAction: "answer",
+    offerWorkWindowHelp: false,
+    response: "",
+    targetAt: proposal.targetAt,
+    targetTimeZone: "Asia/Singapore",
+    timingConstraints:
+      proposal.preparation.nextWorkSession === null
+        ? []
+        : [proposal.preparation.nextWorkSession.timingConstraints],
+    turnRelation: "none",
+  };
+}
+
 function resultFromRunner(
   result: AgentRunnerResult,
   context: RuntimeContext,
 ): AgentRuntimeResult {
   if (result.interruptions.length > 0) {
     const authority = approvedAuthority(context.authority);
-    if (
-      authority === null ||
-      result.interruptions.length !== 1 ||
-      !executionArgumentsMatch(
-        result.interruptions[0],
-        authority,
-      ) ||
-      !isCompleteProposal(context.proposal)
-    ) {
+    const interruption = result.interruptions[0];
+    if (authority === null || result.interruptions.length !== 1) {
       return { outcome: fail("semantic", "input_invalid") };
     }
+    const isCreation =
+      executionArgumentsMatch(interruption!, authority) &&
+      exactCreationProposal(context);
+    const edit = commitmentEditFromInterruption(
+      interruption!,
+      context,
+    );
+    if (!isCreation && edit === null) {
+      return { outcome: fail("semantic", "input_invalid") };
+    }
+    const decision = edit === null
+      ? context.proposal!
+      : editDecision(edit);
     const envelope: PendingApprovalEnvelope = {
       authority: {
         chatId: authority.chatId,
         draftId: authority.draftId,
         draftVersion: authority.draftVersion,
+        ...(authority.entityKind === undefined
+          ? {}
+          : { entityKind: authority.entityKind }),
         sessionId: authority.sessionId,
       },
+      editProposal: edit,
       input: context.input,
       mode: context.mode,
-      proposal: context.proposal,
+      proposal: edit === null ? context.proposal! : null,
       sdkRunState: result.serializedState,
-      toolName: "execute_commitment",
-      version: 1,
+      toolName:
+        edit === null
+          ? "execute_commitment"
+          : "update_commitment",
+      version: 2,
     };
     return {
-      outcome: { decision: context.proposal, ok: true },
+      ...(edit === null
+        ? {
+            approval: {
+              proposal: decision,
+              target: {
+                id: authority.draftId,
+                version: authority.draftVersion,
+              },
+              toolName: "execute_commitment" as const,
+            },
+          }
+        : {
+            approval: {
+              proposal: edit,
+              target: {
+                id: edit.commitmentId,
+                version: edit.expectedVersion,
+              },
+              toolName: "update_commitment" as const,
+            },
+          }),
+      outcome: { decision, ok: true },
       pendingApprovalState: JSON.stringify(envelope),
     };
   }
@@ -838,6 +1102,15 @@ function resultFromRunner(
     return {
       execution: context.execution,
       outcome: { decision: context.proposal, ok: true },
+    };
+  }
+  if (context.editProposal !== undefined) {
+    return {
+      execution: context.execution,
+      outcome: {
+        decision: editDecision(context.editProposal),
+        ok: true,
+      },
     };
   }
   if (context.lastSemanticFailure !== undefined) {
@@ -1031,7 +1304,7 @@ export function createAgentRuntime(
       const resumed =
         envelope.mode === "execution"
           ? prepareExecutionRun(
-              envelope.proposal,
+              envelope.proposal!,
               approvedAuthority(request.authority)!,
             )
           : envelope.input === null
@@ -1041,10 +1314,16 @@ export function createAgentRuntime(
                 request.authority,
                 null,
                 undefined,
-                envelope.proposal,
+                envelope.proposal ?? undefined,
               );
       if (resumed === null) {
         return { outcome: fail("semantic", "input_invalid") };
+      }
+      if (envelope.toolName === "update_commitment") {
+        if (envelope.editProposal === null) {
+          return { outcome: fail("semantic", "input_invalid") };
+        }
+        resumed.context.editProposal = envelope.editProposal;
       }
       resumed.context.executionApproved =
         request.approval === "approve";
