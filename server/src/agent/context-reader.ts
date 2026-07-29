@@ -1,0 +1,525 @@
+import type { AgentInputItem } from "@openai/agents";
+import { supabaseHeaders } from "../supabase.js";
+import {
+  AGENT_SESSION_HISTORY_PAGE_LIMIT,
+  type AgentSdkSession,
+} from "./session.js";
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const PRODUCT_CONTEXT_LIMIT = 10;
+const WORK_SESSION_LIMIT = 20;
+const AMBIGUITY_CANDIDATE_LIMIT = 5;
+const AMBIGUITY_STOP_WORDS = new Set([
+  "and",
+  "change",
+  "edit",
+  "for",
+  "from",
+  "make",
+  "move",
+  "please",
+  "reschedule",
+  "set",
+  "that",
+  "the",
+  "this",
+  "to",
+  "update",
+  "with",
+]);
+
+type DraftPhase =
+  | "awaiting_definition"
+  | "awaiting_target"
+  | "complete";
+type DraftMode =
+  | "possible_work_session"
+  | "simple_action"
+  | "unresolved";
+type CommitmentStatus = "active" | "cancelled" | "done";
+type WorkSessionStatus =
+  | "awaiting_check_in"
+  | "cancelled"
+  | "done"
+  | "missed"
+  | "more_work_needed"
+  | "planned"
+  | "started";
+type OutcomeStatus =
+  | "cancelled"
+  | "done"
+  | "missed"
+  | "more_work_needed";
+
+export type AgentDraftContext = Readonly<{
+  definitionOfDone: string | null;
+  focused: boolean;
+  id: string;
+  mode: DraftMode;
+  phase: DraftPhase;
+  targetAt: string | null;
+  version: number;
+}>;
+
+export type AgentCommitmentContext = Readonly<{
+  definitionOfDone: string;
+  id: string;
+  status: CommitmentStatus;
+  targetAt: string;
+  version: number;
+}>;
+
+export type AgentWorkSessionContext = Readonly<{
+  commitmentId: string;
+  durationMinutes: number;
+  endAt: string;
+  id: string;
+  startAt: string;
+  status: WorkSessionStatus;
+}>;
+
+export type AgentRecentOutcomeContext = Readonly<{
+  commitmentId: string;
+  occurredAt: string;
+  status: OutcomeStatus;
+  workSessionId: string;
+}>;
+
+export type AgentFocusedEntity =
+  | Readonly<{ entity: AgentDraftContext; kind: "draft" }>
+  | Readonly<{ entity: AgentCommitmentContext; kind: "commitment" }>;
+
+export type AgentAmbiguityCandidate = Readonly<{
+  id: string;
+  kind: "commitment" | "draft";
+  label: string;
+  version: number;
+}>;
+
+export type AgentProductContext = Readonly<{
+  ambiguity: Readonly<{
+    candidates: readonly AgentAmbiguityCandidate[];
+    query: string;
+  }> | null;
+  commitments: readonly AgentCommitmentContext[];
+  drafts: readonly AgentDraftContext[];
+  focusedEntity: AgentFocusedEntity | null;
+  recentOutcomes: readonly AgentRecentOutcomeContext[];
+  truncated: Readonly<{
+    commitments: boolean;
+    drafts: boolean;
+    recentOutcomes: boolean;
+    workSessions: boolean;
+  }>;
+  workSessions: readonly AgentWorkSessionContext[];
+}>;
+
+export type AgentProductContextRequest = Readonly<{
+  chatId: number;
+  focusedEntityId: string | null;
+  limit?: number;
+  query: string | null;
+}>;
+
+export type AgentContextHistoryPage = Readonly<{
+  items: readonly AgentInputItem[];
+  nextCursor: string | null;
+}>;
+
+export interface AgentContextReader {
+  readHistory(
+    session: AgentSdkSession,
+    cursor?: string,
+    limit?: number,
+  ): Promise<AgentContextHistoryPage>;
+  readProductContext(
+    request: AgentProductContextRequest,
+  ): Promise<AgentProductContext>;
+}
+
+type SupabaseAgentContextReaderOptions = Readonly<{
+  fetch?: typeof fetch;
+  ownerId: number;
+  supabaseSecretKey: string;
+  supabaseUrl: string;
+}>;
+
+type RawProductContext = Readonly<{
+  commitments: readonly unknown[];
+  drafts: readonly unknown[];
+  focusedEntity: unknown;
+  recentOutcomes: readonly unknown[];
+  truncated: unknown;
+  workSessions: readonly unknown[];
+}>;
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function uuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+function positiveInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0
+  );
+}
+
+function instant(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+function definition(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.length <= 500
+  );
+}
+
+function oneOf<T extends string>(
+  value: unknown,
+  values: readonly T[],
+): value is T {
+  return typeof value === "string" && values.includes(value as T);
+}
+
+function parseDraft(value: unknown): AgentDraftContext {
+  const item = record(value);
+  if (
+    !item ||
+    !uuid(item.id) ||
+    !positiveInteger(item.version) ||
+    typeof item.focused !== "boolean" ||
+    !oneOf(item.phase, [
+      "awaiting_definition",
+      "awaiting_target",
+      "complete",
+    ]) ||
+    !oneOf(item.mode, [
+      "possible_work_session",
+      "simple_action",
+      "unresolved",
+    ]) ||
+    !(
+      item.definitionOfDone === null ||
+      definition(item.definitionOfDone)
+    ) ||
+    !(item.targetAt === null || instant(item.targetAt))
+  ) {
+    throw new Error("Agent draft context is invalid");
+  }
+  return {
+    definitionOfDone: item.definitionOfDone as string | null,
+    focused: item.focused,
+    id: item.id,
+    mode: item.mode,
+    phase: item.phase,
+    targetAt: item.targetAt as string | null,
+    version: item.version,
+  };
+}
+
+function parseCommitment(value: unknown): AgentCommitmentContext {
+  const item = record(value);
+  if (
+    !item ||
+    !uuid(item.id) ||
+    !positiveInteger(item.version) ||
+    !definition(item.definitionOfDone) ||
+    !oneOf(item.status, ["active", "cancelled", "done"]) ||
+    !instant(item.targetAt)
+  ) {
+    throw new Error("Agent commitment context is invalid");
+  }
+  return {
+    definitionOfDone: item.definitionOfDone,
+    id: item.id,
+    status: item.status,
+    targetAt: item.targetAt,
+    version: item.version,
+  };
+}
+
+function parseWorkSession(value: unknown): AgentWorkSessionContext {
+  const item = record(value);
+  if (
+    !item ||
+    !uuid(item.id) ||
+    !uuid(item.commitmentId) ||
+    !oneOf(item.status, [
+      "awaiting_check_in",
+      "cancelled",
+      "done",
+      "missed",
+      "more_work_needed",
+      "planned",
+      "started",
+    ]) ||
+    !instant(item.startAt) ||
+    !instant(item.endAt) ||
+    Date.parse(item.endAt) <= Date.parse(item.startAt) ||
+    !positiveInteger(item.durationMinutes) ||
+    item.durationMinutes > 1_440
+  ) {
+    throw new Error("Agent work-session context is invalid");
+  }
+  return {
+    commitmentId: item.commitmentId,
+    durationMinutes: item.durationMinutes,
+    endAt: item.endAt,
+    id: item.id,
+    startAt: item.startAt,
+    status: item.status,
+  };
+}
+
+function parseOutcome(value: unknown): AgentRecentOutcomeContext {
+  const item = record(value);
+  if (
+    !item ||
+    !uuid(item.commitmentId) ||
+    !uuid(item.workSessionId) ||
+    !oneOf(item.status, [
+      "cancelled",
+      "done",
+      "missed",
+      "more_work_needed",
+    ]) ||
+    !instant(item.occurredAt)
+  ) {
+    throw new Error("Agent recent-outcome context is invalid");
+  }
+  return {
+    commitmentId: item.commitmentId,
+    occurredAt: item.occurredAt,
+    status: item.status,
+    workSessionId: item.workSessionId,
+  };
+}
+
+function parseTruncated(value: unknown): AgentProductContext["truncated"] {
+  const item = record(value);
+  if (
+    !item ||
+    typeof item.commitments !== "boolean" ||
+    typeof item.drafts !== "boolean" ||
+    typeof item.recentOutcomes !== "boolean" ||
+    typeof item.workSessions !== "boolean"
+  ) {
+    throw new Error("Agent context truncation data is invalid");
+  }
+  return {
+    commitments: item.commitments,
+    drafts: item.drafts,
+    recentOutcomes: item.recentOutcomes,
+    workSessions: item.workSessions,
+  };
+}
+
+function parseFocusedEntity(value: unknown): AgentFocusedEntity | null {
+  if (value === null) {
+    return null;
+  }
+  const item = record(value);
+  if (!item || !oneOf(item.kind, ["commitment", "draft"])) {
+    throw new Error("Agent focused entity is invalid");
+  }
+  return item.kind === "draft"
+    ? { entity: parseDraft(item.entity), kind: "draft" }
+    : {
+        entity: parseCommitment(item.entity),
+        kind: "commitment",
+      };
+}
+
+function parseRawProductContext(value: unknown): RawProductContext {
+  const item = record(value);
+  if (
+    !item ||
+    !Array.isArray(item.drafts) ||
+    !Array.isArray(item.commitments) ||
+    !Array.isArray(item.workSessions) ||
+    !Array.isArray(item.recentOutcomes)
+  ) {
+    throw new Error("Supabase agent context read returned invalid data");
+  }
+  return {
+    commitments: item.commitments,
+    drafts: item.drafts,
+    focusedEntity: item.focusedEntity,
+    recentOutcomes: item.recentOutcomes,
+    truncated: item.truncated,
+    workSessions: item.workSessions,
+  };
+}
+
+function normalizedQuery(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const normalized = value.trim().toLocaleLowerCase("en");
+  if (normalized.length === 0 || normalized.length > 200) {
+    throw new Error("Agent context query is invalid");
+  }
+  return normalized;
+}
+
+function ambiguity(
+  query: string | null,
+  drafts: readonly AgentDraftContext[],
+  commitments: readonly AgentCommitmentContext[],
+): AgentProductContext["ambiguity"] {
+  const normalized = normalizedQuery(query);
+  if (normalized === null) {
+    return null;
+  }
+  const queryTokens = new Set(
+    normalized
+      .match(/[a-z0-9]+/g)
+      ?.filter(
+        (token) =>
+          token.length >= 3 && !AMBIGUITY_STOP_WORDS.has(token),
+      ) ?? [],
+  );
+  const plausible = (label: string): boolean => {
+    const normalizedLabel = label.toLocaleLowerCase("en");
+    if (normalizedLabel.includes(normalized)) {
+      return true;
+    }
+    const labelTokens = new Set(
+      normalizedLabel.match(/[a-z0-9]+/g) ?? [],
+    );
+    return [...queryTokens].some((token) => labelTokens.has(token));
+  };
+  const candidates: AgentAmbiguityCandidate[] = [
+    ...drafts
+      .filter(
+        (draft) =>
+          draft.definitionOfDone !== null &&
+          plausible(draft.definitionOfDone),
+      )
+      .map((draft) => ({
+        id: draft.id,
+        kind: "draft" as const,
+        label: draft.definitionOfDone as string,
+        version: draft.version,
+      })),
+    ...commitments
+      .filter((commitment) => plausible(commitment.definitionOfDone))
+      .map((commitment) => ({
+        id: commitment.id,
+        kind: "commitment" as const,
+        label: commitment.definitionOfDone,
+        version: commitment.version,
+      })),
+  ].slice(0, AMBIGUITY_CANDIDATE_LIMIT);
+  return candidates.length > 1
+    ? { candidates, query: normalized }
+    : null;
+}
+
+function boundedLimit(value: number | undefined, maximum: number): number {
+  const limit = value ?? maximum;
+  if (!positiveInteger(limit) || limit > maximum) {
+    throw new Error(`Agent context limit must be between 1 and ${maximum}`);
+  }
+  return limit;
+}
+
+export class SupabaseAgentContextReader implements AgentContextReader {
+  readonly #fetch: typeof fetch;
+  readonly #ownerId: number;
+  readonly #supabaseSecretKey: string;
+  readonly #supabaseUrl: string;
+
+  constructor(options: SupabaseAgentContextReaderOptions) {
+    this.#fetch = options.fetch ?? fetch;
+    this.#ownerId = options.ownerId;
+    this.#supabaseSecretKey = options.supabaseSecretKey;
+    this.#supabaseUrl = options.supabaseUrl;
+  }
+
+  async readHistory(
+    session: AgentSdkSession,
+    cursor?: string,
+    limit?: number,
+  ): Promise<AgentContextHistoryPage> {
+    if (session.chatId !== this.#ownerId) {
+      throw new Error("Agent context read is not authorized");
+    }
+    const page = await session.readHistory(
+      cursor,
+      boundedLimit(limit, AGENT_SESSION_HISTORY_PAGE_LIMIT),
+    );
+    return {
+      items: page.items.map(({ item }) => item),
+      nextCursor: page.nextCursor,
+    };
+  }
+
+  async readProductContext(
+    request: AgentProductContextRequest,
+  ): Promise<AgentProductContext> {
+    if (request.chatId !== this.#ownerId) {
+      throw new Error("Agent context read is not authorized");
+    }
+    if (
+      request.focusedEntityId !== null &&
+      !uuid(request.focusedEntityId)
+    ) {
+      throw new Error("Agent focused entity id is invalid");
+    }
+    const limit = boundedLimit(request.limit, PRODUCT_CONTEXT_LIMIT);
+    const response = await this.#fetch(
+      `${this.#supabaseUrl}/rest/v1/rpc/read_agent_product_context`,
+      {
+        body: JSON.stringify({
+          p_focused_entity_id: request.focusedEntityId,
+          p_limit: limit,
+          p_owner_id: String(this.#ownerId),
+        }),
+        headers: supabaseHeaders(
+          this.#supabaseSecretKey,
+          "application/json",
+        ),
+        method: "POST",
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Supabase agent context read failed with HTTP ${response.status}`,
+      );
+    }
+    const raw = parseRawProductContext(await response.json());
+    const drafts = raw.drafts.map(parseDraft);
+    const commitments = raw.commitments.map(parseCommitment);
+    const workSessions = raw.workSessions.map(parseWorkSession);
+    const recentOutcomes = raw.recentOutcomes.map(parseOutcome);
+    if (
+      drafts.length > limit ||
+      commitments.length > limit ||
+      workSessions.length > Math.min(WORK_SESSION_LIMIT, limit * 2) ||
+      recentOutcomes.length > limit
+    ) {
+      throw new Error("Supabase agent context read exceeded its bounds");
+    }
+    return {
+      ambiguity: ambiguity(request.query, drafts, commitments),
+      commitments,
+      drafts,
+      focusedEntity: parseFocusedEntity(raw.focusedEntity),
+      recentOutcomes,
+      truncated: parseTruncated(raw.truncated),
+      workSessions,
+    };
+  }
+}
