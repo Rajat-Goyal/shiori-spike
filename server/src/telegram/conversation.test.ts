@@ -755,27 +755,40 @@ describe("ConversationService", () => {
   it.each([
     {
       copy: conversationCopy.targetFailureWithDraft,
+      expected: {
+        id: "11111111-1111-4111-8111-111111111111",
+        kind: "draft",
+        version: 10,
+      } as const,
       read: activeDraft("awaiting_target", targetMissingFields, 10),
       reason: "target_not_future",
       text: "Tomorrow 9am",
     },
     {
       copy: conversationCopy.targetFailureNoDraft,
+      expected: { kind: "none" } as const,
       read: { kind: "none" } as const,
       reason: "target_timezone_invalid",
       text:
         "I have to create a video for telegram setup by tomorrow 9am",
     },
   ] as const)(
-    "returns targeted future-date guidance for $reason without state or audit writes",
-    async ({ copy, read, reason, text }) => {
+    "finalizes targeted future-date guidance for $reason without candidate or audit writes",
+    async ({ copy, expected, read, reason, text }) => {
       const test = controlled(
         read,
         failureOutcome("semantic", 2, reason),
       );
 
       await expect(test.service.handle(7015, text)).resolves.toBe(copy);
-      expect(test.repository.commands).toHaveLength(0);
+      expect(test.repository.commands).toEqual([
+        {
+          action: "preserve",
+          expected,
+          processingResult: "conversation_failed",
+          updateId: 7015,
+        },
+      ]);
       expect(test.repository.audits).toHaveLength(0);
       expect(test.decisionFailureEvents).toHaveBeenCalledWith({
         attemptCount: 2,
@@ -809,7 +822,18 @@ describe("ConversationService", () => {
     await expect(
       test.service.handle(7015, "29 July 9am"),
     ).resolves.toBe(conversationCopy.targetFailureWithDraft);
-    expect(test.repository.commands).toHaveLength(0);
+    expect(test.repository.commands).toEqual([
+      {
+        action: "preserve",
+        expected: {
+          id: snapshot.id,
+          kind: "draft",
+          version: snapshot.version,
+        },
+        processingResult: "conversation_failed",
+        updateId: 7015,
+      },
+    ]);
     expect(test.repository.audits).toHaveLength(0);
   });
 

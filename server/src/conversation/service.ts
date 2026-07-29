@@ -299,7 +299,16 @@ export class ConversationService {
       }
       const targetedCopy = targetFailureCopy(snapshot, outcome);
       if (targetedCopy) {
-        return targetedCopy;
+        return this.#finish(
+          {
+            action: "preserve",
+            expected: expectedSnapshot(snapshot),
+            processingResult: "conversation_failed",
+            updateId,
+          },
+          snapshot,
+          targetedCopy,
+        );
       }
       return this.#finish(
         {

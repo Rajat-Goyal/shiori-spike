@@ -2,6 +2,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Writable } from "node:stream";
 import { buildApp, type AppOptions } from "../app.js";
 import type { ServerConfig } from "../config.js";
+import { conversationCopy } from "../conversation/copy.js";
+import type {
+  ConversationApplyResult,
+  ConversationCommand,
+  ConversationRepository,
+} from "../conversation/repository.js";
+import { ConversationService } from "../conversation/service.js";
+import type { DecisionEngine } from "../decision/engine.js";
+import type { DecisionContextFields } from "../decision/schema.js";
 import type { TelegramClient } from "./client.js";
 import {
   type TelegramProcessingResult,
@@ -324,6 +333,105 @@ describe("POST /api/telegram/webhook", () => {
       { ownerText: "Create a promise", updateId: 5001 },
     ]);
     expect(controlled.repository.completions).toHaveLength(0);
+  });
+
+  it("finalizes one targeted decision failure and suppresses its replay", async () => {
+    const fields: DecisionContextFields = {
+      definitionOfDone: "Create a video for Telegram setup",
+      durationMinutes: null,
+      offerWorkWindowHelp: false,
+      possibleWorkSession: false,
+      simpleAction: false,
+      targetAt: null,
+      targetTimeZone: null,
+      timingConstraints: [],
+    };
+    const commands: ConversationCommand[] = [];
+    const conversationRepository: ConversationRepository = {
+      applyTurn: vi.fn(
+        async (
+          command: ConversationCommand,
+        ): Promise<ConversationApplyResult> => {
+          commands.push(command);
+          return {
+            completed: true,
+            draftCreated: false,
+            status: "applied",
+          };
+        },
+      ),
+      readTurn: vi.fn(async () => ({
+        expiresAt: "2026-07-30T02:02:00.000Z",
+        fields,
+        id: "11111111-1111-4111-8111-111111111111",
+        kind: "draft" as const,
+        phase: "awaiting_target" as const,
+        version: 10,
+      })),
+    };
+    const decisionEngine: DecisionEngine = {
+      decide: vi.fn(async () => ({
+        attemptCount: 2,
+        failure: "semantic" as const,
+        ok: false as const,
+        reason: "target_not_future" as const,
+        stage: "semantic" as const,
+      })),
+    };
+    const conversation = new ConversationService({
+      decisionEngine,
+      modelId: "gpt-test-model",
+      promptVersion: "shiori-test-v1",
+      repository: conversationRepository,
+    });
+    const repository = new ControlledRepository();
+    const client = new ControlledClient();
+    const service = new TelegramService({
+      client,
+      conversationService: conversation,
+      ownerUserId,
+      repository,
+    });
+    const app = await appWith(service);
+    const request = {
+      headers: validHeaders,
+      method: "POST" as const,
+      payload: textUpdate({ text: "Tomorrow 9am", updateId: 5002 }),
+      url: "/api/telegram/webhook",
+    };
+
+    const first = await app.inject(request);
+    const replay = await app.inject(request);
+
+    expect([first.statusCode, replay.statusCode]).toEqual([200, 200]);
+    expect(client.sends).toEqual([
+      {
+        chatId: ownerUserId,
+        text: conversationCopy.targetFailureWithDraft,
+      },
+    ]);
+    expect(decisionEngine.decide).toHaveBeenCalledOnce();
+    expect(conversationRepository.readTurn).toHaveBeenCalledOnce();
+    expect(conversationRepository.applyTurn).toHaveBeenCalledOnce();
+    expect(commands).toEqual([
+      {
+        action: "preserve",
+        expected: {
+          id: "11111111-1111-4111-8111-111111111111",
+          kind: "draft",
+          version: 10,
+        },
+        processingResult: "conversation_failed",
+        updateId: 5002,
+      },
+    ]);
+    expect(commands[0]).not.toHaveProperty("audit");
+    expect(commands[0]).not.toHaveProperty("fields");
+    expect(repository.claims).toEqual([
+      { ownerChatId: ownerUserId, updateId: 5002 },
+      { ownerChatId: ownerUserId, updateId: 5002 },
+    ]);
+    expect(repository.completions).toHaveLength(0);
   });
 
   it("redacts failures from HTTP state and service errors", async () => {
