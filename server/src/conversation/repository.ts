@@ -686,6 +686,20 @@ export class SupabaseConversationRepository
   async applyTurn(
     command: ConversationCommand,
   ): Promise<ConversationApplyResult> {
+    if (
+      ["status_empty", "status_listed"].includes(
+        command.processingResult,
+      ) &&
+      (
+        command.action !== "preserve" ||
+        command.audit !== undefined ||
+        "fields" in command
+      )
+    ) {
+      throw new Error(
+        "Status completion must preserve conversation state without audit",
+      );
+    }
     if (command.action === "create_separate_draft") {
       if (
         command.processingResult !== "conversation" ||

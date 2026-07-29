@@ -198,6 +198,104 @@ describe("SupabaseConversationRepository", () => {
     );
   });
 
+  it.each(["status_listed", "status_empty"] as const)(
+    "serializes %s as an unaudited preserve-only turn",
+    async (processingResult) => {
+      const fetchFromSupabase = vi.fn(async () =>
+        Response.json({
+          completed: true,
+          draftCreated: false,
+          draftReference: {
+            id: focusedDraft.id,
+            version: focusedDraft.version,
+          },
+          status: "applied",
+        }),
+      );
+
+      await expect(
+        repositoryWith(fetchFromSupabase as typeof fetch).applyTurn({
+          action: "preserve",
+          expected: {
+            id: focusedDraft.id,
+            kind: "draft",
+            version: focusedDraft.version,
+          },
+          processingResult,
+          updateId: 9006,
+        }),
+      ).resolves.toMatchObject({
+        completed: true,
+        draftCreated: false,
+        status: "applied",
+      });
+
+      const body = JSON.parse(
+        String(fetchFromSupabase.mock.calls[0]?.[1]?.body),
+      ) as Record<string, unknown>;
+      expect(body).toEqual({
+        p_action: "preserve",
+        p_audit_input_class: null,
+        p_audit_payload: null,
+        p_definition_of_done: null,
+        p_duration_minutes: null,
+        p_expected_correlated_update_id: null,
+        p_expected_id: focusedDraft.id,
+        p_expected_kind: "draft",
+        p_expected_source_update_id: null,
+        p_expected_version: focusedDraft.version,
+        p_model_id: null,
+        p_offer_work_window_help: null,
+        p_phase: null,
+        p_possible_work_session: null,
+        p_processing_result: processingResult,
+        p_prompt_version: null,
+        p_simple_action: null,
+        p_target_at: null,
+        p_target_time_zone: null,
+        p_timing_constraints: null,
+        p_update_id: 9006,
+      });
+    },
+  );
+
+  it("rejects forged status mutation or audit data before RPC access", async () => {
+    const fetchFromSupabase = vi.fn();
+    const repository = repositoryWith(fetchFromSupabase as typeof fetch);
+    const forged = (value: unknown) =>
+      repository.applyTurn(
+        value as Parameters<typeof repository.applyTurn>[0],
+      );
+
+    await expect(
+      forged({
+        action: "terminate_permission",
+        expected: { kind: "none" },
+        processingResult: "status_empty",
+        updateId: 9007,
+      }),
+    ).rejects.toThrow("must preserve conversation state without audit");
+    await expect(
+      forged({
+        action: "preserve",
+        audit: explicitAudit,
+        expected: { kind: "none" },
+        processingResult: "status_empty",
+        updateId: 9008,
+      }),
+    ).rejects.toThrow("must preserve conversation state without audit");
+    await expect(
+      forged({
+        action: "preserve",
+        expected: { kind: "none" },
+        fields: simpleFields,
+        processingResult: "status_empty",
+        updateId: 9009,
+      }),
+    ).rejects.toThrow("must preserve conversation state without audit");
+    expect(fetchFromSupabase).not.toHaveBeenCalled();
+  });
+
   it("accepts permission by correlation identity without resending candidate fields", async () => {
     const fetchFromSupabase = vi.fn(async () =>
       Response.json({
