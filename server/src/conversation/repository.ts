@@ -5,6 +5,9 @@ import type {
 } from "../decision/schema.js";
 import { supabaseHeaders } from "../supabase.js";
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 export type ConversationPhase = Exclude<
   DecisionInput["context"]["phase"],
   "none" | "awaiting_permission"
@@ -102,6 +105,10 @@ type ConversationCompletion =
   | {
       audit?: never;
       processingResult: "conversation_failed";
+    }
+  | {
+      audit?: never;
+      processingResult: "status_empty" | "status_listed";
     };
 
 export type ConversationCommand = ConversationAction &
@@ -131,10 +138,21 @@ export type ConversationDraftReadResult =
   | { draft: ConversationDraftSummary; kind: "draft" }
   | { kind: "not_found" };
 
+export type ConversationDraftAuthority = Readonly<{
+  expectedVersion: number;
+  id: string;
+  kind: "draft";
+}>;
+
+export type ConversationDraftResolutionCandidate = Readonly<{
+  authority: ConversationDraftAuthority;
+  draft: ConversationDraftSummary;
+}>;
+
 export type ConversationDraftResolution =
-  | { draft: ConversationDraftSummary; kind: "exact" }
+  | (ConversationDraftResolutionCandidate & { kind: "exact" })
   | {
-      candidates: ConversationDraftSummary[];
+      candidates: ConversationDraftResolutionCandidate[];
       kind: "ambiguous";
     }
   | { kind: "none" };
@@ -157,8 +175,7 @@ export type CreateFocusedDraftCommand =
   };
 
 export type FocusDraftCommand = ConversationDraftMutationCommand & {
-  draftId: string;
-  expectedVersion: number;
+  target: ConversationDraftAuthority;
 };
 
 export type PatchFocusedDraftCommand = FocusDraftCommand & {
@@ -361,6 +378,9 @@ type DraftCursor = {
 function draftSummary(value: unknown): ConversationDraftSummary {
   if (
     !isRecord(value) ||
+    value.kind !== "draft" ||
+    typeof value.id !== "string" ||
+    !UUID_PATTERN.test(value.id) ||
     typeof value.focused !== "boolean" ||
     typeof value.updatedAt !== "string" ||
     !safeInteger(value.version) ||
@@ -467,11 +487,30 @@ function parseDraftResolution(
     return { kind: "none" };
   }
   if (value.kind === "exact") {
-    return { draft: draftSummary(value.draft), kind: "exact" };
+    const draft = draftSummary(value.draft);
+    return {
+      authority: {
+        expectedVersion: draft.version,
+        id: draft.id,
+        kind: "draft",
+      },
+      draft,
+      kind: "exact",
+    };
   }
   if (value.kind === "ambiguous" && Array.isArray(value.candidates)) {
     return {
-      candidates: value.candidates.map(draftSummary),
+      candidates: value.candidates.map((candidate) => {
+        const draft = draftSummary(candidate);
+        return {
+          authority: {
+            expectedVersion: draft.version,
+            id: draft.id,
+            kind: "draft" as const,
+          },
+          draft,
+        };
+      }),
       kind: "ambiguous",
     };
   }
@@ -538,6 +577,23 @@ export class SupabaseConversationRepository
     };
   }
 
+  #targetBody(
+    target: ConversationDraftAuthority,
+  ): Record<string, unknown> {
+    if (
+      target.kind !== "draft" ||
+      !UUID_PATTERN.test(target.id) ||
+      !safeInteger(target.expectedVersion) ||
+      target.expectedVersion < 1
+    ) {
+      throw new Error("Conversation draft authority is invalid");
+    }
+    return {
+      p_draft_id: target.id,
+      p_expected_version: target.expectedVersion,
+    };
+  }
+
   #completionBody(
     command: ConversationDraftMutationCommand,
   ): Record<string, unknown> {
@@ -570,8 +626,7 @@ export class SupabaseConversationRepository
       await this.#rpc("focus_conversation_draft", {
         ...this.#completionBody(command),
         ...this.#focusBody(command.expectedFocus),
-        p_draft_id: command.draftId,
-        p_expected_version: command.expectedVersion,
+        ...this.#targetBody(command.target),
       }),
     );
   }
@@ -597,8 +652,7 @@ export class SupabaseConversationRepository
         ...this.#candidateBody(command.fields, command.phase),
         ...this.#completionBody(command),
         ...this.#focusBody(command.expectedFocus),
-        p_draft_id: command.draftId,
-        p_expected_version: command.expectedVersion,
+        ...this.#targetBody(command.target),
       }),
     );
   }

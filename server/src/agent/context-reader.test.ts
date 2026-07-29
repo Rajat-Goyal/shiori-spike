@@ -37,6 +37,7 @@ function response(overrides: Record<string, unknown> = {}) {
         focused: true,
         fullCalendarEvent: { description: "must-not-leak" },
         id: ids.draft1,
+        expiresAt: "2099-08-01T02:00:00.000Z",
         mode: "possible_work_session",
         phase: "complete",
         targetAt: "2026-08-01T02:00:00.000Z",
@@ -46,6 +47,7 @@ function response(overrides: Record<string, unknown> = {}) {
         definitionOfDone: "Prepare the launch proposal",
         focused: false,
         id: ids.draft2,
+        expiresAt: "2099-08-01T02:00:00.000Z",
         mode: "unresolved",
         phase: "awaiting_target",
         targetAt: null,
@@ -57,6 +59,7 @@ function response(overrides: Record<string, unknown> = {}) {
         definitionOfDone: "Send the launch proposal",
         focused: true,
         id: ids.draft1,
+        expiresAt: "2099-08-01T02:00:00.000Z",
         mode: "possible_work_session",
         phase: "complete",
         targetAt: "2026-08-01T02:00:00.000Z",
@@ -206,6 +209,50 @@ describe("SupabaseAgentContextReader", () => {
     });
   });
 
+  it("omits an expired parked draft from lists, exact focus, and ambiguity", async () => {
+    const expiredDraft = {
+      definitionOfDone: "Send the expired report",
+      expiresAt: "2026-07-29T02:00:00.000Z",
+      focused: false,
+      id: ids.draft2,
+      mode: "unresolved",
+      phase: "awaiting_target",
+      targetAt: null,
+      version: 4,
+    };
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json(
+        response({
+          commitments: [],
+          drafts: [expiredDraft],
+          focusedEntity: {
+            entity: expiredDraft,
+            kind: "draft",
+          },
+        }),
+      )
+    );
+    const contextReader = new SupabaseAgentContextReader({
+      fetch: fetchFromSupabase as typeof fetch,
+      now: () => new Date("2026-07-30T02:00:00.000Z"),
+      ownerId,
+      supabaseSecretKey: "sb_secret_server-only",
+      supabaseUrl: "http://127.0.0.1:54321",
+    });
+
+    await expect(
+      contextReader.readProductContext({
+        chatId: ownerId,
+        focusedEntityId: ids.draft2,
+        query: "expired report",
+      }),
+    ).resolves.toMatchObject({
+      ambiguity: null,
+      drafts: [],
+      focusedEntity: null,
+    });
+  });
+
   it("rejects non-owner and invalid requests before database access", async () => {
     const fetchFromSupabase = vi.fn();
     const contextReader = reader(fetchFromSupabase as typeof fetch);
@@ -241,6 +288,7 @@ describe("SupabaseAgentContextReader", () => {
         response({
           drafts: Array.from({ length: 3 }, (_, index) => ({
             definitionOfDone: `Draft ${index}`,
+            expiresAt: "2099-08-01T02:00:00.000Z",
             focused: index === 0,
             id: `20000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
             mode: "unresolved",

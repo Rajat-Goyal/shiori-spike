@@ -140,6 +140,7 @@ export interface AgentContextReader {
 
 type SupabaseAgentContextReaderOptions = Readonly<{
   fetch?: typeof fetch;
+  now?: () => Date;
   ownerId: number;
   supabaseSecretKey: string;
   supabaseUrl: string;
@@ -191,7 +192,10 @@ function oneOf<T extends string>(
   return typeof value === "string" && values.includes(value as T);
 }
 
-function parseDraft(value: unknown): AgentDraftContext {
+function parseDraft(
+  value: unknown,
+  observedAt: Date,
+): AgentDraftContext | null {
   const item = record(value);
   if (
     !item ||
@@ -212,9 +216,13 @@ function parseDraft(value: unknown): AgentDraftContext {
       item.definitionOfDone === null ||
       definition(item.definitionOfDone)
     ) ||
-    !(item.targetAt === null || instant(item.targetAt))
+    !(item.targetAt === null || instant(item.targetAt)) ||
+    !instant(item.expiresAt)
   ) {
     throw new Error("Agent draft context is invalid");
+  }
+  if (Date.parse(item.expiresAt) <= observedAt.getTime()) {
+    return null;
   }
   return {
     definitionOfDone: item.definitionOfDone as string | null,
@@ -324,7 +332,10 @@ function parseTruncated(value: unknown): AgentProductContext["truncated"] {
   };
 }
 
-function parseFocusedEntity(value: unknown): AgentFocusedEntity | null {
+function parseFocusedEntity(
+  value: unknown,
+  observedAt: Date,
+): AgentFocusedEntity | null {
   if (value === null) {
     return null;
   }
@@ -332,12 +343,14 @@ function parseFocusedEntity(value: unknown): AgentFocusedEntity | null {
   if (!item || !oneOf(item.kind, ["commitment", "draft"])) {
     throw new Error("Agent focused entity is invalid");
   }
-  return item.kind === "draft"
-    ? { entity: parseDraft(item.entity), kind: "draft" }
-    : {
-        entity: parseCommitment(item.entity),
-        kind: "commitment",
-      };
+  if (item.kind === "draft") {
+    const draft = parseDraft(item.entity, observedAt);
+    return draft === null ? null : { entity: draft, kind: "draft" };
+  }
+  return {
+    entity: parseCommitment(item.entity),
+    kind: "commitment",
+  };
 }
 
 function parseRawProductContext(value: unknown): RawProductContext {
@@ -436,12 +449,14 @@ function boundedLimit(value: number | undefined, maximum: number): number {
 
 export class SupabaseAgentContextReader implements AgentContextReader {
   readonly #fetch: typeof fetch;
+  readonly #now: () => Date;
   readonly #ownerId: number;
   readonly #supabaseSecretKey: string;
   readonly #supabaseUrl: string;
 
   constructor(options: SupabaseAgentContextReaderOptions) {
     this.#fetch = options.fetch ?? fetch;
+    this.#now = options.now ?? (() => new Date());
     this.#ownerId = options.ownerId;
     this.#supabaseSecretKey = options.supabaseSecretKey;
     this.#supabaseUrl = options.supabaseUrl;
@@ -500,7 +515,13 @@ export class SupabaseAgentContextReader implements AgentContextReader {
       );
     }
     const raw = parseRawProductContext(await response.json());
-    const drafts = raw.drafts.map(parseDraft);
+    const observedAt = this.#now();
+    if (!Number.isFinite(observedAt.getTime())) {
+      throw new Error("Agent context observation time is invalid");
+    }
+    const drafts = raw.drafts
+      .map((draft) => parseDraft(draft, observedAt))
+      .filter((draft): draft is AgentDraftContext => draft !== null);
     const commitments = raw.commitments.map(parseCommitment);
     const workSessions = raw.workSessions.map(parseWorkSession);
     const recentOutcomes = raw.recentOutcomes.map(parseOutcome);
@@ -516,7 +537,7 @@ export class SupabaseAgentContextReader implements AgentContextReader {
       ambiguity: ambiguity(request.query, drafts, commitments),
       commitments,
       drafts,
-      focusedEntity: parseFocusedEntity(raw.focusedEntity),
+      focusedEntity: parseFocusedEntity(raw.focusedEntity, observedAt),
       recentOutcomes,
       truncated: parseTruncated(raw.truncated),
       workSessions,

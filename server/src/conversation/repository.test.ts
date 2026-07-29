@@ -509,8 +509,22 @@ describe("SupabaseConversationRepository", () => {
       repository.resolveDraftReference("synthetic", 5),
     ).resolves.toEqual({
       candidates: [
-        expect.objectContaining({ id: focusedDraft.id }),
-        expect.objectContaining({ id: parkedDraft.id }),
+        {
+          authority: {
+            expectedVersion: focusedDraft.version,
+            id: focusedDraft.id,
+            kind: "draft",
+          },
+          draft: expect.objectContaining({ id: focusedDraft.id }),
+        },
+        {
+          authority: {
+            expectedVersion: parkedDraft.version,
+            id: parkedDraft.id,
+            kind: "draft",
+          },
+          draft: expect.objectContaining({ id: parkedDraft.id }),
+        },
       ],
       kind: "ambiguous",
     });
@@ -544,20 +558,26 @@ describe("SupabaseConversationRepository", () => {
 
     await repository.focusDraft({
       audit: explicitAudit,
-      draftId: parkedDraft.id,
       expectedFocus,
-      expectedVersion: parkedDraft.version,
       processingResult: "conversation",
+      target: {
+        expectedVersion: parkedDraft.version,
+        id: parkedDraft.id,
+        kind: "draft",
+      },
       updateId: 9101,
     });
     await repository.patchFocusedDraft({
       audit: explicitAudit,
-      draftId: parkedDraft.id,
       expectedFocus,
-      expectedVersion: parkedDraft.version,
       fields: simpleFields,
       phase: "complete",
       processingResult: "conversation",
+      target: {
+        expectedVersion: parkedDraft.version,
+        id: parkedDraft.id,
+        kind: "draft",
+      },
       updateId: 9102,
     });
 
@@ -582,6 +602,75 @@ describe("SupabaseConversationRepository", () => {
     });
   });
 
+  it("turns a unique parked reference into exact mutation authority", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({ draft: parkedDraft, kind: "exact" }),
+    );
+
+    await expect(
+      repositoryWith(
+        fetchFromSupabase as typeof fetch,
+      ).resolveDraftReference(parkedDraft.id),
+    ).resolves.toEqual({
+      authority: {
+        expectedVersion: parkedDraft.version,
+        id: parkedDraft.id,
+        kind: "draft",
+      },
+      draft: expect.objectContaining({
+        focused: false,
+        id: parkedDraft.id,
+        version: parkedDraft.version,
+      }),
+      kind: "exact",
+    });
+  });
+
+  it("surfaces stale exact authority without weakening or retrying the CAS", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({
+        completed: true,
+        draftCreated: false,
+        status: "stale",
+      }),
+    );
+    const repository = repositoryWith(
+      fetchFromSupabase as typeof fetch,
+    );
+
+    await expect(
+      repository.patchFocusedDraft({
+        audit: explicitAudit,
+        expectedFocus: {
+          id: focusedDraft.id,
+          kind: "draft",
+          version: focusedDraft.version,
+        },
+        fields: simpleFields,
+        phase: "complete",
+        processingResult: "conversation",
+        target: {
+          expectedVersion: parkedDraft.version,
+          id: parkedDraft.id,
+          kind: "draft",
+        },
+        updateId: 9103,
+      }),
+    ).resolves.toEqual({
+      completed: true,
+      draftCreated: false,
+      status: "stale",
+    });
+
+    expect(fetchFromSupabase).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(String(fetchFromSupabase.mock.calls[0][1]?.body)),
+    ).toMatchObject({
+      p_draft_id: parkedDraft.id,
+      p_expected_version: parkedDraft.version,
+    });
+  });
+
   it("rejects unbounded reads and malformed cursors before I/O", async () => {
     const fetchFromSupabase = vi.fn();
     const repository = repositoryWith(
@@ -597,6 +686,19 @@ describe("SupabaseConversationRepository", () => {
     await expect(repository.resolveDraftReference("")).rejects.toThrow(
       "Conversation draft reference must be between 1 and 500 characters",
     );
+    await expect(
+      repository.focusDraft({
+        audit: explicitAudit,
+        expectedFocus: { kind: "none" },
+        processingResult: "conversation",
+        target: {
+          expectedVersion: 0,
+          id: "not-an-authority",
+          kind: "draft",
+        },
+        updateId: 9104,
+      }),
+    ).rejects.toThrow("Conversation draft authority is invalid");
     expect(fetchFromSupabase).not.toHaveBeenCalled();
   });
 });
