@@ -5,8 +5,8 @@ Required focused verification
 Command:
   npm run test --workspace @shiori/server -- src/agent src/commitments src/work-sessions
 Result: PASS
-Test files: 16 passed (16)
-Tests: 156 passed (156)
+Test files: 17 passed (17)
+Tests: 168 passed (168)
 
 Required server type verification
 Command:
@@ -28,20 +28,20 @@ Command:
   server/test/agent-session-db.integration.ts
 Result: PASS
 Test files: 2 passed (2)
-Tests: 4 passed (4)
+Tests: 5 passed (5)
 
 Required full database verification
 Command:
   npm run test:db
 Result: PASS
 Test files: 13 passed (13)
-Tests: 33 passed (33)
+Tests: 34 passed (34)
 
 Full repository gate
 Command:
   npm run check
 Result: PASS
-Server tests: 510 passed
+Server tests: 522 passed
 Release-verifier tests: 22 passed
 Isolated Playwright tests: 50 passed
 Server and web typechecks: PASS
@@ -52,18 +52,25 @@ AC1 PASS — The update_commitment Agents SDK tool and the existing exact
 creation tool interrupt the active durable run. The application renders the
 preview and seals the paused state against the exact tool, owner chat, session,
 entity ID, and version. Unit tests prove the consequential callback is not
-invoked before approval.
+invoked before approval. Real Agents SDK integration tests use Runner,
+RunState serialization/rehydration, and a deterministic model provider to
+prove creation and edit interruptions without directly invoking FunctionTool.
 
-AC2 PASS — Creation continues to resume the same encrypted interrupted run and
-uses the existing atomic confirmation transaction. Approval tests preserve the
-exact creation binding and reject stale, mismatched, replayed, or rejected
-interactions without a second consequence.
+AC2 PASS — Every new simple, preparation, and no-preparation path continues the
+active durable session with exact sanitized product/conversation context and
+stages only the execute_commitment interruption returned by that run. The
+disconnected prepareExecution/gate.prepare path no longer exists. Resume builds
+the authoritative proposal or edit context and exact interrupted tool before
+RunState rehydration, then uses the existing atomic transaction.
 
 AC3 PASS — The local database probe applies one exact version-1 edit, writes
 version 2, cancels the obsolete unsent reminder, creates the version-2
 replacement, and appends one commitment.changed event plus one receipt. A
 work-shaped probe cancels the former planned session and both unsent messages,
 then creates exactly one replacement session and two replacement schedules.
+A started-session probe proves target, preparation, next-plan, and definition
+edits are rejected without a version, receipt, or event change and its pending
+end check-in remains untouched.
 
 AC4 PASS — ApprovedCommitmentChangeService rechecks the exact proposed window
 immediately before the transaction. Unit tests cover free, reject-on-conflict,
@@ -72,9 +79,10 @@ policies. Calendar is read-only and raw Calendar data is not persisted.
 
 AC5 PASS — Runtime, approval-gate, callback, service, and local database tests
 cover rejection, authority mismatch, stale versions, exact replay, terminal
-commitments, and interrupted retry. The transaction probe proves exact replay
-is harmless, a different stale update cannot mutate, and a completed promise
-cannot reopen.
+commitments, active work sessions, and interrupted retry. Real SDK tests prove
+approve/reject for creation and edits plus fail-closed absent/mismatched tool
+rehydration. The transaction probe proves exact replay is harmless, a different
+stale update cannot mutate, and a completed promise cannot reopen.
 
 Database and security notes
 - The edit RPC owns one row-locked transaction for commitment fields, planned
@@ -84,6 +92,8 @@ Database and security notes
   sets a transaction-local binding for the exact commitment while performing
   its version-checked update.
 - Change-event metadata contains only changed field names and versions.
+- Edit-time cancellation is limited to the exact obsolete simple reminder or
+  exact obsolete planned session; active start/end check-ins are never swept.
 - No production or remote Supabase state was accessed or changed.
 - Local Supabase credentials were supplied only to the test process and are
   not present in this artifact.

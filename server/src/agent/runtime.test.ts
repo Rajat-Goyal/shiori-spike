@@ -1,7 +1,13 @@
 import {
   RunContext,
+  Usage,
+  type AgentOutputItem,
   type AgentInputItem,
   type FunctionTool,
+  type Model,
+  type ModelProvider,
+  type ModelRequest,
+  type ModelResponse,
 } from "@openai/agents";
 import { describe, expect, it, vi } from "vitest";
 
@@ -11,6 +17,7 @@ import {
   AGENT_RUNTIME_TIMEOUT_MS,
   AGENT_RUNTIME_TOOL_NAMES,
   createAgentRuntime,
+  OpenAIAgentsRunner,
   type AgentExecutionAuthority,
   type AgentRunner,
   type AgentRunnerRequest,
@@ -164,6 +171,65 @@ class ScriptedRunner implements AgentRunner {
   run(request: AgentRunnerRequest): Promise<AgentRunnerResult> {
     return this.onRun(request);
   }
+}
+
+class ScriptedModel implements Model {
+  readonly requests: ModelRequest[] = [];
+
+  constructor(private readonly responses: ModelResponse[]) {}
+
+  async getResponse(request: ModelRequest): Promise<ModelResponse> {
+    this.requests.push(request);
+    const response = this.responses.shift();
+    if (response === undefined) {
+      throw new Error("scripted model response exhausted");
+    }
+    return response;
+  }
+
+  async *getStreamedResponse(): AsyncIterable<never> {
+    throw new Error("streaming is not used by these integration tests");
+  }
+}
+
+function modelResponse(output: AgentOutputItem[]): ModelResponse {
+  return {
+    output,
+    usage: new Usage(),
+  };
+}
+
+function modelToolCall(
+  name: "execute_commitment" | "update_commitment",
+  argumentsValue: unknown,
+  callId = `call-${name}`,
+): ModelResponse {
+  return modelResponse([{
+    arguments: JSON.stringify(argumentsValue),
+    callId,
+    name,
+    status: "completed",
+    type: "function_call",
+  }]);
+}
+
+function modelFinal(text = "Done."): ModelResponse {
+  return modelResponse([{
+    content: [{
+      text,
+      type: "output_text",
+    }],
+    role: "assistant",
+    status: "completed",
+    type: "message",
+  }]);
+}
+
+function sdkRunner(model: Model): OpenAIAgentsRunner {
+  const provider: ModelProvider = {
+    getModel: () => model,
+  };
+  return new OpenAIAgentsRunner("not-used-by-the-fake-provider", provider);
 }
 
 function runtimeWith(runner: AgentRunner, overrides: {
@@ -676,7 +742,7 @@ describe("bounded Agents SDK runtime", () => {
     });
   });
 
-  it("prepares execution without a synthetic conversation turn or semantic reclassification", async () => {
+  it("continues creation in the active session without semantic reclassification", async () => {
     const executeCommitment = vi.fn(async () => ({
       reply: {
         text: "The existing deterministic confirmation reply.",
@@ -688,7 +754,7 @@ describe("bounded Agents SDK runtime", () => {
         expect(request.input).toEqual([
           {
             content:
-              "Continue the application-owned approval workflow using only the bound execution tool.",
+              "Continue the active application-owned conversation using only the exact bound creation tool.",
             role: "system",
           },
         ]);
@@ -703,8 +769,9 @@ describe("bounded Agents SDK runtime", () => {
           ["execute_commitment"],
         );
         expect(request.agent.instructions).toContain(
-          "not a new owner conversation turn",
+          "continuation of one application-owned commitment-creation approval",
         );
+        expect(request.session).toBe(session);
         return emptyResult({
           interruptions: [
             {
@@ -726,8 +793,9 @@ describe("bounded Agents SDK runtime", () => {
       },
     );
     const runtime = runtimeWith(runner, { executeCommitment });
+    const session = sdkSession();
 
-    const staged = await runtime.prepareExecution({
+    const staged = await runtime.continueCreation({
       authority: {
         ...authority,
         draftId: authority.draftId!,
@@ -735,7 +803,9 @@ describe("bounded Agents SDK runtime", () => {
         sessionId: authority.sessionId!,
         updateId: authority.updateId!,
       },
+      conversation: runtimeConversation,
       decision: validatedDecision,
+      session,
     });
     const result = await runtime.resume({
       approval: "approve",
@@ -919,6 +989,237 @@ describe("bounded Agents SDK runtime", () => {
       },
     });
     expect(updateCommitment).toHaveBeenCalledOnce();
+  });
+
+  describe("real Agents SDK serialized approval rehydration", () => {
+    it.each(["approve", "reject"] as const)(
+      "%ss an exact creation interruption without invoking a tool directly",
+      async (approval) => {
+        const executeCommitment = vi.fn(async () => ({
+          reply: { text: "Commitment confirmed." },
+          status: "executed" as const,
+        }));
+        const model = new ScriptedModel([
+          modelToolCall("execute_commitment", {
+            draftId: authority.draftId,
+            draftVersion: authority.draftVersion,
+          }),
+          modelFinal(),
+        ]);
+        const runtime = runtimeWith(sdkRunner(model), {
+          executeCommitment,
+        });
+        const staged = await runtime.continueCreation({
+          authority: {
+            ...authority,
+            draftId: authority.draftId!,
+            draftVersion: authority.draftVersion!,
+            sessionId: authority.sessionId!,
+            updateId: authority.updateId!,
+          },
+          conversation: runtimeConversation,
+          decision: validatedDecision,
+          session: sdkSession(),
+        });
+
+        expect(staged).toMatchObject({
+          approval: {
+            target: {
+              id: authority.draftId,
+              version: authority.draftVersion,
+            },
+            toolName: "execute_commitment",
+          },
+          outcome: { ok: true },
+          pendingApprovalState: expect.any(String),
+        });
+        expect(executeCommitment).not.toHaveBeenCalled();
+
+        const resumed = await runtime.resume({
+          approval,
+          authority: { ...authority, updateId: 901 },
+          pendingApprovalState: staged.pendingApprovalState!,
+        });
+
+        expect(resumed.outcome).toMatchObject({ ok: true });
+        expect(executeCommitment).toHaveBeenCalledTimes(
+          approval === "approve" ? 1 : 0,
+        );
+        expect(model.requests).toHaveLength(2);
+      },
+    );
+
+    it.each(["approve", "reject"] as const)(
+      "%ss an exact edit interruption without invoking a tool directly",
+      async (approval) => {
+        const commitmentAuthority = {
+          chatId: 42,
+          draftId: "11111111-1111-4111-8111-111111111111",
+          draftVersion: 4,
+          entityKind: "commitment" as const,
+          sessionId: "session-1",
+          updateId: 501,
+        };
+        const edit = {
+          calendarPolicy: {
+            conflict: "reject" as const,
+            unavailable: "reject" as const,
+          },
+          commitmentId: commitmentAuthority.draftId,
+          definitionOfDone: "Publish the final video",
+          expectedVersion: commitmentAuthority.draftVersion,
+          preparation: {
+            nextWorkSession: {
+              durationMinutes: 60 as const,
+              endAt: "2026-07-30T04:00:00.000Z",
+              startAt: "2026-07-30T03:00:00.000Z",
+              timingConstraints: "before lunch",
+            },
+            required: true,
+          },
+          targetAt: "2026-07-30T09:00:00.000Z",
+        };
+        const updateCommitment = vi.fn(async () => ({
+          reply: { text: "Promise updated." },
+          status: "executed" as const,
+        }));
+        const model = new ScriptedModel([
+          modelToolCall("update_commitment", edit),
+          modelFinal(),
+        ]);
+        const runtime = runtimeWith(sdkRunner(model), {
+          updateCommitment,
+        });
+        const staged = await runtime.run({
+          authority: commitmentAuthority,
+          conversation: {
+            ...runtimeConversation,
+            product: {
+              ...productContext,
+              commitments: [{
+                definitionOfDone: "Publish the video",
+                id: commitmentAuthority.draftId,
+                status: "active",
+                targetAt: "2026-07-30T08:00:00.000Z",
+                version: commitmentAuthority.draftVersion,
+              }],
+            },
+          },
+          input: {
+            context: { fields: null, phase: "none" },
+            ownerText: "Move the video promise and add preparation",
+          },
+          session: sdkSession(),
+        });
+
+        expect(staged).toMatchObject({
+          approval: {
+            proposal: edit,
+            toolName: "update_commitment",
+          },
+          outcome: { ok: true },
+          pendingApprovalState: expect.any(String),
+        });
+        expect(updateCommitment).not.toHaveBeenCalled();
+
+        const resumed = await runtime.resume({
+          approval,
+          authority: { ...commitmentAuthority, updateId: 902 },
+          pendingApprovalState: staged.pendingApprovalState!,
+        });
+
+        expect(resumed.outcome).toMatchObject({ ok: true });
+        expect(updateCommitment).toHaveBeenCalledTimes(
+          approval === "approve" ? 1 : 0,
+        );
+        expect(model.requests).toHaveLength(2);
+      },
+    );
+
+    it.each(["absent", "mismatched"] as const)(
+      "fails closed when the serialized creation tool is %s on rehydration",
+      async (failure) => {
+        const executeCommitment = vi.fn(async () => ({
+          status: "executed" as const,
+        }));
+        const updateCommitment = vi.fn(async () => ({
+          status: "executed" as const,
+        }));
+        const model = new ScriptedModel([
+          modelToolCall("execute_commitment", {
+            draftId: authority.draftId,
+            draftVersion: authority.draftVersion,
+          }),
+          modelFinal(),
+        ]);
+        const runtime = runtimeWith(sdkRunner(model), {
+          executeCommitment,
+          updateCommitment,
+        });
+        const staged = await runtime.continueCreation({
+          authority: {
+            ...authority,
+            draftId: authority.draftId!,
+            draftVersion: authority.draftVersion!,
+            sessionId: authority.sessionId!,
+            updateId: authority.updateId!,
+          },
+          conversation: runtimeConversation,
+          decision: validatedDecision,
+          session: sdkSession(),
+        });
+        const envelope = JSON.parse(staged.pendingApprovalState!) as {
+          authority: Record<string, unknown>;
+          editProposal: unknown;
+          proposal: unknown;
+          sdkRunState: string;
+          toolName: string;
+        };
+        let resumeAuthority: AgentExecutionAuthority = {
+          ...authority,
+          updateId: 903,
+        };
+        if (failure === "absent") {
+          envelope.sdkRunState = envelope.sdkRunState.replaceAll(
+            "execute_commitment",
+            "absent_commitment_tool",
+          );
+        } else {
+          const edit = {
+            calendarPolicy: {
+              conflict: "reject",
+              unavailable: "reject",
+            },
+            commitmentId: authority.draftId!,
+            definitionOfDone: "Publish the final video",
+            expectedVersion: authority.draftVersion!,
+            preparation: {
+              nextWorkSession: null,
+              required: false,
+            },
+            targetAt: "2026-07-30T09:00:00.000Z",
+          };
+          envelope.authority.entityKind = "commitment";
+          envelope.editProposal = edit;
+          envelope.proposal = null;
+          envelope.toolName = "update_commitment";
+          resumeAuthority = {
+            ...resumeAuthority,
+            entityKind: "commitment",
+          };
+        }
+
+        const resumed = await runtime.resume({
+          approval: "approve",
+          authority: resumeAuthority,
+          pendingApprovalState: JSON.stringify(envelope),
+        });
+
+        expect(resumed.outcome).toMatchObject({ ok: false });
+        expect(executeCommitment).not.toHaveBeenCalled();
+        expect(updateCommitment).not.toHaveBeenCalled();
+      },
+    );
   });
 
   it("strips calendar titles and all non-free-busy fields", async () => {

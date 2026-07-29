@@ -157,11 +157,11 @@ function runtimeResult(
 }
 
 function runtime(): AgentRuntime & {
-  prepareExecution: ReturnType<typeof vi.fn>;
+  continueCreation: ReturnType<typeof vi.fn>;
   resume: ReturnType<typeof vi.fn>;
 } {
   return {
-    prepareExecution: vi.fn(async () =>
+    continueCreation: vi.fn(async () =>
       runtimeResult({
         pendingApprovalState: "pending-sdk-state",
       }),
@@ -176,6 +176,20 @@ function runtime(): AgentRuntime & {
     ),
     run: vi.fn(async () => runtimeResult()),
   };
+}
+
+function stageCreation(
+  gate: ReturnType<typeof createAgentApprovalGate>,
+  updateId = 100,
+) {
+  return gate.stagePaused({
+    chatId: 42,
+    draft,
+    pendingApprovalState: "pending-sdk-state",
+    sessionId: "session-1",
+    toolName: "execute_commitment",
+    updateId,
+  });
 }
 
 function fixture() {
@@ -207,14 +221,9 @@ describe("agent approval gate", () => {
   it("binds stage state without its update id and executes with the distinct callback update id", async () => {
     const { agentRuntime, approvals, gate } = fixture();
 
-    await expect(
-      gate.prepare({
-        chatId: 42,
-        decision,
-        draft,
-        updateId: 100,
-      }),
-    ).resolves.toEqual({ kind: "prepared" });
+    await expect(stageCreation(gate)).resolves.toEqual({
+      kind: "prepared",
+    });
     await expect(
       gate.resolve({
         chatId: 42,
@@ -229,16 +238,7 @@ describe("agent approval gate", () => {
 
     expect(approvals.stageCommands[0].updateId).toBe(100);
     expect(approvals.resolveCommands[0].updateId).toBe(200);
-    expect(agentRuntime.prepareExecution).toHaveBeenCalledWith({
-      authority: {
-        chatId: 42,
-        draftId: draft.id,
-        draftVersion: draft.version,
-        sessionId: "session-1",
-        updateId: 100,
-      },
-      decision,
-    });
+    expect(agentRuntime.continueCreation).not.toHaveBeenCalled();
     expect(agentRuntime.resume).toHaveBeenCalledWith({
       approval: "approve",
       authority: {
@@ -327,7 +327,7 @@ describe("agent approval gate", () => {
       }),
     ).resolves.toEqual({ kind: "prepared" });
 
-    expect(agentRuntime.prepareExecution).not.toHaveBeenCalled();
+    expect(agentRuntime.continueCreation).not.toHaveBeenCalled();
     expect(approvals.stageCommands).toEqual([
       expect.objectContaining({
         draftId: draft.id,
@@ -342,21 +342,14 @@ describe("agent approval gate", () => {
 
   it("reuses an exact staged binding without rerunning preparation", async () => {
     const { agentRuntime, approvals, gate } = fixture();
-    const command = {
-      chatId: 42,
-      decision,
-      draft,
-      updateId: 100,
-    } as const;
-
-    await expect(gate.prepare(command)).resolves.toEqual({
+    await expect(stageCreation(gate)).resolves.toEqual({
       kind: "prepared",
     });
-    await expect(
-      gate.prepare({ ...command, updateId: 101 }),
-    ).resolves.toEqual({ kind: "prepared" });
+    await expect(stageCreation(gate, 101)).resolves.toEqual({
+      kind: "prepared",
+    });
 
-    expect(agentRuntime.prepareExecution).toHaveBeenCalledTimes(1);
+    expect(agentRuntime.continueCreation).not.toHaveBeenCalled();
     expect(approvals.stageCommands).toHaveLength(1);
   });
 
@@ -364,12 +357,7 @@ describe("agent approval gate", () => {
     "fails closed when sealed approval state has a %s mismatch",
     async (failure) => {
       const { agentRuntime, approvals, gate, telemetry } = fixture();
-      await gate.prepare({
-        chatId: 42,
-        decision,
-        draft,
-        updateId: 100,
-      });
+      await stageCreation(gate);
       if (failure === "tamper") {
         approvals.current = {
           ...approvals.current!,
@@ -400,12 +388,7 @@ describe("agent approval gate", () => {
 
   it("rejects atomically without resuming or approving execution", async () => {
     const { agentRuntime, gate } = fixture();
-    await gate.prepare({
-      chatId: 42,
-      decision,
-      draft,
-      updateId: 100,
-    });
+    await stageCreation(gate);
 
     await expect(
       gate.resolve({
@@ -422,22 +405,12 @@ describe("agent approval gate", () => {
   it("projects repository replays without rerunning the agent", async () => {
     const first = fixture();
     first.approvals.stageMode = "replay";
-    await expect(
-      first.gate.prepare({
-        chatId: 42,
-        decision,
-        draft,
-        updateId: 100,
-      }),
-    ).resolves.toEqual({ kind: "replay" });
+    await expect(stageCreation(first.gate)).resolves.toEqual({
+      kind: "replay",
+    });
 
     const second = fixture();
-    await second.gate.prepare({
-      chatId: 42,
-      decision,
-      draft,
-      updateId: 100,
-    });
+    await stageCreation(second.gate);
     second.approvals.resolveMode = "replay";
     await expect(
       second.gate.resolve({
@@ -452,12 +425,7 @@ describe("agent approval gate", () => {
 
   it("retries the exact claimed binding with a fresh retap update id after a crash", async () => {
     const { agentRuntime, gate } = fixture();
-    await gate.prepare({
-      chatId: 42,
-      decision,
-      draft,
-      updateId: 100,
-    });
+    await stageCreation(gate);
     vi.mocked(agentRuntime.resume)
       .mockRejectedValueOnce(new Error("process interrupted"))
       .mockResolvedValueOnce(
@@ -499,16 +467,11 @@ describe("agent approval gate", () => {
     const { agentRuntime, approvals, gate, sessions } = fixture();
     sessions.activeDraftId = "another-draft";
 
-    await expect(
-      gate.prepare({
-        chatId: 42,
-        decision,
-        draft,
-        updateId: 100,
-      }),
-    ).resolves.toEqual({ kind: "unavailable" });
+    await expect(stageCreation(gate)).resolves.toEqual({
+      kind: "unavailable",
+    });
 
-    expect(agentRuntime.prepareExecution).not.toHaveBeenCalled();
+    expect(agentRuntime.continueCreation).not.toHaveBeenCalled();
     expect(approvals.stageCommands).toHaveLength(0);
   });
 

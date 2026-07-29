@@ -23,6 +23,7 @@ import {
 } from "./agent/approved-services.js";
 import { AgentCallbackContextRecorder } from "./agent/callback-context.js";
 import { SupabaseAgentContextReader } from "./agent/context-reader.js";
+import { createCreationApprovalPreparer } from "./agent/creation-approval.js";
 import { createAgentApprovalGate } from "./agent/approval.js";
 import { SessionBackedAgentDecisionEngine } from "./agent/conversation.js";
 import {
@@ -249,18 +250,18 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       app.log.warn({ event: "agent_approval_gate_failure", reason: event });
     },
   });
-  const prepareAgentApproval = async (
-    request: Parameters<typeof agentApprovalGate.prepare>[0],
-  ) => {
-    const result = await agentApprovalGate.prepare(request);
-    return result.kind === "prepared" || result.kind === "replay";
-  };
   const preparePausedAgentApproval = async (
     request: Parameters<typeof agentApprovalGate.stagePaused>[0],
   ) => {
     const result = await agentApprovalGate.stagePaused(request);
     return result.kind === "prepared" || result.kind === "replay";
   };
+  const prepareCreationApproval = createCreationApprovalPreparer({
+    contextReader: agentContextReader,
+    gate: agentApprovalGate,
+    runtime: agentRuntime,
+    sessions: agentSessions,
+  });
   const approvedCommitmentChange =
     new ApprovedCommitmentChangeService({
       calendar: {
@@ -314,11 +315,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       supabaseUrl: options.config.supabaseUrl,
     }),
     now,
-    prepareApproval: prepareAgentApproval,
+    prepareApproval: prepareCreationApproval,
     repository: workSessionFlowRepository,
   });
   const rawConfirmationService = new ConfirmationService({
-    prepareApproval: prepareAgentApproval,
+    prepareApproval: prepareCreationApproval,
     repository: new SupabaseConfirmationRepository({
       ownerId: options.config.telegramOwnerUserId,
       supabaseSecretKey: options.config.supabaseSecretKey,
@@ -433,7 +434,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
           app.log.warn(event);
         },
         ownerChatId: options.config.telegramOwnerUserId,
-        prepareApproval: prepareAgentApproval,
+        prepareApproval: prepareCreationApproval,
         promptVersion: options.config.openaiPromptVersion,
         repository: conversationRepository,
         statusService: new StatusService({

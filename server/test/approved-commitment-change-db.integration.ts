@@ -18,6 +18,7 @@ import { supabaseHeaders } from "../src/supabase.js";
 import { SupabaseTelegramRepository } from "../src/telegram/repository.js";
 import { SupabaseWorkSessionCommitter } from "../src/work-sessions/confirm.js";
 import { SupabaseWorkSessionFlowRepository } from "../src/work-sessions/flow-repository.js";
+import { SupabaseWorkSessionMessageRepository } from "../src/work-sessions/notifications.js";
 
 function localConfig() {
   const config = readServerConfig();
@@ -572,6 +573,163 @@ describe("atomic approved commitment changes on local Supabase", () => {
           version: 2,
         },
       }),
+    ]);
+  });
+
+  it("cannot edit or cancel check-ins for a started work session", async () => {
+    const base = 9_990_000_000 + randomInt(5_000_000);
+    const now = Date.now();
+    const startAt = singaporeInstant(
+      nextBoundary(now + 4 * 60 * 60_000),
+    );
+    const targetAt = singaporeInstant(
+      now + 3 * 24 * 60 * 60_000,
+    );
+    const created = await createWork(base, targetAt, startAt);
+    const messageRepository =
+      new SupabaseWorkSessionMessageRepository({
+        supabaseSecretKey: created.config.supabaseSecretKey,
+        supabaseUrl: created.config.supabaseUrl,
+      });
+    const claims = await messageRepository.claimDue(
+      new Date(startAt),
+      20,
+    );
+    const startMessage = claims.find(
+      (message) =>
+        message.commitmentId === created.commitmentId &&
+        message.kind === "work_session_start",
+    );
+    expect(startMessage).toBeDefined();
+    await messageRepository.beginDelivery(
+      startMessage!,
+      new Date(Date.parse(startAt) + 1_000),
+    );
+    await messageRepository.recordResult({
+      attemptCount: startMessage!.attemptCount,
+      leaseToken: startMessage!.leaseToken,
+      messageId: startMessage!.id,
+      recordedAt: new Date(Date.parse(startAt) + 2_000),
+      result: "delivered",
+      telegramMessageId: 77_001,
+    });
+
+    const sessionsBefore = await rows(
+      created.config.supabaseUrl,
+      created.config.supabaseSecretKey,
+      "work_sessions",
+      `&commitment_id=eq.${created.commitmentId}`,
+    );
+    expect(sessionsBefore).toEqual([
+      expect.objectContaining({ status: "started" }),
+    ]);
+    const sessionId = String(sessionsBefore[0]!.id);
+    const endBefore = await rows(
+      created.config.supabaseUrl,
+      created.config.supabaseSecretKey,
+      "scheduled_messages",
+      `&work_session_id=eq.${sessionId}&kind=eq.work_session_end`,
+    );
+    expect(endBefore).toEqual([
+      expect.objectContaining({ state: "pending" }),
+    ]);
+    const eventsBefore = await rows(
+      created.config.supabaseUrl,
+      created.config.supabaseSecretKey,
+      "commitment_events",
+      `&commitment_id=eq.${created.commitmentId}`,
+    );
+    const changedStart = singaporeInstant(
+      nextBoundary(now + 9 * 60 * 60_000),
+    );
+    const changedEnd = singaporeInstant(
+      Date.parse(changedStart) + 60 * 60_000,
+    );
+    const repository = new SupabaseCommitmentChangeRepository({
+      ownerId: created.config.telegramOwnerUserId,
+      supabaseSecretKey: created.config.supabaseSecretKey,
+      supabaseUrl: created.config.supabaseUrl,
+    });
+
+    await expect(
+      repository.apply({
+        authority: {
+          chatId: created.config.telegramOwnerUserId,
+          commitmentId: created.commitmentId,
+          expectedVersion: 1,
+          updateId: base + 3,
+        },
+        calendar: {
+          attemptedAt: new Date(now + 3_000).toISOString(),
+          checkedAt: new Date(now + 4_000).toISOString(),
+          conflictConsent: false,
+          finalObservation: "free",
+          status: "free",
+        },
+        proposal: {
+          calendarPolicy: {
+            conflict: "reject",
+            unavailable: "reject",
+          },
+          commitmentId: created.commitmentId,
+          definitionOfDone: `${created.definitionOfDone} revised`,
+          expectedVersion: 1,
+          preparation: {
+            nextWorkSession: {
+              durationMinutes: 60,
+              endAt: changedEnd,
+              startAt: changedStart,
+              timingConstraints: "Revised after start",
+            },
+            required: true,
+          },
+          targetAt: singaporeInstant(
+            now + 4 * 24 * 60 * 60_000,
+          ),
+        },
+      }),
+    ).resolves.toEqual({ kind: "in_progress" });
+
+    const commitmentsAfter = await rows(
+      created.config.supabaseUrl,
+      created.config.supabaseSecretKey,
+      "commitments",
+      `&id=eq.${created.commitmentId}`,
+    );
+    expect(commitmentsAfter).toEqual([
+      expect.objectContaining({
+        definition_of_done: created.definitionOfDone,
+        version: 1,
+      }),
+    ]);
+    expect(Date.parse(String(commitmentsAfter[0]!.target_at))).toBe(
+      Date.parse(targetAt),
+    );
+    expect(
+      await rows(
+        created.config.supabaseUrl,
+        created.config.supabaseSecretKey,
+        "approved_commitment_change_receipts",
+        `&commitment_id=eq.${created.commitmentId}`,
+      ),
+    ).toEqual([]);
+    expect(
+      await rows(
+        created.config.supabaseUrl,
+        created.config.supabaseSecretKey,
+        "commitment_events",
+        `&commitment_id=eq.${created.commitmentId}`,
+      ),
+    ).toHaveLength(eventsBefore.length);
+    expect(
+      await rows(
+        created.config.supabaseUrl,
+        created.config.supabaseSecretKey,
+        "scheduled_messages",
+        `&work_session_id=eq.${sessionId}&kind=eq.work_session_end`,
+      ),
+    ).toEqual([
+      expect.objectContaining({ state: "pending" }),
     ]);
   });
 });

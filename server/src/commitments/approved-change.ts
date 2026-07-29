@@ -118,7 +118,13 @@ export type CommitmentChangeApplyCommand = Readonly<{
 export type CommitmentChangeApplyResult =
   | Readonly<{ kind: "applied"; version: number }>
   | Readonly<{
-      kind: "missing" | "replay" | "stale" | "terminal" | "unchanged";
+      kind:
+        | "in_progress"
+        | "missing"
+        | "replay"
+        | "stale"
+        | "terminal"
+        | "unchanged";
     }>;
 
 export interface CommitmentChangeRepository {
@@ -140,6 +146,8 @@ export const commitmentChangeCopy = {
     "I couldn’t verify Google Calendar. Nothing was changed. Ask me to save it without verification if that is what you want.",
   malformed: "That change approval isn’t valid. Nothing was changed.",
   missing: "That promise is unavailable. Nothing was changed.",
+  inProgress:
+    "That promise has a work session in progress. Nothing was changed.",
   rejected: "Change rejected. Nothing was changed.",
   replay: "That exact change was already applied. I didn’t apply it again.",
   stale:
@@ -284,6 +292,7 @@ function parseApplyResult(value: unknown): CommitmentChangeApplyResult {
     !item ||
     ![
       "applied",
+      "in_progress",
       "missing",
       "replay",
       "stale",
@@ -508,6 +517,11 @@ export class ApprovedCommitmentChangeService {
       case "missing":
         return {
           reply: { text: commitmentChangeCopy.missing },
+          status: "executed",
+        };
+      case "in_progress":
+        return {
+          reply: { text: commitmentChangeCopy.inProgress },
           status: "executed",
         };
       case "stale":

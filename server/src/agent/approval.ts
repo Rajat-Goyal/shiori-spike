@@ -1,4 +1,3 @@
-import type { DecisionResult } from "../decision/schema.js";
 import type { TelegramReply } from "../confirmation.js";
 import type {
   AgentRuntime,
@@ -37,13 +36,6 @@ export type AgentApprovalGateResult =
     }>
   | Readonly<{ kind: "rejected" | "replay" | "unavailable" }>;
 
-export type AgentApprovalPrepareCommand = Readonly<{
-  chatId: number;
-  decision: DecisionResult;
-  draft: Readonly<{ id: string; version: number }>;
-  updateId: number;
-}>;
-
 export type AgentApprovalResolveCommand = Readonly<{
   chatId: number;
   decision: "approve" | "reject";
@@ -80,9 +72,6 @@ export interface AgentApprovalGate {
   clearAfterTerminal(
     command: AgentApprovalClearCommand,
   ): Promise<Readonly<{ kind: "cleared" | "replay" | "unavailable" }>>;
-  prepare(
-    command: AgentApprovalPrepareCommand,
-  ): Promise<AgentApprovalGateResult>;
   stagePaused(
     command: AgentApprovalStagePausedCommand,
   ): Promise<AgentApprovalGateResult>;
@@ -139,15 +128,6 @@ function binding(
     toolName,
     type: "pending_approval" as const,
   };
-}
-
-function preparedRuntimeResult(result: AgentRuntimeResult): boolean {
-  return (
-    result.outcome.ok &&
-    typeof result.pendingApprovalState === "string" &&
-    result.pendingApprovalState.length > 0 &&
-    result.execution === undefined
-  );
 }
 
 export function createAgentApprovalGate(
@@ -291,119 +271,6 @@ export function createAgentApprovalGate(
       } catch {
         report("clear_unavailable");
       }
-      return { kind: "unavailable" };
-    },
-
-    async prepare(command) {
-      if (!validIdentity(command.chatId, command.draft, command.updateId)) {
-        return { kind: "unavailable" };
-      }
-      let sessionRead: Awaited<ReturnType<AgentSessionRepository["read"]>>;
-      try {
-        sessionRead = await options.sessions.read(command.chatId);
-      } catch {
-        report("prepare_session_unavailable");
-        return { kind: "unavailable" };
-      }
-      if (
-        sessionRead.kind !== "active" ||
-        sessionRead.session.activeDraftId !== command.draft.id
-      ) {
-        report("prepare_session_unavailable");
-        return { kind: "unavailable" };
-      }
-      try {
-        const existing = await options.approvals.read(
-          command.chatId,
-          command.draft.id,
-          command.draft.version,
-          EXECUTION_TOOL,
-        );
-        if (
-          existing.kind === "current" &&
-          exactApproval(existing.approval, {
-            chatId: command.chatId,
-            draftId: command.draft.id,
-            draftVersion: command.draft.version,
-            sessionId: sessionRead.session.id,
-            toolName: EXECUTION_TOOL,
-          })
-        ) {
-          return { kind: "prepared" };
-        }
-        if (existing.kind === "expired") {
-          return { kind: "unavailable" };
-        }
-        await options.approvals.clearForSession(
-          sessionRead.session.id,
-          "cancelled",
-        );
-      } catch {
-        report("prepare_repository_unavailable");
-        return { kind: "unavailable" };
-      }
-      const authority: ApprovedAgentExecutionAuthority = {
-        chatId: command.chatId,
-        draftId: command.draft.id,
-        draftVersion: command.draft.version,
-        sessionId: sessionRead.session.id,
-        updateId: command.updateId,
-      };
-      let runtimeResult: AgentRuntimeResult;
-      try {
-        runtimeResult = await options.runtime.prepareExecution({
-          authority,
-          decision: command.decision,
-        });
-      } catch {
-        report("prepare_runtime_unavailable");
-        return { kind: "unavailable" };
-      }
-      if (!preparedRuntimeResult(runtimeResult)) {
-        report("prepare_runtime_unavailable");
-        return { kind: "unavailable" };
-      }
-      let sealedRunState: string;
-      try {
-        sealedRunState = options.cipher.seal(
-          runtimeResult.pendingApprovalState!,
-          binding(authority, EXECUTION_TOOL),
-        );
-      } catch {
-        report("prepare_runtime_unavailable");
-        return { kind: "unavailable" };
-      }
-      try {
-        const staged = await options.approvals.stage({
-          chatId: command.chatId,
-          draftId: command.draft.id,
-          draftVersion: command.draft.version,
-          expected: { kind: "none" },
-          sealedRunState,
-          sessionId: sessionRead.session.id,
-          toolName: EXECUTION_TOOL,
-          updateId: command.updateId,
-        });
-        if (staged.kind === "replay") {
-          return { kind: "replay" };
-        }
-        if (
-          staged.kind === "staged" &&
-          exactApproval(staged.approval, {
-            chatId: command.chatId,
-            draftId: command.draft.id,
-            draftVersion: command.draft.version,
-            sessionId: sessionRead.session.id,
-            toolName: EXECUTION_TOOL,
-          })
-        ) {
-          return { kind: "prepared" };
-        }
-      } catch {
-        report("prepare_repository_unavailable");
-        return { kind: "unavailable" };
-      }
-      report("prepare_repository_unavailable");
       return { kind: "unavailable" };
     },
 

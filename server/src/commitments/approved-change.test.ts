@@ -129,6 +129,26 @@ describe("approved commitment changes", () => {
     });
   });
 
+  it("reports an active work session without projecting an edit success", async () => {
+    const service = new ApprovedCommitmentChangeService({
+      calendar: {
+        verify: vi.fn(async () => ({
+          attemptedAt: "2026-07-31T00:00:00.000Z",
+          checkedAt: "2026-07-31T00:00:01.000Z",
+          status: "free" as const,
+        })),
+      },
+      repository: {
+        apply: vi.fn(async () => ({ kind: "in_progress" as const })),
+      },
+    });
+
+    await expect(service.apply(authority, proposal)).resolves.toEqual({
+      reply: { text: commitmentChangeCopy.inProgress },
+      status: "executed",
+    });
+  });
+
   it("honors an exact unverified-save policy and projects stale/replay safely", async () => {
     const apply = vi
       .fn<CommitmentChangeRepository["apply"]>()

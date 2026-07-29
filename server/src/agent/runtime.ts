@@ -7,6 +7,7 @@ import {
   tool,
   type AgentInputItem,
   type FunctionTool,
+  type ModelProvider,
 } from "@openai/agents";
 import { z } from "zod";
 
@@ -52,10 +53,10 @@ export const AGENT_RUNTIME_TOOL_NAMES = [
   "update_commitment",
 ] as const;
 
-const EXECUTION_RUN_INPUT: readonly AgentInputItem[] = [
+const CREATION_CONTINUATION_INPUT: readonly AgentInputItem[] = [
   {
     content:
-      "Continue the application-owned approval workflow using only the bound execution tool.",
+      "Continue the active application-owned conversation using only the exact bound creation tool.",
     role: "system",
   },
 ];
@@ -151,9 +152,11 @@ export type AgentRuntimeRunRequest = Readonly<{
   session: AgentSdkSession;
 }>;
 
-export type AgentRuntimePrepareExecutionRequest = Readonly<{
+export type AgentRuntimeContinueCreationRequest = Readonly<{
   authority: ApprovedAgentExecutionAuthority;
+  conversation: AgentRuntimeConversationContext;
   decision: DecisionResult;
+  session: AgentSdkSession;
 }>;
 
 export type AgentRuntimeResumeRequest = Readonly<{
@@ -172,6 +175,7 @@ type RuntimeContext = {
   lastSemanticFailure?: DecisionTelemetryReason;
   mode: "decision" | "execution";
   proposal?: DecisionResult;
+  resumeToolName?: "execute_commitment" | "update_commitment";
   proposalTarget?: Readonly<{
     expectedVersion: number;
     id: string;
@@ -241,8 +245,8 @@ export type AgentRuntimeOptions = Readonly<{
 }>;
 
 export interface AgentRuntime {
-  prepareExecution(
-    request: AgentRuntimePrepareExecutionRequest,
+  continueCreation(
+    request: AgentRuntimeContinueCreationRequest,
   ): Promise<AgentRuntimeResult>;
   resume(request: AgentRuntimeResumeRequest): Promise<AgentRuntimeResult>;
   run(request: AgentRuntimeRunRequest): Promise<AgentRuntimeResult>;
@@ -591,7 +595,7 @@ function executionInstructions(
   authority: ApprovedAgentExecutionAuthority,
 ): string {
   return [
-    "This is an application-initiated confirmation execution run, not a new owner conversation turn.",
+    "This is the continuation of one application-owned commitment-creation approval, not a new owner conversation turn.",
     "The application has already structurally and semantically validated the complete commitment decision.",
     `Request execute_commitment exactly once with draftId ${JSON.stringify(authority.draftId)} and draftVersion ${authority.draftVersion}.`,
     "Do not reinterpret, summarize, correct, or reclassify the decision.",
@@ -618,7 +622,10 @@ function exactCreationProposal(context: RuntimeContext): boolean {
   if (context.mode === "execution") {
     return true;
   }
-  if (context.executionApproved && context.conversation === null) {
+  if (
+    context.resumeToolName === "execute_commitment" &&
+    context.conversation === null
+  ) {
     return true;
   }
   const authority = approvedAuthority(context.authority);
@@ -767,6 +774,7 @@ function buildTools(
     isEnabled:
       approvedAuthority(context.authority) !== null &&
       (
+        context.resumeToolName === "execute_commitment" ||
         context.mode === "execution" ||
         context.conversation?.product.drafts.some(
           (draft) =>
@@ -809,6 +817,7 @@ function buildTools(
       approvedAuthority(context.authority)?.entityKind ===
         "commitment" &&
       (
+        context.resumeToolName === "update_commitment" ||
         context.editProposal !== undefined ||
         context.conversation?.product.commitments.some(
           (commitment) =>
@@ -855,14 +864,16 @@ function buildTools(
   ] as FunctionTool<RuntimeContext, never, unknown>[];
 }
 
-class OpenAIAgentsRunner implements AgentRunner {
-  readonly #provider: OpenAIProvider;
+export class OpenAIAgentsRunner implements AgentRunner {
+  readonly #provider: ModelProvider;
 
-  constructor(apiKey: string) {
-    this.#provider = new OpenAIProvider({
-      apiKey,
-      useResponses: true,
-    });
+  constructor(apiKey: string, provider?: ModelProvider) {
+    this.#provider =
+      provider ??
+      new OpenAIProvider({
+        apiKey,
+        useResponses: true,
+      });
   }
 
   async run(request: AgentRunnerRequest): Promise<AgentRunnerResult> {
@@ -873,12 +884,15 @@ class OpenAIAgentsRunner implements AgentRunner {
       session: request.session,
       signal: request.signal,
     });
+    const interruptions = result.interruptions.map((item) => ({
+      arguments: item.arguments,
+      toolName: item.name,
+    }));
     return {
-      finalOutput: result.finalOutput,
-      interruptions: result.interruptions.map((item) => ({
-        arguments: item.arguments,
-        toolName: item.name,
-      })),
+      ...(interruptions.length === 0
+        ? { finalOutput: result.finalOutput }
+        : {}),
+      interruptions,
       serializedState: result.state.toString(),
     };
   }
@@ -1186,29 +1200,53 @@ export function createAgentRuntime(
     return { agent, context, validationNow };
   }
 
-  function prepareExecutionRun(
+  function prepareCreationContinuation(
     decision: DecisionResult,
     authority: ApprovedAgentExecutionAuthority,
+    conversation: AgentRuntimeConversationContext,
+    session: AgentSdkSession,
   ): {
     agent: Agent<RuntimeContext, "text">;
     context: RuntimeContext;
   } | null {
     const structured = parseMaterializedDecision(decision);
-    if (structured === null || !isCompleteProposal(structured)) {
+    if (
+      structured === null ||
+      !isCompleteProposal(structured) ||
+      authority.entityKind === "commitment"
+    ) {
       return null;
     }
     const context: RuntimeContext = {
       authority,
-      conversation: null,
+      conversation,
       executionApproved: false,
-      input: null,
-      mode: "execution",
+      input: {
+        context: {
+          fields: {
+            commitmentMode: structured.commitmentMode,
+            definitionOfDone: structured.definitionOfDone,
+            durationMinutes: structured.durationMinutes,
+            offerWorkWindowHelp: structured.offerWorkWindowHelp,
+            targetAt: structured.targetAt,
+            targetTimeZone: structured.targetTimeZone,
+            timingConstraints: structured.timingConstraints,
+          },
+          phase: "complete",
+        },
+        ownerText: "Continue exact creation approval",
+      },
+      mode: "decision",
       proposal: structured,
     };
+    if (!exactCreationProposal(context)) {
+      return null;
+    }
     const executionTool = buildTools(
       context,
       options,
       now(),
+      session,
     ).find((candidate) => candidate.name === "execute_commitment");
     if (executionTool === undefined) {
       return null;
@@ -1217,21 +1255,89 @@ export function createAgentRuntime(
       instructions: executionInstructions(authority),
       model: options.model,
       modelSettings: { store: false },
-      name: "Shiori approved commitment execution",
+      name: "Shiori bounded decision",
       tools: [executionTool],
     });
     return { agent, context };
   }
 
+  function prepareResumeRun(
+    envelope: PendingApprovalEnvelope,
+    authority: ApprovedAgentExecutionAuthority,
+    approval: "approve" | "reject",
+  ): {
+    agent: Agent<RuntimeContext, "text">;
+    context: RuntimeContext;
+  } | null {
+    if (
+      (
+        envelope.toolName === "execute_commitment" &&
+        (
+          envelope.proposal === null ||
+          !isCompleteProposal(envelope.proposal) ||
+          authority.entityKind === "commitment"
+        )
+      ) ||
+      (
+        envelope.toolName === "update_commitment" &&
+        (
+          envelope.editProposal === null ||
+          authority.entityKind !== "commitment" ||
+          options.updateCommitment === undefined
+        )
+      )
+    ) {
+      return null;
+    }
+    const context: RuntimeContext = {
+      authority,
+      conversation: null,
+      ...(envelope.editProposal === null
+        ? {}
+        : { editProposal: envelope.editProposal }),
+      executionApproved: approval === "approve",
+      input: envelope.input,
+      mode: envelope.mode,
+      ...(envelope.proposal === null
+        ? {}
+        : { proposal: envelope.proposal }),
+      resumeToolName: envelope.toolName,
+    };
+    const interruptedTool = buildTools(
+      context,
+      options,
+      now(),
+    ).find((candidate) => candidate.name === envelope.toolName);
+    if (interruptedTool === undefined) {
+      return null;
+    }
+    const agent = new Agent<RuntimeContext, "text">({
+      instructions:
+        envelope.toolName === "update_commitment"
+          ? editExecutionInstructions(authority)
+          : executionInstructions(authority),
+      model: options.model,
+      modelSettings: { store: false },
+      name:
+        envelope.mode === "execution"
+          ? "Shiori approved commitment execution"
+          : "Shiori bounded decision",
+      tools: [interruptedTool],
+    });
+    return { agent, context };
+  }
+
   return {
-    async prepareExecution(request) {
+    async continueCreation(request) {
       const authority = approvedAuthority(request.authority);
       if (authority === null) {
         return { outcome: fail("semantic", "input_invalid") };
       }
-      const prepared = prepareExecutionRun(
+      const prepared = prepareCreationContinuation(
         request.decision,
         authority,
+        request.conversation,
+        request.session,
       );
       if (prepared === null) {
         return { outcome: fail("semantic", "input_invalid") };
@@ -1241,13 +1347,14 @@ export function createAgentRuntime(
         const result = await runner.run({
           agent: prepared.agent,
           context: prepared.context,
-          input: EXECUTION_RUN_INPUT,
+          input: CREATION_CONTINUATION_INPUT,
           maxTurns: AGENT_RUNTIME_MAX_TURNS,
           safety: {
             modelStore: false,
             traceIncludeSensitiveData: false,
             tracingDisabled: true,
           },
+          session: request.session,
           signal,
         });
         return resultFromRunner(result, prepared.context);
@@ -1301,32 +1408,14 @@ export function createAgentRuntime(
       ) {
         return { outcome: fail("semantic", "input_invalid") };
       }
-      const resumed =
-        envelope.mode === "execution"
-          ? prepareExecutionRun(
-              envelope.proposal!,
-              approvedAuthority(request.authority)!,
-            )
-          : envelope.input === null
-            ? null
-            : prepare(
-                envelope.input,
-                request.authority,
-                null,
-                undefined,
-                envelope.proposal ?? undefined,
-              );
+      const resumed = prepareResumeRun(
+        envelope,
+        approvedAuthority(request.authority)!,
+        request.approval,
+      );
       if (resumed === null) {
         return { outcome: fail("semantic", "input_invalid") };
       }
-      if (envelope.toolName === "update_commitment") {
-        if (envelope.editProposal === null) {
-          return { outcome: fail("semantic", "input_invalid") };
-        }
-        resumed.context.editProposal = envelope.editProposal;
-      }
-      resumed.context.executionApproved =
-        request.approval === "approve";
       const signal = AbortSignal.timeout(AGENT_RUNTIME_TIMEOUT_MS);
       try {
         const result = await runner.resume({

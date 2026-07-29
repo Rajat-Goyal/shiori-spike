@@ -206,6 +206,8 @@ set search_path = ''
 as $$
 declare
   action_at timestamptz := clock_timestamp();
+  active_session public.work_sessions;
+  cancelled_message record;
   current_commitment public.commitments;
   current_session public.work_sessions;
   created_message public.scheduled_messages;
@@ -350,6 +352,20 @@ begin
   end if;
 
   select *
+  into active_session
+  from public.work_sessions
+  where
+    commitment_id = current_commitment.id
+    and status in ('started', 'awaiting_check_in')
+  order by sequence_number, id
+  limit 1
+  for update;
+
+  if active_session.id is not null then
+    return jsonb_build_object('kind', 'in_progress');
+  end if;
+
+  select *
   into current_session
   from public.work_sessions
   where
@@ -427,10 +443,55 @@ begin
     );
 
   if schedule_affected then
-    perform public.cancel_unsent_commitment_messages(
-      current_commitment.id,
-      action_at
-    );
+    for cancelled_message in
+      update public.scheduled_messages
+      set
+        state = 'cancelled',
+        claimed_at = null,
+        lease_expires_at = null,
+        lease_token = null,
+        delivery_started_at = null,
+        next_attempt_at = null
+      where
+        commitment_id = current_commitment.id
+        and (
+          state = 'pending'
+          or (
+            state = 'claimed'
+            and delivery_started_at is null
+          )
+        )
+        and (
+          (
+            kind = 'simple_reminder'
+            and work_session_id is null
+          )
+          or (
+            current_session.id is not null
+            and work_session_id = current_session.id
+          )
+        )
+      returning id
+    loop
+      insert into public.commitment_events (
+        commitment_id,
+        event_type,
+        occurred_at,
+        actor,
+        idempotency_key,
+        metadata
+      )
+      values (
+        current_commitment.id,
+        'scheduled_message.cancelled',
+        action_at,
+        'owner',
+        'scheduled-message-cancelled:' ||
+          cancelled_message.id::text,
+        '{}'::jsonb
+      )
+      on conflict (idempotency_key) do nothing;
+    end loop;
   end if;
 
   if current_session.id is not null and session_changed then

@@ -156,7 +156,7 @@ function fixture(active = true) {
     ),
   };
   const runtime: AgentRuntime = {
-    prepareExecution: vi.fn(),
+    continueCreation: vi.fn(),
     resume: vi.fn(),
     run: vi.fn(async () => ({ outcome: { decision, ok: true } })),
   };
