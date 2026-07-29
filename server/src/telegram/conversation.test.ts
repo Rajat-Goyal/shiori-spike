@@ -369,6 +369,7 @@ describe("ConversationService", () => {
             nextAt: "2026-07-25T02:00:00.000Z",
             nextKind: "simple_reminder",
             targetAt: "2026-07-25T02:00:00.000Z",
+            version: 1,
           }]),
         },
       }),

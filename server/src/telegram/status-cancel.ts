@@ -17,6 +17,7 @@ export type ActivePromiseStatus = Readonly<{
   nextAt: string | null;
   nextKind: "simple_reminder" | "work_session" | null;
   targetAt: string;
+  version: number;
 }>;
 
 export interface StatusRepository {
@@ -55,6 +56,9 @@ function parseStatus(value: unknown): ActivePromiseStatus {
     value.definitionOfDone.trim().length === 0 ||
     value.definitionOfDone.length > 500 ||
     !validInstant(value.targetAt) ||
+    typeof value.version !== "number" ||
+    !Number.isSafeInteger(value.version) ||
+    value.version < 1 ||
     !(
       value.nextAt === null ||
       validInstant(value.nextAt)
@@ -147,7 +151,7 @@ export function statusReplies(
       {
         callbackData: simpleReminderActionReference(
           status.id,
-          1,
+          status.version,
           "done",
         ),
         text: "Done",
@@ -155,7 +159,7 @@ export function statusReplies(
       {
         callbackData: simpleReminderActionReference(
           status.id,
-          1,
+          status.version,
           "cancel",
         ),
         text: "Cancel",

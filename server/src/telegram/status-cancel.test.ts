@@ -24,6 +24,7 @@ const simpleStatus: ActivePromiseStatus = {
   nextAt: "2026-07-25T02:00:00.000Z",
   nextKind: "simple_reminder",
   targetAt: "2026-07-25T02:00:00.000Z",
+  version: 1,
 };
 const workStatus: ActivePromiseStatus = {
   calendarCheckedAt: "2026-07-24T23:30:00.000Z",
@@ -33,6 +34,7 @@ const workStatus: ActivePromiseStatus = {
   nextAt: "2026-07-25T01:00:00.000Z",
   nextKind: "work_session",
   targetAt: "2026-07-25T02:00:00.000Z",
+  version: 1,
 };
 
 describe("Telegram active promise status", () => {
