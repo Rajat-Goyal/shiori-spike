@@ -313,6 +313,98 @@ function sdkSession(
 }
 
 describe("bounded Agents SDK runtime", () => {
+  it("extracts a natural 45-minute preparation answer against the exact durable planning context", async () => {
+    const planningInput: DecisionInput = {
+      context: {
+        fields: {
+          commitmentMode: "possible_work_session",
+          definitionOfDone: "Publish the video",
+          durationMinutes: null,
+          offerWorkWindowHelp: false,
+          targetAt: "2026-07-30T17:00:00+08:00",
+          targetTimeZone: "Asia/Singapore",
+          timingConstraints: [],
+        },
+        phase: "complete",
+      },
+      ownerText:
+        "Yes, I need 45 minutes on Monday or Wednesday morning.",
+    };
+    const planningProduct: AgentProductContext = {
+      ...productContext,
+      drafts: productContext.drafts.map((draft) => ({
+        ...draft,
+        preparation: {
+          durationMinutes: null,
+          selectedEndAt: null,
+          selectedStartAt: null,
+          stage: "offer_help" as const,
+          timingConstraints: null,
+        },
+      })),
+      focusedEntity: {
+        entity: {
+          ...productContext.drafts[0]!,
+          preparation: {
+            durationMinutes: null,
+            selectedEndAt: null,
+            selectedStartAt: null,
+            stage: "offer_help",
+            timingConstraints: null,
+          },
+        },
+        kind: "draft",
+      },
+    };
+    const runner = new ScriptedRunner(async (request) => {
+      await expect(
+        invoke(request, "propose_work_session_input", {
+          draftId: authority.draftId,
+          draftVersion: authority.draftVersion,
+          durationMinutes: 45,
+          followUpQuestion: null,
+          nextInput: null,
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: "mon,wed 08:00-12:00",
+        }),
+      ).resolves.toEqual({ accepted: true });
+      return emptyResult();
+    });
+
+    const result = await runtimeWith(runner).run({
+      authority,
+      conversation: {
+        ...runtimeConversation,
+        draftResolution: {
+          authority: {
+            expectedVersion: authority.draftVersion!,
+            id: authority.draftId!,
+            kind: "draft",
+          },
+          kind: "exact",
+        },
+        product: planningProduct,
+      },
+      input: planningInput,
+      session: sdkSession(),
+    });
+
+    expect(result.outcome).toMatchObject({
+      decision: {
+        definitionOfDone: "Publish the video",
+        turnRelation: "none",
+      },
+      ok: true,
+      workSessionInput: {
+        draftId: authority.draftId,
+        draftVersion: authority.draftVersion,
+        durationMinutes: 45,
+        timingConstraints: "mon,wed 08:00-12:00",
+      },
+    });
+  });
+
   it("exposes only the typed allowlist and binds context/history reads to the durable session", async () => {
     const session = sdkSession(
       Array.from({ length: 16 }, (_, index) => ({

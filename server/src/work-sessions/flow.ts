@@ -17,6 +17,8 @@ import {
   TIMING_CONSTRAINT_FORMAT_HELP,
 } from "./availability-integration.js";
 import type { WorkWindow } from "../scheduling/availability.js";
+import type { WorkSessionConversationInput } from "./conversation-input.js";
+import { isWorkSessionDuration } from "./duration.js";
 
 const UUID_PATTERN =
   "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -63,7 +65,7 @@ export type WorkSessionDraftSnapshot = Readonly<{
   calendarCheckedAt: string | null;
   conflictConsent: boolean;
   definitionOfDone: string;
-  durationMinutes: 30 | 60 | 90 | 120 | null;
+  durationMinutes: number | null;
   finalObservation: "conflict" | "free" | "unavailable" | null;
   id: string;
   options: readonly WorkWindow[];
@@ -79,7 +81,7 @@ export type WorkSessionFlowTransition = Readonly<{
   calendarCheckedAt?: string | null;
   chatId: number;
   conflictConsent?: boolean;
-  durationMinutes?: 30 | 60 | 90 | 120;
+  durationMinutes?: number;
   expectedStage: WorkSessionFlowStage;
   finalObservation?: "conflict" | "free" | "unavailable" | null;
   nextStage: WorkSessionFlowStage;
@@ -121,11 +123,19 @@ export interface WorkSessionFlowRepository {
     chatId: number,
     reference: DraftReference,
   ): Promise<PreparationDeclineResult>;
+  declinePreparationFromConversation?(
+    updateId: number,
+    chatId: number,
+    reference: DraftReference,
+  ): Promise<PreparationDeclineResult>;
   read(reference: DraftReference): Promise<
     | Readonly<{ kind: "expired" | "missing" | "stale" }>
     | Readonly<{ kind: "current"; snapshot: WorkSessionDraftSnapshot }>
   >;
   transition(
+    command: WorkSessionFlowTransition,
+  ): Promise<WorkSessionFlowTransitionResult>;
+  transitionFromConversation?(
     command: WorkSessionFlowTransition,
   ): Promise<WorkSessionFlowTransitionResult>;
 }
@@ -142,7 +152,7 @@ export type WorkSessionCommitRequest = Readonly<{
   chatId: number;
   definitionOfDone: string;
   draft: DraftReference;
-  durationMinutes: 30 | 60 | 90 | 120;
+  durationMinutes: number;
   expectedStage:
     | "confirming"
     | "conflict_confirming"
@@ -355,6 +365,16 @@ function ownerTimeReply(snapshot: WorkSessionDraftSnapshot): TelegramReply {
   };
 }
 
+function naturalQuestionReply(
+  snapshot: WorkSessionDraftSnapshot,
+  question: string,
+): TelegramReply {
+  return {
+    actions: [action(reference(snapshot), "cancel", "Cancel")],
+    text: question,
+  };
+}
+
 function formatWindow(window: WorkWindow): string {
   return `${formatSingaporeTarget(window.startAt)} to ${formatSingaporeTarget(window.endAt)}`;
 }
@@ -449,7 +469,7 @@ function confirmationReply(
 function executionDecision(
   fields: Readonly<{
     definitionOfDone: string;
-    durationMinutes?: 30 | 60 | 90 | 120 | null;
+    durationMinutes?: number | null;
     targetAt: string;
     timingConstraints?: string | null;
   }>,
@@ -860,6 +880,166 @@ export class WorkSessionFlow {
     return { text: workSessionFlowCopy.invalidAction };
   }
 
+  async handleConversationInput(
+    updateId: number,
+    chatId: number,
+    input: WorkSessionConversationInput,
+  ): Promise<TelegramReply | null> {
+    const draftReference = {
+      id: input.draftId,
+      version: input.draftVersion,
+    };
+    const read = await this.#repository.read(draftReference);
+    if (read.kind === "expired") {
+      return { text: workSessionFlowCopy.expired };
+    }
+    if (read.kind !== "current") {
+      return { text: workSessionFlowCopy.stale };
+    }
+    const snapshot = read.snapshot;
+
+    if (
+      snapshot.stage === "offer_help" &&
+      input.preparationRequired === false
+    ) {
+      const result = await (
+        this.#repository.declinePreparationFromConversation ??
+        this.#repository.declinePreparation.bind(this.#repository)
+      )(
+        updateId,
+        chatId,
+        draftReference,
+      );
+      switch (result.kind) {
+        case "replay":
+          return null;
+        case "expired":
+          return { text: workSessionFlowCopy.expired };
+        case "stale":
+          return { text: workSessionFlowCopy.stale };
+        case "applied":
+          return this.#prepareConsequence(
+            updateId,
+            chatId,
+            result.draft,
+            executionDecision(result.draft, "simple_action"),
+            confirmationSummary(result.draft, result.draft),
+          );
+      }
+    }
+
+    if (
+      snapshot.stage === "offer_help" &&
+      input.preparationRequired === true &&
+      input.durationMinutes === null &&
+      input.nextInput === "duration" &&
+      input.followUpQuestion !== null
+    ) {
+      const result = await this.#conversationTransition({
+        chatId,
+        expectedStage: snapshot.stage,
+        nextStage: "awaiting_duration_help",
+        reference: draftReference,
+        updateId,
+      });
+      return transitioned(result, (current) =>
+        naturalQuestionReply(current, input.followUpQuestion!)
+      );
+    }
+
+    const acceptsDuration = [
+      "offer_help",
+      "awaiting_duration_help",
+      "awaiting_duration_owner",
+    ].includes(snapshot.stage);
+    if (
+      acceptsDuration &&
+      input.durationMinutes !== null &&
+      isWorkSessionDuration(input.durationMinutes)
+    ) {
+      if (input.timingConstraints !== null) {
+        return this.#findOptions(
+          updateId,
+          chatId,
+          draftReference,
+          { ...snapshot, durationMinutes: input.durationMinutes },
+          input.timingConstraints,
+          input.durationMinutes,
+          true,
+        );
+      }
+      if (input.startAt !== null) {
+        return this.#selectOwnerTime(
+          updateId,
+          chatId,
+          draftReference,
+          { ...snapshot, durationMinutes: input.durationMinutes },
+          input.startAt,
+          input.durationMinutes,
+          true,
+        );
+      }
+      if (
+        input.followUpQuestion !== null &&
+        (
+          input.nextInput === "timing_constraints" ||
+          input.nextInput === "owner_time"
+        )
+      ) {
+        const nextStage =
+          input.nextInput === "owner_time"
+            ? "awaiting_owner_time"
+            : "awaiting_constraints";
+        const result = await this.#conversationTransition({
+          chatId,
+          durationMinutes: input.durationMinutes,
+          expectedStage: snapshot.stage,
+          nextStage,
+          reference: draftReference,
+          ...(nextStage === "awaiting_owner_time"
+            ? { timingConstraints: "default" }
+            : {}),
+          updateId,
+        });
+        return transitioned(result, (current) =>
+          naturalQuestionReply(current, input.followUpQuestion!)
+        );
+      }
+    }
+
+    if (
+      snapshot.stage === "awaiting_constraints" &&
+      input.timingConstraints !== null
+    ) {
+      return this.#findOptions(
+        updateId,
+        chatId,
+        draftReference,
+        snapshot,
+        input.timingConstraints,
+        undefined,
+        true,
+      );
+    }
+
+    if (
+      snapshot.stage === "awaiting_owner_time" &&
+      input.startAt !== null
+    ) {
+      return this.#selectOwnerTime(
+        updateId,
+        chatId,
+        draftReference,
+        snapshot,
+        input.startAt,
+        undefined,
+        true,
+      );
+    }
+
+    return { text: workSessionFlowCopy.stale };
+  }
+
   async submitTimingConstraints(
     updateId: number,
     chatId: number,
@@ -902,9 +1082,27 @@ export class WorkSessionFlow {
     ) {
       return { text: workSessionFlowCopy.stale };
     }
-    const snapshot = read.snapshot;
-    const durationMinutes = snapshot.durationMinutes;
-    if (!durationMinutes) {
+    return this.#selectOwnerTime(
+      updateId,
+      chatId,
+      draftReference,
+      read.snapshot,
+      startAt,
+    );
+  }
+
+  async #selectOwnerTime(
+    updateId: number,
+    chatId: number,
+    draftReference: DraftReference,
+    snapshot: WorkSessionDraftSnapshot,
+    startAt: string,
+    submittedDuration?: number,
+    fromConversation = false,
+  ): Promise<TelegramReply | null> {
+    const durationMinutes =
+      submittedDuration ?? snapshot.durationMinutes;
+    if (!isWorkSessionDuration(durationMinutes)) {
       return { text: workSessionFlowCopy.stale };
     }
     const endAt = endFor(startAt, durationMinutes);
@@ -924,11 +1122,14 @@ export class WorkSessionFlow {
     const attemptedAt = this.#now().toISOString();
     if (result.status === "available" && result.proposed) {
       if (result.proposed.status === "free") {
-        const transitionedResult = await this.#repository.transition({
+        const transitionedResult = await this.#transitionInput({
           calendarAttemptedAt: attemptedAt,
           calendarCheckedAt: result.checkedAt,
           chatId,
           conflictConsent: false,
+          ...(submittedDuration === undefined
+            ? {}
+            : { durationMinutes: submittedDuration }),
           expectedStage: snapshot.stage,
           nextStage: "confirming",
           options: [],
@@ -936,7 +1137,7 @@ export class WorkSessionFlow {
           selectedWindow,
           timingConstraints,
           updateId,
-        });
+        }, fromConversation);
         return this.#transitionConsequence(
           updateId,
           chatId,
@@ -944,11 +1145,14 @@ export class WorkSessionFlow {
           confirmationReply,
         );
       }
-      const transitionedResult = await this.#repository.transition({
+      const transitionedResult = await this.#transitionInput({
         calendarAttemptedAt: attemptedAt,
         calendarCheckedAt: result.checkedAt,
         chatId,
         conflictConsent: false,
+        ...(submittedDuration === undefined
+          ? {}
+          : { durationMinutes: submittedDuration }),
         expectedStage: snapshot.stage,
         nextStage: "conflict_choice",
         options: result.alternatives.slice(0, 2),
@@ -956,7 +1160,7 @@ export class WorkSessionFlow {
         selectedWindow,
         timingConstraints,
         updateId,
-      });
+      }, fromConversation);
       return transitioned(transitionedResult, (current) =>
         conflictReply(current, false)
       );
@@ -966,10 +1170,13 @@ export class WorkSessionFlow {
       result.status === "provider_failure" ||
       result.status === "unavailable"
     ) {
-      const transitionedResult = await this.#repository.transition({
+      const transitionedResult = await this.#transitionInput({
         calendarAttemptedAt: attemptedAt,
         calendarCheckedAt: null,
         chatId,
+        ...(submittedDuration === undefined
+          ? {}
+          : { durationMinutes: submittedDuration }),
         expectedStage: snapshot.stage,
         nextStage: "unverified_confirming",
         options: [],
@@ -977,7 +1184,7 @@ export class WorkSessionFlow {
         selectedWindow,
         timingConstraints,
         updateId,
-      });
+      }, fromConversation);
       return this.#transitionConsequence(
         updateId,
         chatId,
@@ -1015,6 +1222,8 @@ export class WorkSessionFlow {
     draftReference: DraftReference,
     snapshot: WorkSessionDraftSnapshot,
     submittedTiming?: string,
+    submittedDuration?: number,
+    fromConversation = false,
   ): Promise<TelegramReply | null> {
     if (!snapshot.durationMinutes) {
       return { text: workSessionFlowCopy.stale };
@@ -1030,10 +1239,13 @@ export class WorkSessionFlow {
     });
     const attemptedAt = this.#now().toISOString();
     if (availability.status === "available") {
-      const result = await this.#repository.transition({
+      const result = await this.#transitionInput({
         calendarAttemptedAt: attemptedAt,
         calendarCheckedAt: availability.checkedAt,
         chatId,
+        ...(submittedDuration === undefined
+          ? {}
+          : { durationMinutes: submittedDuration }),
         expectedStage: snapshot.stage,
         nextStage: "choosing",
         options: availability.alternatives.slice(0, 2),
@@ -1041,14 +1253,17 @@ export class WorkSessionFlow {
         selectedWindow: null,
         timingConstraints,
         updateId,
-      });
+      }, fromConversation);
       return transitioned(result, choicesReply);
     }
     if (availability.status === "no_fit") {
-      const result = await this.#repository.transition({
+      const result = await this.#transitionInput({
         calendarAttemptedAt: attemptedAt,
         calendarCheckedAt: availability.checkedAt,
         chatId,
+        ...(submittedDuration === undefined
+          ? {}
+          : { durationMinutes: submittedDuration }),
         expectedStage: snapshot.stage,
         nextStage: "awaiting_owner_time",
         options: [],
@@ -1056,7 +1271,7 @@ export class WorkSessionFlow {
         selectedWindow: null,
         timingConstraints,
         updateId,
-      });
+      }, fromConversation);
       return transitioned(result, (current) => ({
         ...ownerTimeReply(current),
         text: `${workSessionFlowCopy.noFit}\n\n${workSessionFlowCopy.chooseOwnerTime}`,
@@ -1067,10 +1282,13 @@ export class WorkSessionFlow {
       availability.status === "provider_failure" ||
       availability.status === "unavailable"
     ) {
-      const result = await this.#repository.transition({
+      const result = await this.#transitionInput({
         calendarAttemptedAt: attemptedAt,
         calendarCheckedAt: null,
         chatId,
+        ...(submittedDuration === undefined
+          ? {}
+          : { durationMinutes: submittedDuration }),
         expectedStage: snapshot.stage,
         nextStage: "availability_unavailable",
         options: [],
@@ -1078,7 +1296,7 @@ export class WorkSessionFlow {
         selectedWindow: null,
         timingConstraints,
         updateId,
-      });
+      }, fromConversation);
       return transitioned(result, (current) =>
         unavailableReply(
           current,
@@ -1087,6 +1305,24 @@ export class WorkSessionFlow {
       );
     }
     return { text: TIMING_CONSTRAINT_FORMAT_HELP };
+  }
+
+  #conversationTransition(
+    command: WorkSessionFlowTransition,
+  ): Promise<WorkSessionFlowTransitionResult> {
+    return (
+      this.#repository.transitionFromConversation ??
+      this.#repository.transition.bind(this.#repository)
+    )(command);
+  }
+
+  #transitionInput(
+    command: WorkSessionFlowTransition,
+    fromConversation: boolean,
+  ): Promise<WorkSessionFlowTransitionResult> {
+    return fromConversation
+      ? this.#conversationTransition(command)
+      : this.#repository.transition(command);
   }
 
   async #prepareConsequence(

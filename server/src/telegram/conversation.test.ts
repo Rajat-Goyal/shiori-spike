@@ -338,6 +338,64 @@ function providerResponse(value: unknown): Response {
 }
 
 describe("ConversationService", () => {
+  it("hands a validated natural preparation answer to the exact deterministic flow without losing focus", async () => {
+    const snapshot = activeDraft("complete", workFields, 7);
+    const repository = new ControlledRepository(snapshot);
+    const completeTurn = vi.fn();
+    const workSessionInput = {
+      draftId: snapshot.id,
+      draftVersion: snapshot.version,
+      durationMinutes: 45,
+      followUpQuestion: null,
+      nextInput: null,
+      preparationRequired: true,
+      startAt: null,
+      timingConstraints: "mon,wed 08:00-12:00",
+    } as const;
+    const workSessionConversation = {
+      handleConversationInput: vi.fn(async () => ({
+        actions: [
+          {
+            callbackData: `w:${snapshot.id}:8:option_1`,
+            text: "Choose option 1",
+          },
+        ],
+        text: "I found an available work window.",
+      })),
+    };
+    const service = new ConversationService({
+      decisionEngine: {
+        completeTurn,
+        decide: vi.fn(async () => ({
+          decision: ordinary(""),
+          ok: true,
+          workSessionInput,
+        })),
+      },
+      modelId: "gpt-test-model",
+      ownerChatId: 42,
+      promptVersion: "shiori-test-v1",
+      repository,
+      workSessionConversation,
+    });
+
+    await expect(
+      service.handle(7999, "45 minutes Monday morning"),
+    ).resolves.toMatchObject({
+      text: "I found an available work window.",
+    });
+    expect(workSessionConversation.handleConversationInput)
+      .toHaveBeenCalledWith(7999, 42, workSessionInput);
+    expect(repository.commands).toEqual([]);
+    expect(completeTurn).toHaveBeenCalledWith({
+      activeDraftId: snapshot.id,
+      assistantText: "I found an available work window.",
+      pendingQuestion: "replace",
+      status: "active",
+      updateId: 7999,
+    });
+  });
+
   it("dispatches /status inside the unified boundary and preserves draft interaction authority", async () => {
     const snapshot = activeDraft(
       "awaiting_target",

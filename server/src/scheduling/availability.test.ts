@@ -47,8 +47,8 @@ function ok(busyIntervals: readonly BusyInterval[]): BusyIntervalReadResult {
 }
 
 describe("findWorkWindows", () => {
-  it.each([15, 45, 180])(
-    "rejects unsupported %i-minute duration before Calendar",
+  it.each([0, 1_441])(
+    "rejects out-of-bounds %i-minute duration before Calendar",
     async (durationMinutes) => {
       const test = controlled([]);
       await expect(
@@ -60,6 +60,23 @@ describe("findWorkWindows", () => {
       expect(test.reader).not.toHaveBeenCalled();
     },
   );
+
+  it("accepts a 45-minute duration while retaining 30-minute start granularity", async () => {
+    const test = controlled([ok([])]);
+    const result = await findWorkWindows(
+      { ...base, durationMinutes: 45 },
+      test.reader,
+    );
+    expect(result).toMatchObject({
+      status: "available",
+    });
+    expect(
+      "alternatives" in result ? result.alternatives[0] : null,
+    ).toEqual({
+      endAt: "2026-08-01T08:45:00+08:00",
+      startAt: "2026-08-01T08:00:00+08:00",
+    });
+  });
 
   it.each([
     {

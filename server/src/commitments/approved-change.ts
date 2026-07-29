@@ -5,6 +5,10 @@ import {
   type TelegramReply,
 } from "../confirmation.js";
 import { supabaseHeaders } from "../supabase.js";
+import {
+  MAX_WORK_SESSION_DURATION_MINUTES,
+  MIN_WORK_SESSION_DURATION_MINUTES,
+} from "../work-sessions/duration.js";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -25,12 +29,9 @@ export const commitmentEditSchema = z
       .object({
         nextWorkSession: z
           .object({
-            durationMinutes: z.union([
-              z.literal(30),
-              z.literal(60),
-              z.literal(90),
-              z.literal(120),
-            ]),
+            durationMinutes: z.number().int()
+              .min(MIN_WORK_SESSION_DURATION_MINUTES)
+              .max(MAX_WORK_SESSION_DURATION_MINUTES),
             endAt: z.string().datetime({ offset: true }),
             startAt: z.string().datetime({ offset: true }),
             timingConstraints: z.string().trim().min(1).max(500),

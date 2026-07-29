@@ -445,6 +445,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
             supabaseUrl: options.config.supabaseUrl,
           }),
         }),
+        workSessionConversation: workSessionFlow,
       }),
       ownerUserId: options.config.telegramOwnerUserId,
       repository: new SupabaseTelegramRepository({

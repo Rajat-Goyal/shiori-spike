@@ -40,6 +40,12 @@ import type {
   AgentSdkSession,
   AgentSessionInteractionContext,
 } from "./session.js";
+import {
+  MAX_WORK_SESSION_DURATION_MINUTES,
+  MIN_WORK_SESSION_DURATION_MINUTES,
+} from "../work-sessions/duration.js";
+import type { WorkSessionConversationInput } from "../work-sessions/conversation-input.js";
+import { normalizeTimingConstraints } from "../work-sessions/availability-integration.js";
 
 export const AGENT_RUNTIME_MAX_TURNS = 4;
 export const AGENT_RUNTIME_TIMEOUT_MS = 30_000;
@@ -48,6 +54,7 @@ export const AGENT_RUNTIME_TOOL_NAMES = [
   "read_history",
   "list_commitments",
   "propose_draft_update",
+  "propose_work_session_input",
   "request_sanitized_availability",
   "execute_commitment",
   "update_commitment",
@@ -175,6 +182,7 @@ type RuntimeContext = {
   lastSemanticFailure?: DecisionTelemetryReason;
   mode: "decision" | "execution";
   proposal?: DecisionResult;
+  workSessionInput?: WorkSessionConversationInput;
   resumeToolName?: "execute_commitment" | "update_commitment";
   proposalTarget?: Readonly<{
     expectedVersion: number;
@@ -271,12 +279,10 @@ const proposalSchema = z
       "possible_work_session",
     ]),
     definitionOfDone: z.string().min(1).max(500).nullable(),
-    durationMinutes: z.union([
-      z.literal(30),
-      z.literal(60),
-      z.literal(90),
-      z.literal(120),
-    ]).nullable(),
+    durationMinutes: z.number().int()
+      .min(MIN_WORK_SESSION_DURATION_MINUTES)
+      .max(MAX_WORK_SESSION_DURATION_MINUTES)
+      .nullable(),
     inputClass: z.enum([
       "explicit_commitment",
       "implied_intention",
@@ -310,6 +316,26 @@ const availabilitySchema = z
     endAt: z.string().min(1).max(64),
     startAt: z.string().min(1).max(64),
     timeZone: z.literal("Asia/Singapore"),
+  })
+  .strict();
+
+const workSessionInputSchema = z
+  .object({
+    draftId: z.string().uuid(),
+    draftVersion: z.number().int().positive(),
+    durationMinutes: z.number().int()
+      .min(MIN_WORK_SESSION_DURATION_MINUTES)
+      .max(MAX_WORK_SESSION_DURATION_MINUTES)
+      .nullable(),
+    followUpQuestion: z.string().trim().min(1).max(300).nullable(),
+    nextInput: z.enum([
+      "duration",
+      "owner_time",
+      "timing_constraints",
+    ]).nullable(),
+    preparationRequired: z.boolean().nullable(),
+    startAt: z.string().min(1).max(64).nullable(),
+    timingConstraints: z.string().trim().min(1).max(500).nullable(),
   })
   .strict();
 
@@ -548,6 +574,35 @@ function expectedDraftAuthority(
     : null;
 }
 
+function workSessionDecision(
+  input: DecisionInput | null,
+): DecisionResult | null {
+  const fields = input?.context.fields;
+  if (
+    input?.context.phase !== "complete" ||
+    fields == null ||
+    fields.definitionOfDone === null ||
+    fields.targetAt === null ||
+    fields.commitmentMode !== "possible_work_session"
+  ) {
+    return null;
+  }
+  return {
+    commitmentMode: "possible_work_session",
+    definitionOfDone: fields.definitionOfDone,
+    durationMinutes: fields.durationMinutes,
+    inputClass: "ordinary_question",
+    missingFields: [],
+    nextAction: "answer",
+    offerWorkWindowHelp: false,
+    response: "",
+    targetAt: fields.targetAt,
+    targetTimeZone: "Asia/Singapore",
+    timingConstraints: fields.timingConstraints,
+    turnRelation: "none",
+  };
+}
+
 function singaporeReferenceTimestamp(now: Date): string {
   const singaporeWallClock = new Date(
     now.getTime() + 8 * 60 * 60 * 1_000,
@@ -582,6 +637,9 @@ function runtimeInstructions(
     "If more than one entity plausibly matches a reference, ask which one the owner means and propose no mutation.",
     "Every clarification_continuation, correction, or separate_request proposal must copy the exact draft target kind, id, and expectedVersion from authoritative context; all non-draft-mutation proposals must use target null.",
     "Every decision that may affect application state, including ordinary-question responses, must be submitted through propose_draft_update.",
+    "When the focused draft has authoritative preparation state, answer that pending preparation question with propose_work_session_input instead of propose_draft_update.",
+    "For preparation input, preserve the exact draft id and version, extract a positive whole-minute duration from 1 through 1440, translate natural timing constraints into the canonical Singapore format used by the context, and translate an owner-selected time into an exact future RFC3339 +08:00 instant on a 30-minute start boundary.",
+    "Use nextInput and one short natural followUpQuestion only when another owner answer is required. Do not put Calendar facts, availability, conflicts, or warnings in that question; application code owns those.",
     "Only a structurally and semantically accepted proposal can be returned by the application; final prose is never authoritative.",
     "request_sanitized_availability returns free/busy intervals only.",
     "execute_commitment is exclusively for an exact application-owned draft id and version and always requires explicit human approval.",
@@ -755,6 +813,148 @@ function buildTools(
       return { accepted: true, decision: proposal };
     },
   });
+  const proposeWorkSessionInput = tool({
+    description:
+      "Submit the current owner's natural preparation answer for the exact focused draft. This validates interpretation only; deterministic application code owns all state and Calendar decisions.",
+    name: "propose_work_session_input",
+    parameters: workSessionInputSchema,
+    strict: true,
+    isEnabled:
+      context.conversation?.product.drafts.some(
+        (draft) =>
+          draft.id === context.authority.draftId &&
+          draft.version === context.authority.draftVersion &&
+          draft.preparation !== null &&
+          draft.preparation !== undefined,
+      ) === true,
+    execute: (value) => {
+      const expected = expectedDraftAuthority(context);
+      const draft = context.conversation?.product.drafts.find(
+        (candidate) =>
+          candidate.id === value.draftId &&
+          candidate.version === value.draftVersion,
+      );
+      const stage = draft?.preparation?.stage;
+      const decision = workSessionDecision(context.input);
+      const normalizedTiming =
+        value.timingConstraints === null
+          ? null
+          : normalizeTimingConstraints(value.timingConstraints, []);
+      const startMillis =
+        value.startAt === null ? null : Date.parse(value.startAt);
+      const exactStart =
+        value.startAt === null ||
+        (
+          /^\d{4}-\d{2}-\d{2}T\d{2}:(?:00|30):00\+08:00$/.test(
+            value.startAt,
+          ) &&
+          Number.isFinite(startMillis) &&
+          startMillis! > now.getTime()
+        );
+      const followUpMatches =
+        value.nextInput === null
+          ? value.followUpQuestion === null
+          : value.followUpQuestion !== null &&
+            value.followUpQuestion.endsWith("?");
+      const commonValid =
+        expected !== null &&
+        expected.id === value.draftId &&
+        expected.expectedVersion === value.draftVersion &&
+        draft?.focused === true &&
+        stage !== undefined &&
+        decision !== null &&
+        exactStart &&
+        followUpMatches &&
+        !(
+          value.startAt !== null &&
+          value.timingConstraints !== null
+        ) &&
+        (
+          normalizedTiming === null ||
+          normalizedTiming.status === "ok"
+        );
+      let stageValid = false;
+      if (commonValid && stage === "offer_help") {
+        stageValid =
+          value.preparationRequired === false
+            ? value.durationMinutes === null &&
+              value.startAt === null &&
+              value.timingConstraints === null &&
+              value.nextInput === null
+            : value.preparationRequired === true &&
+              (
+                value.durationMinutes === null
+                  ? value.startAt === null &&
+                    value.timingConstraints === null &&
+                    value.nextInput === "duration"
+                  : value.startAt !== null ||
+                      value.timingConstraints !== null
+                    ? value.nextInput === null
+                    : value.nextInput === "owner_time" ||
+                      value.nextInput === "timing_constraints"
+              );
+      } else if (
+        commonValid &&
+        stage === "awaiting_duration_help"
+      ) {
+        stageValid =
+          value.preparationRequired === null &&
+          value.durationMinutes !== null &&
+          (
+            value.startAt !== null ||
+              value.timingConstraints !== null
+              ? value.nextInput === null
+            : value.nextInput === "timing_constraints"
+          );
+      } else if (
+        commonValid &&
+        stage === "awaiting_duration_owner"
+      ) {
+        stageValid =
+          value.preparationRequired === null &&
+          value.durationMinutes !== null &&
+          value.timingConstraints === null &&
+          (
+            value.startAt !== null
+              ? value.nextInput === null
+              : value.nextInput === "owner_time"
+          );
+      } else if (
+        commonValid &&
+        stage === "awaiting_constraints"
+      ) {
+        stageValid =
+          value.preparationRequired === null &&
+          value.durationMinutes === null &&
+          value.startAt === null &&
+          value.timingConstraints !== null &&
+          value.nextInput === null;
+      } else if (
+        commonValid &&
+        stage === "awaiting_owner_time"
+      ) {
+        stageValid =
+          value.preparationRequired === null &&
+          value.durationMinutes === null &&
+          value.startAt !== null &&
+          value.timingConstraints === null &&
+          value.nextInput === null;
+      }
+      if (!stageValid || normalizedTiming?.status === "invalid") {
+        context.lastSemanticFailure = "input_invalid";
+        return { accepted: false, reason: "input_invalid" };
+      }
+      context.workSessionInput = {
+        ...value,
+        timingConstraints:
+          normalizedTiming?.status === "ok"
+            ? normalizedTiming.canonical
+            : null,
+      };
+      context.lastSemanticFailure = undefined;
+      return { accepted: true };
+    },
+  });
   const requestAvailability = tool({
     description:
       "Request sanitized free/busy intervals. Calendar titles, descriptions, attendees, locations, and event identifiers are unavailable.",
@@ -858,6 +1058,7 @@ function buildTools(
     readHistory,
     listCommitments,
     proposeDraftUpdate,
+    proposeWorkSessionInput,
     requestAvailability,
     executeCommitment,
     updateCommitment,
@@ -1110,6 +1311,19 @@ function resultFromRunner(
           }),
       outcome: { decision, ok: true },
       pendingApprovalState: JSON.stringify(envelope),
+    };
+  }
+  if (context.workSessionInput !== undefined) {
+    const decision = workSessionDecision(context.input);
+    if (decision === null) {
+      return { outcome: fail("semantic", "input_invalid") };
+    }
+    return {
+      outcome: {
+        decision,
+        ok: true,
+        workSessionInput: context.workSessionInput,
+      },
     };
   }
   if (context.proposal !== undefined) {

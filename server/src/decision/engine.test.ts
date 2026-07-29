@@ -339,7 +339,7 @@ describe("DecisionEngine contract", () => {
     expect(
       parseDecisionStructure({
         ...explicitDecision,
-        durationMinutes: 45,
+        durationMinutes: 1_441,
       }),
     ).toBeNull();
   });

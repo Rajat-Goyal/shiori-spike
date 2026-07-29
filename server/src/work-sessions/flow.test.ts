@@ -33,6 +33,10 @@ const OWNER_WINDOW = {
   endAt: "2026-07-27T15:00:00+08:00",
   startAt: "2026-07-27T14:00:00+08:00",
 } as const;
+const OWNER_WINDOW_45 = {
+  endAt: "2026-07-27T14:45:00+08:00",
+  startAt: "2026-07-27T14:00:00+08:00",
+} as const;
 
 const possibleWorkFields: DecisionContextFields = {
   definitionOfDone: "Finish the bounded work note",
@@ -284,6 +288,150 @@ describe("work-session planning entry", () => {
 });
 
 describe("WorkSessionFlow", () => {
+  it("accepts a natural 45-minute constrained answer and offers only sanitized free windows", async () => {
+    const availability = checker({
+      alternatives: [OWNER_WINDOW_45],
+      checkedAt: "2026-07-27T00:01:00.000Z",
+      proposed: null,
+      status: "available",
+    });
+    const test = setup(new MemoryRepository(), availability);
+
+    const reply = await test.flow.handleConversationInput(7990, 42, {
+      draftId: ID,
+      draftVersion: 1,
+      durationMinutes: 45,
+      followUpQuestion: null,
+      nextInput: null,
+      preparationRequired: true,
+      startAt: null,
+      timingConstraints: "mon,wed 08:00-12:00",
+    });
+
+    expect(availability).toHaveBeenCalledWith(
+      expect.objectContaining({
+        durationMinutes: 45,
+        timingConstraints: "mon,wed 08:00-12:00",
+      }),
+    );
+    expect(test.repository.snapshot).toMatchObject({
+      durationMinutes: 45,
+      options: [OWNER_WINDOW_45],
+      stage: "choosing",
+    });
+    expect(reply?.text).toContain("available work windows");
+    expect(JSON.stringify(reply)).not.toMatch(
+      /private|title|attendee|description/i,
+    );
+  });
+
+  it("carries a natural 45-minute owner-selected time through free, busy, and unavailable Calendar outcomes", async () => {
+    const cases = [
+      {
+        expectedStage: "confirming",
+        expectedText: "Please confirm",
+        result: {
+          alternatives: [],
+          checkedAt: "2026-07-27T00:01:00.000Z",
+          proposed: { status: "free", window: OWNER_WINDOW_45 },
+          status: "available",
+        },
+      },
+      {
+        expectedStage: "conflict_choice",
+        expectedText: "conflicts with your Calendar",
+        result: {
+          alternatives: [],
+          checkedAt: "2026-07-27T00:01:00.000Z",
+          proposed: {
+            status: "conflict",
+            window: OWNER_WINDOW_45,
+          },
+          status: "available",
+        },
+      },
+      {
+        expectedStage: "unverified_confirming",
+        expectedText: "couldn’t verify",
+        result: { status: "provider_failure" },
+      },
+    ] as const;
+
+    for (const [index, item] of cases.entries()) {
+      const prepareApproval = vi.fn(async () => true);
+      const test = setup(
+        new MemoryRepository(),
+        checker(item.result),
+        prepareApproval,
+      );
+      const reply = await test.flow.handleConversationInput(
+        7991 + index,
+        42,
+        {
+          draftId: ID,
+          draftVersion: 1,
+          durationMinutes: 45,
+          followUpQuestion: null,
+          nextInput: null,
+          preparationRequired: true,
+          startAt: OWNER_WINDOW_45.startAt,
+          timingConstraints: null,
+        },
+      );
+
+      expect(test.repository.snapshot).toMatchObject({
+        durationMinutes: 45,
+        selectedWindow: OWNER_WINDOW_45,
+        stage: item.expectedStage,
+      });
+      expect(reply?.text).toContain(item.expectedText);
+      expect(JSON.stringify(reply)).not.toMatch(
+        /private|title|attendee|description/i,
+      );
+      expect(prepareApproval).toHaveBeenCalledTimes(
+        item.expectedStage === "conflict_choice" ? 0 : 1,
+      );
+    }
+  });
+
+  it("turns a natural no-preparation answer into the exact same-run creation approval and rejects stale focus", async () => {
+    const prepareApproval = vi.fn(async () => true);
+    const test = setup(
+      new MemoryRepository(),
+      checker(),
+      prepareApproval,
+    );
+    const noPreparation = {
+      draftId: ID,
+      draftVersion: 1,
+      durationMinutes: null,
+      followUpQuestion: null,
+      nextInput: null,
+      preparationRequired: false,
+      startAt: null,
+      timingConstraints: null,
+    } as const;
+
+    const reply = await test.flow.handleConversationInput(
+      7995,
+      42,
+      noPreparation,
+    );
+    expect(reply?.text).toContain("Please confirm");
+    expect(prepareApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draft: expect.objectContaining({ id: ID, version: 2 }),
+        updateId: 7995,
+      }),
+    );
+
+    await expect(
+      test.flow.handleConversationInput(7996, 42, noPreparation),
+    ).resolves.toEqual({
+      text: "That action is stale. I didn’t change anything.",
+    });
+  });
+
   it("converts declined preparation into a fresh simple confirmation without side effects", async () => {
     const prepareApproval = vi.fn(async () => true);
     const test = setup(

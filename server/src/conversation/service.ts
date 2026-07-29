@@ -39,6 +39,7 @@ import {
   isEligibleWorkSessionCandidate,
   workSessionPlanningOffer,
 } from "../work-sessions/flow.js";
+import type { WorkSessionConversationInput } from "../work-sessions/conversation-input.js";
 
 type ConversationServiceOptions = {
   decisionEngine: DecisionEngine;
@@ -54,6 +55,13 @@ type ConversationServiceOptions = {
     Pick<ConversationDraftRepository, "patchFocusedDraft">;
   statusService?: {
     read(): Promise<readonly TelegramReply[]>;
+  };
+  workSessionConversation?: {
+    handleConversationInput(
+      updateId: number,
+      chatId: number,
+      input: WorkSessionConversationInput,
+    ): Promise<TelegramReply | null>;
   };
 };
 
@@ -295,6 +303,9 @@ export class ConversationService {
   readonly #promptVersion: string;
   readonly #repository: ConversationServiceOptions["repository"];
   readonly #statusService: ConversationServiceOptions["statusService"];
+  readonly #workSessionConversation:
+    | ConversationServiceOptions["workSessionConversation"]
+    | undefined;
 
   constructor(options: ConversationServiceOptions) {
     this.#decisionEngine = options.decisionEngine;
@@ -306,6 +317,7 @@ export class ConversationService {
     this.#promptVersion = options.promptVersion;
     this.#repository = options.repository;
     this.#statusService = options.statusService;
+    this.#workSessionConversation = options.workSessionConversation;
   }
 
   async handle(
@@ -395,6 +407,38 @@ export class ConversationService {
       } catch {
         // Operational logging must never change the recovered decision.
       }
+    }
+
+    if (outcome.workSessionInput !== undefined) {
+      if (
+        this.#workSessionConversation === undefined ||
+        this.#ownerChatId === undefined ||
+        snapshot.kind !== "draft" ||
+        snapshot.id !== outcome.workSessionInput.draftId ||
+        snapshot.version !== outcome.workSessionInput.draftVersion
+      ) {
+        return this.#preserveFailure(
+          updateId,
+          snapshot,
+        );
+      }
+      const reply =
+        await this.#workSessionConversation.handleConversationInput(
+          updateId,
+          this.#ownerChatId,
+          outcome.workSessionInput,
+        ) ?? { text: safeFailure(snapshot) };
+      const expectsOwnerReply =
+        (reply.actions?.length ?? 0) > 0 ||
+        reply.text.trimEnd().endsWith("?");
+      await this.#decisionEngine.completeTurn?.({
+        activeDraftId: outcome.workSessionInput.draftId,
+        assistantText: reply.text,
+        pendingQuestion: expectsOwnerReply ? "replace" : "clear",
+        status: "active",
+        updateId,
+      });
+      return reply;
     }
 
     if (outcome.approval) {

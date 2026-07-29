@@ -40,6 +40,13 @@ function response(overrides: Record<string, unknown> = {}) {
         expiresAt: "2099-08-01T02:00:00.000Z",
         mode: "possible_work_session",
         phase: "complete",
+        preparation: {
+          durationMinutes: 45,
+          selectedEndAt: null,
+          selectedStartAt: null,
+          stage: "awaiting_constraints",
+          timingConstraints: null,
+        },
         targetAt: "2026-08-01T02:00:00.000Z",
         version: 3,
       },
@@ -62,6 +69,13 @@ function response(overrides: Record<string, unknown> = {}) {
         expiresAt: "2099-08-01T02:00:00.000Z",
         mode: "possible_work_session",
         phase: "complete",
+        preparation: {
+          durationMinutes: 45,
+          selectedEndAt: null,
+          selectedStartAt: null,
+          stage: "awaiting_constraints",
+          timingConstraints: null,
+        },
         targetAt: "2026-08-01T02:00:00.000Z",
         version: 3,
       },
@@ -138,6 +152,13 @@ describe("SupabaseAgentContextReader", () => {
     expect(context.focusedEntity).toEqual({
       entity: context.drafts[0],
       kind: "draft",
+    });
+    expect(context.drafts[0]?.preparation).toEqual({
+      durationMinutes: 45,
+      selectedEndAt: null,
+      selectedStartAt: null,
+      stage: "awaiting_constraints",
+      timingConstraints: null,
     });
     expect(context.workSessions).toEqual([
       {

@@ -159,7 +159,16 @@ describe("local Supabase versioned work-session draft", () => {
       },
     });
 
-    const duration = await flow.transition({
+    await rpc(
+      config.supabaseUrl,
+      config.supabaseSecretKey,
+      "claim_telegram_update",
+      {
+        p_owner_chat_id: config.telegramOwnerUserId,
+        p_update_id: updateBase + 1,
+      },
+    );
+    const duration = await flow.transitionFromConversation({
       chatId: config.telegramOwnerUserId,
       expectedStage: "offer_help",
       nextStage: "awaiting_duration_help",
@@ -172,7 +181,7 @@ describe("local Supabase versioned work-session draft", () => {
     }
     const constraints = await flow.transition({
       chatId: config.telegramOwnerUserId,
-      durationMinutes: 60,
+      durationMinutes: 45,
       expectedStage: "awaiting_duration_help",
       nextStage: "awaiting_constraints",
       reference: duration.snapshot,
@@ -182,6 +191,47 @@ describe("local Supabase versioned work-session draft", () => {
     if (constraints.kind !== "applied") {
       throw new Error("constraint transition did not apply");
     }
+    expect(constraints.snapshot.durationMinutes).toBe(45);
+
+    const productContext = await rpc(
+      config.supabaseUrl,
+      config.supabaseSecretKey,
+      "read_agent_product_context",
+      {
+        p_focused_entity_id: constraints.snapshot.id,
+        p_limit: 10,
+        p_owner_id: String(config.telegramOwnerUserId),
+      },
+    ) as {
+      drafts: Array<Record<string, unknown>>;
+      focusedEntity: {
+        entity: Record<string, unknown>;
+        kind: string;
+      };
+    };
+    expect(productContext.focusedEntity).toMatchObject({
+      entity: {
+        id: constraints.snapshot.id,
+        preparation: {
+          durationMinutes: 45,
+          selectedEndAt: null,
+          selectedStartAt: null,
+          stage: "awaiting_constraints",
+          timingConstraints: null,
+        },
+        version: constraints.snapshot.version,
+      },
+      kind: "draft",
+    });
+    expect(productContext.drafts).toContainEqual(
+      expect.objectContaining({
+        id: constraints.snapshot.id,
+        preparation: expect.objectContaining({
+          durationMinutes: 45,
+          stage: "awaiting_constraints",
+        }),
+      }),
+    );
     await expect(
       flow.transition({
         chatId: config.telegramOwnerUserId,

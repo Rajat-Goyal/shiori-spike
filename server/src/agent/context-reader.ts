@@ -61,6 +61,27 @@ type OutcomeStatus =
   | "done"
   | "missed"
   | "more_work_needed";
+type WorkSessionPlanningStage =
+  | "availability_unavailable"
+  | "awaiting_constraints"
+  | "awaiting_duration_help"
+  | "awaiting_duration_owner"
+  | "awaiting_owner_time"
+  | "choosing"
+  | "commit_pending"
+  | "confirming"
+  | "conflict_choice"
+  | "conflict_confirming"
+  | "offer_help"
+  | "unverified_confirming";
+
+export type AgentDraftPreparationContext = Readonly<{
+  durationMinutes: number | null;
+  selectedEndAt: string | null;
+  selectedStartAt: string | null;
+  stage: WorkSessionPlanningStage;
+  timingConstraints: string | null;
+}>;
 
 export type AgentDraftContext = Readonly<{
   definitionOfDone: string | null;
@@ -68,6 +89,7 @@ export type AgentDraftContext = Readonly<{
   id: string;
   mode: DraftMode;
   phase: DraftPhase;
+  preparation?: AgentDraftPreparationContext | null;
   targetAt: string | null;
   version: number;
 }>;
@@ -215,6 +237,10 @@ function parseDraft(
   observedAt: Date,
 ): AgentDraftContext | null {
   const item = record(value);
+  const preparation =
+    item?.preparation === null || item?.preparation === undefined
+      ? null
+      : record(item.preparation);
   if (
     !item ||
     !uuid(item.id) ||
@@ -235,7 +261,51 @@ function parseDraft(
       definition(item.definitionOfDone)
     ) ||
     !(item.targetAt === null || instant(item.targetAt)) ||
-    !instant(item.expiresAt)
+    !instant(item.expiresAt) ||
+    (
+      item.preparation !== undefined &&
+      item.preparation !== null &&
+      (
+        preparation === null ||
+        !oneOf(preparation.stage, [
+          "availability_unavailable",
+          "awaiting_constraints",
+          "awaiting_duration_help",
+          "awaiting_duration_owner",
+          "awaiting_owner_time",
+          "choosing",
+          "commit_pending",
+          "confirming",
+          "conflict_choice",
+          "conflict_confirming",
+          "offer_help",
+          "unverified_confirming",
+        ]) ||
+        !(
+          preparation.durationMinutes === null ||
+          (
+            positiveInteger(preparation.durationMinutes) &&
+            preparation.durationMinutes <= 1_440
+          )
+        ) ||
+        !(
+          preparation.timingConstraints === null ||
+          (
+            typeof preparation.timingConstraints === "string" &&
+            preparation.timingConstraints.length > 0 &&
+            preparation.timingConstraints.length <= 500
+          )
+        ) ||
+        !(
+          preparation.selectedStartAt === null ||
+          instant(preparation.selectedStartAt)
+        ) ||
+        !(
+          preparation.selectedEndAt === null ||
+          instant(preparation.selectedEndAt)
+        )
+      )
+    )
   ) {
     throw new Error("Agent draft context is invalid");
   }
@@ -248,6 +318,25 @@ function parseDraft(
     id: item.id,
     mode: item.mode,
     phase: item.phase,
+    ...(item.preparation === undefined
+      ? {}
+      : {
+          preparation:
+            preparation === null
+              ? null
+              : {
+                  durationMinutes:
+                    preparation.durationMinutes as number | null,
+                  selectedEndAt:
+                    preparation.selectedEndAt as string | null,
+                  selectedStartAt:
+                    preparation.selectedStartAt as string | null,
+                  stage:
+                    preparation.stage as WorkSessionPlanningStage,
+                  timingConstraints:
+                    preparation.timingConstraints as string | null,
+                },
+        }),
     targetAt: item.targetAt as string | null,
     version: item.version,
   };

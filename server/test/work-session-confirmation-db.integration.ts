@@ -77,6 +77,7 @@ type ConfirmationOutcome =
 async function preparedDraft(
   outcome: ConfirmationOutcome,
   baseUpdateId: number,
+  durationMinutes = 60,
 ): Promise<{
   config: ReturnType<typeof localConfig>;
   request: WorkSessionCommitRequest;
@@ -99,7 +100,9 @@ async function preparedDraft(
   const now = Date.now();
   const startMillis = nextBoundary(now + 4 * 60 * 60_000);
   const selectedWindow = {
-    endAt: singaporeInstant(startMillis + 60 * 60_000),
+    endAt: singaporeInstant(
+      startMillis + durationMinutes * 60_000,
+    ),
     startAt: singaporeInstant(startMillis),
   };
   const fields: DecisionContextFields = {
@@ -158,7 +161,7 @@ async function preparedDraft(
     chatId: config.telegramOwnerUserId,
     conflictConsent:
       outcome === "conflict_kept" || outcome === "conflict_cleared",
-    durationMinutes: 60,
+    durationMinutes,
     expectedStage: "offer_help",
     finalObservation:
       outcome === "unverified"
@@ -208,7 +211,7 @@ async function preparedDraft(
       chatId: config.telegramOwnerUserId,
       definitionOfDone: snapshot.definitionOfDone,
       draft: { id: snapshot.id, version: snapshot.version },
-      durationMinutes: 60,
+      durationMinutes,
       expectedStage,
       selectedWindow,
       targetAt: snapshot.targetAt,
@@ -230,6 +233,56 @@ function committer(
 }
 
 describe("atomic work-session confirmation on local Supabase", () => {
+  it("persists exactly one 45-minute next session and its two scheduler consequences", async () => {
+    const baseUpdateId =
+      9_550_000_000 + randomInt(40_000_000);
+    const prepared = await preparedDraft(
+      "free",
+      baseUpdateId,
+      45,
+    );
+
+    await expect(
+      committer(prepared).commit(prepared.request),
+    ).resolves.toEqual({ kind: "applied" });
+
+    const commitments = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "commitments",
+      `&definition_of_done=eq.${encodeURIComponent(prepared.request.definitionOfDone)}`,
+    );
+    expect(commitments).toHaveLength(1);
+    const commitmentId = commitments[0]!.id;
+    const sessions = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "work_sessions",
+      `&commitment_id=eq.${commitmentId}`,
+    );
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      duration_minutes: 45,
+    });
+    expect(Date.parse(String(sessions[0]!.start_at))).toBe(
+      Date.parse(prepared.request.selectedWindow.startAt),
+    );
+    expect(Date.parse(String(sessions[0]!.end_at))).toBe(
+      Date.parse(prepared.request.selectedWindow.endAt),
+    );
+    const messages = await rows(
+      prepared.config.supabaseUrl,
+      prepared.config.supabaseSecretKey,
+      "scheduled_messages",
+      `&commitment_id=eq.${commitmentId}`,
+    );
+    expect(messages).toHaveLength(2);
+    expect(messages.map((item) => item.kind).sort()).toEqual([
+      "work_session_end",
+      "work_session_start",
+    ]);
+  });
+
   it.each([
     "free",
     "conflict_cleared",

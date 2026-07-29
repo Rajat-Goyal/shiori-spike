@@ -1,0 +1,58 @@
+S02-04 — Flexible preparation conversations
+Verified: 2026-07-30 (Asia/Singapore)
+
+Contract and bound
+- Existing product validators establish a positive bounded work-session duration of 1–1440 whole minutes.
+- Work-session starts retain the existing 30-minute Singapore-time granularity.
+- Ends are derived from duration, so a 45-minute session may end on :15 or :45.
+- Telegram remains the mutation surface; the dashboard remains read-only; Google Calendar is read-only.
+
+Acceptance evidence
+AC1 — Mandatory preparation decision and exact focus
+- Every newly complete promise still enters offer_help before creation.
+- The agent preparation tool requires the exact focused draft id, version, complete phase, possible-work-session mode, and durable preparation stage.
+- ConversationService hands the validated input to WorkSessionFlow without applying a generic draft mutation or changing focus.
+- Ordinary-question behavior continues to preserve the active draft and pending question.
+
+AC2 — Flexible bounded durations, including 45 minutes
+- Decision/runtime, scheduling, repository, dashboard, work-session, and approved-edit validation accept integers from 1 through 1440.
+- Unit coverage verifies a 45-minute option beginning at 08:00 and ending at 08:45.
+- Database coverage verifies exactly one 45-minute work_sessions row and exactly two scheduler consequences.
+
+AC3 — Natural constraints and owner-selected times in one durable run
+- propose_work_session_input is part of the same Agents SDK run as the typed owner turn.
+- Durable agent product context includes only structured preparation stage, duration, canonical constraints, and selected start/end.
+- The agent translates natural constraints to the existing canonical Singapore format and owner-selected time to an exact future +08:00 start.
+- WorkSessionFlow performs the authoritative availability check and transition.
+
+AC4 — Controlled Calendar outcomes
+- Free generated windows use application-owned sanitized choice copy.
+- Free owner time reaches confirming.
+- Busy owner time reaches conflict_choice with application-owned conflict copy.
+- Provider failure/unavailable reaches availability_unavailable or unverified_confirming with application-owned warning and explicit actions.
+- Tests assert replies contain no title, attendee, description, event, or provider detail.
+
+AC5 — Declining preparation
+- Natural no-preparation input calls the deterministic decline transition for the exact draft/version.
+- The resulting new version is passed immediately to the existing same-session creation-approval continuation.
+- No commitment is created before the owner approves the exact consequence.
+
+Safety and durability
+- Additive migration only; no prior migration was edited.
+- Typed work-session transitions consume the already-claimed Telegram update atomically.
+- Stale draft versions remain inert.
+- Availability transitions store at most two sanitized windows.
+- Commitment confirmation still creates at most one next work session.
+- No Google Calendar write path was introduced.
+
+Verification
+- Clean local Supabase reset: PASS (all migrations through 20260730090000).
+- Focused server tests: PASS (257/257).
+- Complete server unit tests: PASS (527/527).
+- Server typecheck: PASS.
+- Local database integration tests: PASS (35/35 across 13 files).
+- npm run check: PASS.
+  - Server unit tests: 527/527.
+  - Release verifier: 22/22.
+  - Production web and server builds: PASS.
+  - Isolated Playwright tests: 50/50.

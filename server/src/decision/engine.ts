@@ -13,6 +13,7 @@ import {
   validateDecisionInputSemantics,
 } from "./semantic.js";
 import type { TelegramReply } from "../confirmation.js";
+import type { WorkSessionConversationInput } from "../work-sessions/conversation-input.js";
 
 export type DecisionFailureClass =
   | "http"
@@ -68,6 +69,7 @@ export type DecisionOutcome =
       }>;
       ok: true;
       recovery?: DecisionRetryRecovery;
+      workSessionInput?: WorkSessionConversationInput;
     }
   | {
       failure: DecisionFailureClass;

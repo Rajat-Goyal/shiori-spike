@@ -9,6 +9,8 @@ type PrimitiveSpec =
   | {
       enum?: readonly number[];
       kind: "integer";
+      maximum?: number;
+      minimum?: number;
       nullable?: boolean;
     }
   | {
@@ -71,8 +73,9 @@ const candidateFieldSpecs = {
     nullable: true,
   },
   durationMinutes: {
-    enum: [30, 60, 90, 120],
     kind: "integer",
+    maximum: 1_440,
+    minimum: 1,
     nullable: true,
   },
   offerWorkWindowHelp: {
@@ -258,6 +261,8 @@ function schemaFor(spec: Spec): JsonSchema {
       schema = {
         type: "integer",
         ...(spec.enum ? { enum: spec.enum } : {}),
+        ...(spec.maximum === undefined ? {} : { maximum: spec.maximum }),
+        ...(spec.minimum === undefined ? {} : { minimum: spec.minimum }),
       };
       break;
     case "boolean":
@@ -308,7 +313,11 @@ function structurallyMatches(spec: Spec, value: unknown): boolean {
       return (
         Number.isInteger(value) &&
         (spec.enum === undefined ||
-          spec.enum.includes(value as number))
+          spec.enum.includes(value as number)) &&
+        (spec.minimum === undefined ||
+          (value as number) >= spec.minimum) &&
+        (spec.maximum === undefined ||
+          (value as number) <= spec.maximum)
       );
     case "boolean":
       return typeof value === "boolean";

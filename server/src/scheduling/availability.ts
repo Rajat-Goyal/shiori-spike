@@ -1,11 +1,11 @@
+import { isWorkSessionDuration } from "../work-sessions/duration.js";
+
 const OWNER_TIME_ZONE_OFFSET_MILLISECONDS = 8 * 60 * 60 * 1_000;
 const HALF_HOUR_MILLISECONDS = 30 * 60 * 1_000;
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1_000;
 const GENERATED_CAP_MILLISECONDS = 14 * DAY_MILLISECONDS;
 const RECOVERY_CAP_MILLISECONDS = 7 * DAY_MILLISECONDS;
-const SUPPORTED_DURATIONS = [30, 60, 90, 120] as const;
-
-export type WorkSessionDuration = (typeof SUPPORTED_DURATIONS)[number];
+export type WorkSessionDuration = number;
 
 export type WorkWindow = Readonly<{
   endAt: string;
@@ -197,9 +197,7 @@ function validateBase(
   request: AvailabilityRequest,
 ): ValidatedBase | AvailabilityResult {
   if (
-    !SUPPORTED_DURATIONS.includes(
-      request.durationMinutes as WorkSessionDuration,
-    )
+    !isWorkSessionDuration(request.durationMinutes)
   ) {
     return { reason: "invalid_duration", status: "invalid_request" };
   }
@@ -219,7 +217,7 @@ function validateBase(
     };
   }
   return {
-    duration: request.durationMinutes as WorkSessionDuration,
+    duration: request.durationMinutes,
     durationMilliseconds: request.durationMinutes * 60 * 1_000,
     effectiveDays,
     nowMillis,

@@ -9,6 +9,7 @@ import type {
   WorkSessionFlowTransitionResult,
   PreparationDeclineResult,
 } from "./flow.js";
+import { isWorkSessionDuration } from "./duration.js";
 
 const stages = new Set<WorkSessionFlowStage>([
   "availability_unavailable",
@@ -79,7 +80,7 @@ function snapshot(value: unknown): WorkSessionDraftSnapshot {
     !Number.isFinite(Date.parse(item.targetAt)) ||
     (
       item.durationMinutes !== null &&
-      ![30, 60, 90, 120].includes(Number(item.durationMinutes))
+      !isWorkSessionDuration(item.durationMinutes)
     ) ||
     (
       item.timingConstraints !== null &&
@@ -103,12 +104,7 @@ function snapshot(value: unknown): WorkSessionDraftSnapshot {
     calendarCheckedAt: item.calendarCheckedAt,
     conflictConsent: item.conflictConsent,
     definitionOfDone: item.definitionOfDone,
-    durationMinutes: item.durationMinutes as
-      | 30
-      | 60
-      | 90
-      | 120
-      | null,
+    durationMinutes: item.durationMinutes as number | null,
     finalObservation: item.finalObservation as
       | "conflict"
       | "free"
@@ -221,6 +217,25 @@ export class SupabaseWorkSessionFlowRepository
     );
   }
 
+  async declinePreparationFromConversation(
+    updateId: number,
+    chatId: number,
+    reference: DraftReference,
+  ): Promise<PreparationDeclineResult> {
+    return preparationDeclineResult(
+      await this.#rpc(
+        "decline_work_session_preparation_from_conversation",
+        {
+          p_draft_id: reference.id,
+          p_owner_chat_id: chatId,
+          p_owner_id: this.#ownerId,
+          p_update_id: updateId,
+          p_version: reference.version,
+        },
+      ),
+    );
+  }
+
   async #rpc(name: string, body: Record<string, unknown>): Promise<unknown> {
     const response = await this.#fetch(
       `${this.#supabaseUrl}/rest/v1/rpc/${name}`,
@@ -252,8 +267,27 @@ export class SupabaseWorkSessionFlowRepository
   async transition(
     command: WorkSessionFlowTransition,
   ): Promise<WorkSessionFlowTransitionResult> {
+    return this.#transitionRpc(
+      "transition_work_session_draft",
+      command,
+    );
+  }
+
+  async transitionFromConversation(
+    command: WorkSessionFlowTransition,
+  ): Promise<WorkSessionFlowTransitionResult> {
+    return this.#transitionRpc(
+      "transition_work_session_draft_from_conversation",
+      command,
+    );
+  }
+
+  async #transitionRpc(
+    name: string,
+    command: WorkSessionFlowTransition,
+  ): Promise<WorkSessionFlowTransitionResult> {
     return transitionResult(
-      await this.#rpc("transition_work_session_draft", {
+      await this.#rpc(name, {
         p_calendar_attempted_at:
           command.calendarAttemptedAt ?? null,
         p_calendar_checked_at:

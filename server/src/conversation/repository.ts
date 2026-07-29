@@ -4,6 +4,7 @@ import type {
   DecisionResult,
 } from "../decision/schema.js";
 import { supabaseHeaders } from "../supabase.js";
+import { isWorkSessionDuration } from "../work-sessions/duration.js";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -242,8 +243,7 @@ function fieldsFrom(record: Record<string, unknown>): DecisionContextFields {
       (fields.definitionOfDone === null ||
         typeof fields.definitionOfDone === "string") &&
       (fields.durationMinutes === null ||
-        (typeof fields.durationMinutes === "number" &&
-          [30, 60, 90, 120].includes(fields.durationMinutes))) &&
+        isWorkSessionDuration(fields.durationMinutes)) &&
       typeof fields.offerWorkWindowHelp === "boolean" &&
       typeof fields.possibleWorkSession === "boolean" &&
       typeof fields.simpleAction === "boolean" &&
