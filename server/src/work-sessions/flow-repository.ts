@@ -7,6 +7,7 @@ import type {
   WorkSessionFlowStage,
   WorkSessionFlowTransition,
   WorkSessionFlowTransitionResult,
+  PreparationDeclineResult,
 } from "./flow.js";
 
 const stages = new Set<WorkSessionFlowStage>([
@@ -151,6 +152,44 @@ function transitionResult(value: unknown): WorkSessionFlowTransitionResult {
     : { kind: item.kind as "expired" | "replay" | "stale" };
 }
 
+function preparationDeclineResult(
+  value: unknown,
+): PreparationDeclineResult {
+  const item = record(value);
+  if (
+    !item ||
+    !["applied", "expired", "replay", "stale"].includes(String(item.kind))
+  ) {
+    throw new Error("Preparation decline returned invalid data");
+  }
+  if (item.kind !== "applied") {
+    return { kind: item.kind as "expired" | "replay" | "stale" };
+  }
+  const draft = record(item.draft);
+  if (
+    !draft ||
+    typeof draft.id !== "string" ||
+    typeof draft.version !== "number" ||
+    !Number.isSafeInteger(draft.version) ||
+    draft.version < 1 ||
+    typeof draft.definitionOfDone !== "string" ||
+    draft.definitionOfDone.trim().length === 0 ||
+    typeof draft.targetAt !== "string" ||
+    !Number.isFinite(Date.parse(draft.targetAt))
+  ) {
+    throw new Error("Preparation decline returned invalid data");
+  }
+  return {
+    draft: {
+      definitionOfDone: draft.definitionOfDone,
+      id: draft.id,
+      targetAt: draft.targetAt,
+      version: draft.version,
+    },
+    kind: "applied",
+  };
+}
+
 export class SupabaseWorkSessionFlowRepository
   implements WorkSessionFlowRepository
 {
@@ -164,6 +203,22 @@ export class SupabaseWorkSessionFlowRepository
     this.#ownerId = String(options.ownerId);
     this.#supabaseSecretKey = options.supabaseSecretKey;
     this.#supabaseUrl = options.supabaseUrl;
+  }
+
+  async declinePreparation(
+    updateId: number,
+    chatId: number,
+    reference: DraftReference,
+  ): Promise<PreparationDeclineResult> {
+    return preparationDeclineResult(
+      await this.#rpc("decline_work_session_preparation", {
+        p_draft_id: reference.id,
+        p_owner_chat_id: chatId,
+        p_owner_id: this.#ownerId,
+        p_update_id: updateId,
+        p_version: reference.version,
+      }),
+    );
   }
 
   async #rpc(name: string, body: Record<string, unknown>): Promise<unknown> {

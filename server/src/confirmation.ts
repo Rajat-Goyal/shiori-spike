@@ -1,4 +1,7 @@
-import type { DecisionContextFields } from "./decision/schema.js";
+import type {
+  DecisionContextFields,
+  DecisionResult,
+} from "./decision/schema.js";
 import { supabaseHeaders } from "./supabase.js";
 
 export type DraftAction = "cancel" | "confirm";
@@ -22,6 +25,13 @@ type CompleteDraftFields = Pick<
   DecisionContextFields,
   "definitionOfDone" | "targetAt"
 >;
+
+export type ConfirmationApprovalPreparation = Readonly<{
+  chatId: number;
+  decision: DecisionResult;
+  draft: DraftReference;
+  updateId: number;
+}>;
 
 type ParsedDraftAction = DraftReference & {
   action: DraftAction;
@@ -101,6 +111,8 @@ export const confirmationCopy = {
   expired:
     "That draft expired after 24 hours of inactivity. Nothing was saved. Please send the promise again to start over.",
   malformed: "That action isn’t valid. I didn’t change anything.",
+  approvalUnavailable:
+    "I couldn’t safely prepare confirmation. Nothing was saved. Send another message to continue this draft.",
   secondRequest:
     "You already have a complete draft. I didn’t replace it.",
   stale: "That action is stale. I didn’t change anything.",
@@ -380,13 +392,20 @@ export class SupabaseConfirmationRepository
 }
 
 type ConfirmationServiceOptions = {
+  prepareApproval?: (
+    request: ConfirmationApprovalPreparation,
+  ) => Promise<boolean>;
   repository: ConfirmationRepository;
 };
 
 export class ConfirmationService {
+  readonly #prepareApproval:
+    | ConfirmationServiceOptions["prepareApproval"]
+    | undefined;
   readonly #repository: ConfirmationRepository;
 
   constructor(options: ConfirmationServiceOptions) {
+    this.#prepareApproval = options.prepareApproval;
     this.#repository = options.repository;
   }
 
@@ -433,12 +452,42 @@ export class ConfirmationService {
         return {
           text: `Promise saved. I’ll remind you at ${formatSingaporeTarget(result.reminderAt)}.`,
         };
-      case "stale":
+      case "stale": {
+        if (this.#prepareApproval) {
+          let prepared = false;
+          try {
+            prepared = await this.#prepareApproval({
+              chatId,
+              decision: {
+                commitmentMode: "simple_action",
+                definitionOfDone: result.draft.definitionOfDone,
+                durationMinutes: null,
+                inputClass: "explicit_commitment",
+                missingFields: [],
+                nextAction: "ready",
+                offerWorkWindowHelp: false,
+                response: "",
+                targetAt: result.draft.targetAt,
+                targetTimeZone: "Asia/Singapore",
+                timingConstraints: [],
+                turnRelation: "correction",
+              },
+              draft: result.draft,
+              updateId,
+            });
+          } catch {
+            prepared = false;
+          }
+          if (!prepared) {
+            return { text: confirmationCopy.approvalUnavailable };
+          }
+        }
         return confirmationSummary(
           result.draft,
           result.draft,
           confirmationCopy.stale,
         );
+      }
     }
   }
 }

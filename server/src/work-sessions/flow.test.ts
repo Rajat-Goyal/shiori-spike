@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DecisionContextFields } from "../decision/schema.js";
-import type { DraftReference } from "../confirmation.js";
+import {
+  confirmationSummary,
+  type DraftReference,
+} from "../confirmation.js";
 import type { WorkWindow } from "../scheduling/availability.js";
 import {
   isEligibleWorkSessionCandidate,
@@ -142,6 +145,37 @@ class MemoryRepository implements WorkSessionFlowRepository {
       updateId,
     });
   }
+
+  async declinePreparation(
+    updateId: number,
+    _chatId: number,
+    reference: DraftReference,
+  ) {
+    if (this.seenUpdates.has(updateId)) {
+      return { kind: "replay" as const };
+    }
+    this.seenUpdates.add(updateId);
+    if (
+      reference.id !== this.snapshot.id ||
+      reference.version !== this.snapshot.version ||
+      this.snapshot.stage !== "offer_help"
+    ) {
+      return { kind: "stale" as const };
+    }
+    this.snapshot = {
+      ...this.snapshot,
+      version: this.snapshot.version + 1,
+    };
+    return {
+      draft: {
+        definitionOfDone: this.snapshot.definitionOfDone,
+        id: this.snapshot.id,
+        targetAt: this.snapshot.targetAt,
+        version: this.snapshot.version,
+      },
+      kind: "applied" as const,
+    };
+  }
 }
 
 function checker(
@@ -157,6 +191,9 @@ function checker(
 function setup(
   repository = new MemoryRepository(),
   availability = checker(),
+  prepareApproval?: NonNullable<
+    ConstructorParameters<typeof WorkSessionFlow>[0]["prepareApproval"]
+  >,
 ) {
   const commit = vi.fn<WorkSessionCommitter["commit"]>(
     async () => ({ kind: "applied" }),
@@ -168,6 +205,7 @@ function setup(
       availability,
       committer: { commit },
       now: () => NOW,
+      prepareApproval,
       repository,
     }),
     repository,
@@ -212,12 +250,16 @@ describe("work-session planning entry", () => {
           text: "I’ll choose a time",
         },
         {
+          callbackData: `w:${ID}:3:no_preparation`,
+          text: "No preparation needed",
+        },
+        {
           callbackData: `w:${ID}:3:cancel`,
           text: "Cancel",
         },
       ],
       text:
-        "Would you like help finding time for this promise? Nothing has been saved yet.",
+        "Do you need preparation time for this promise? Nothing has been saved yet.",
     });
   });
 
@@ -242,6 +284,119 @@ describe("work-session planning entry", () => {
 });
 
 describe("WorkSessionFlow", () => {
+  it("converts declined preparation into a fresh simple confirmation without side effects", async () => {
+    const prepareApproval = vi.fn(async () => true);
+    const test = setup(
+      new MemoryRepository(),
+      checker(),
+      prepareApproval,
+    );
+    const offered = test.repository.snapshot;
+
+    await expect(
+      test.flow.handle(
+        8000,
+        42,
+        callback(offered, "no_preparation"),
+      ),
+    ).resolves.toEqual(
+      confirmationSummary(
+        {
+          definitionOfDone: offered.definitionOfDone,
+          targetAt: offered.targetAt,
+        },
+        { id: offered.id, version: offered.version + 1 },
+      ),
+    );
+
+    expect(test.repository.snapshot.version).toBe(2);
+    expect(prepareApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: 42,
+        decision: expect.objectContaining({
+          commitmentMode: "simple_action",
+        }),
+        draft: expect.objectContaining({ id: ID, version: 2 }),
+        updateId: 8000,
+      }),
+    );
+    expect(test.availability).not.toHaveBeenCalled();
+    expect(test.commit).not.toHaveBeenCalled();
+    await expect(
+      test.flow.handle(
+        8001,
+        42,
+        callback(offered, "no_preparation"),
+      ),
+    ).resolves.toEqual({
+      text: "That action is stale. I didn’t change anything.",
+    });
+  });
+
+  it("shows final work Confirm only after the durable version is approval-staged", async () => {
+    const repository = new MemoryRepository(
+      initialSnapshot({
+        calendarCheckedAt: "2026-07-27T00:01:00.000Z",
+        durationMinutes: 60,
+        options: [OPTION_ONE],
+        stage: "choosing",
+        timingConstraints: "default",
+        version: 5,
+      }),
+    );
+    const prepareApproval = vi.fn(async (request) => {
+      expect(repository.snapshot).toMatchObject({
+        selectedWindow: OPTION_ONE,
+        stage: "confirming",
+        version: 6,
+      });
+      expect(request.draft).toEqual({ id: ID, version: 6 });
+      return true;
+    });
+    const test = setup(repository, checker(), prepareApproval);
+
+    const reply = await test.flow.handle(
+      8002,
+      42,
+      callback(repository.snapshot, "option_1"),
+    );
+
+    expect(prepareApproval).toHaveBeenCalledOnce();
+    expect(reply?.actions?.map((item) => item.text)).toEqual([
+      "Confirm",
+      "Cancel",
+    ]);
+  });
+
+  it("strips final work actions when approval staging fails", async () => {
+    const repository = new MemoryRepository(
+      initialSnapshot({
+        calendarCheckedAt: "2026-07-27T00:01:00.000Z",
+        durationMinutes: 60,
+        options: [OPTION_ONE],
+        stage: "choosing",
+        timingConstraints: "default",
+        version: 5,
+      }),
+    );
+    const test = setup(
+      repository,
+      checker(),
+      vi.fn(async () => false),
+    );
+
+    await expect(
+      test.flow.handle(
+        8003,
+        42,
+        callback(repository.snapshot, "option_1"),
+      ),
+    ).resolves.toEqual({
+      text:
+        "I couldn’t safely prepare confirmation. Nothing was saved. Send another message to continue this draft.",
+    });
+  });
+
   it("collects duration and strict constraints before showing at most two sanitized choices", async () => {
     const availability = checker({
       alternatives: [OPTION_ONE, OPTION_TWO],

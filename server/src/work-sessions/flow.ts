@@ -1,5 +1,9 @@
-import type { DecisionContextFields } from "../decision/schema.js";
+import type {
+  DecisionContextFields,
+  DecisionResult,
+} from "../decision/schema.js";
 import {
+  confirmationSummary,
   formatSingaporeTarget,
   type DraftReference,
   type TelegramReply,
@@ -33,6 +37,7 @@ export type WorkSessionFlowAction =
   | "duration_120"
   | "help"
   | "keep"
+  | "no_preparation"
   | "option_1"
   | "option_2"
   | "owner_time"
@@ -92,6 +97,18 @@ export type WorkSessionFlowTransitionResult =
       snapshot: WorkSessionDraftSnapshot;
     }>;
 
+export type PreparationDeclineResult =
+  | Readonly<{ kind: "expired" | "replay" | "stale" }>
+  | Readonly<{
+      draft: Readonly<{
+        definitionOfDone: string;
+        id: string;
+        targetAt: string;
+        version: number;
+      }>;
+      kind: "applied";
+    }>;
+
 export interface WorkSessionFlowRepository {
   cancel(
     updateId: number,
@@ -99,6 +116,11 @@ export interface WorkSessionFlowRepository {
     reference: DraftReference,
     expectedStage: WorkSessionFlowStage,
   ): Promise<WorkSessionFlowTransitionResult>;
+  declinePreparation(
+    updateId: number,
+    chatId: number,
+    reference: DraftReference,
+  ): Promise<PreparationDeclineResult>;
   read(reference: DraftReference): Promise<
     | Readonly<{ kind: "expired" | "missing" | "stale" }>
     | Readonly<{ kind: "current"; snapshot: WorkSessionDraftSnapshot }>
@@ -143,10 +165,20 @@ export type WorkSessionAvailabilityChecker = (
   request: CalendarAvailabilityRequest,
 ) => Promise<CalendarAvailabilityResult>;
 
+export type WorkSessionApprovalPreparation = Readonly<{
+  chatId: number;
+  decision: DecisionResult;
+  draft: DraftReference;
+  updateId: number;
+}>;
+
 type WorkSessionFlowOptions = Readonly<{
   availability: WorkSessionAvailabilityChecker;
   committer: WorkSessionCommitter;
   now?: () => Date;
+  prepareApproval?: (
+    request: WorkSessionApprovalPreparation,
+  ) => Promise<boolean>;
   repository: WorkSessionFlowRepository;
 }>;
 
@@ -164,6 +196,7 @@ const workSessionActions = new Set<WorkSessionFlowAction>([
   "duration_120",
   "help",
   "keep",
+  "no_preparation",
   "option_1",
   "option_2",
   "owner_time",
@@ -186,7 +219,9 @@ export const workSessionFlowCopy = {
   noFit:
     "I couldn’t find a fitting window without relaxing your constraints. Choose an exact time or change the constraints.",
   offer:
-    "Would you like help finding time for this promise? Nothing has been saved yet.",
+    "Do you need preparation time for this promise? Nothing has been saved yet.",
+  approvalUnavailable:
+    "I couldn’t safely prepare confirmation. Nothing was saved. Send another message to continue this draft.",
   reconnect:
     "Reconnect Google Calendar from the protected dashboard, then press Check again.",
   replay: "",
@@ -275,6 +310,7 @@ export function workSessionPlanningOffer(
     actions: [
       action(reference, "help", "Help me find time"),
       action(reference, "owner_time", "I’ll choose a time"),
+      action(reference, "no_preparation", "No preparation needed"),
       action(reference, "cancel", "Cancel"),
     ],
     text: prefix
@@ -410,6 +446,41 @@ function confirmationReply(
   };
 }
 
+function executionDecision(
+  fields: Readonly<{
+    definitionOfDone: string;
+    durationMinutes?: 30 | 60 | 90 | 120 | null;
+    targetAt: string;
+    timingConstraints?: string | null;
+  }>,
+  commitmentMode: "possible_work_session" | "simple_action",
+): DecisionResult {
+  const durationMinutes =
+    commitmentMode === "possible_work_session"
+      ? fields.durationMinutes ?? null
+      : null;
+  return {
+    commitmentMode,
+    definitionOfDone: fields.definitionOfDone,
+    durationMinutes,
+    inputClass: "explicit_commitment",
+    missingFields: [],
+    nextAction:
+      commitmentMode === "possible_work_session" &&
+        durationMinutes === null
+        ? "offer_work_window"
+        : "ready",
+    offerWorkWindowHelp: false,
+    response: "",
+    targetAt: fields.targetAt,
+    targetTimeZone: "Asia/Singapore",
+    timingConstraints: fields.timingConstraints
+      ? [fields.timingConstraints]
+      : [],
+    turnRelation: "new_request",
+  };
+}
+
 function unavailableReply(
   snapshot: WorkSessionDraftSnapshot,
   authorizationExpired: boolean,
@@ -539,12 +610,16 @@ export class WorkSessionFlow {
   readonly #availability: WorkSessionAvailabilityChecker;
   readonly #committer: WorkSessionCommitter;
   readonly #now: () => Date;
+  readonly #prepareApproval:
+    | WorkSessionFlowOptions["prepareApproval"]
+    | undefined;
   readonly #repository: WorkSessionFlowRepository;
 
   constructor(options: WorkSessionFlowOptions) {
     this.#availability = options.availability;
     this.#committer = options.committer;
     this.#now = options.now ?? (() => new Date());
+    this.#prepareApproval = options.prepareApproval;
     this.#repository = options.repository;
   }
 
@@ -565,6 +640,33 @@ export class WorkSessionFlow {
       return { text: workSessionFlowCopy.stale };
     }
     const snapshot = read.snapshot;
+
+    if (
+      parsed.action === "no_preparation" &&
+      snapshot.stage === "offer_help"
+    ) {
+      const result = await this.#repository.declinePreparation(
+        updateId,
+        chatId,
+        parsed,
+      );
+      switch (result.kind) {
+        case "replay":
+          return null;
+        case "expired":
+          return { text: workSessionFlowCopy.expired };
+        case "stale":
+          return { text: workSessionFlowCopy.stale };
+        case "applied":
+          return this.#prepareConsequence(
+            updateId,
+            chatId,
+            result.draft,
+            executionDecision(result.draft, "simple_action"),
+            confirmationSummary(result.draft, result.draft),
+          );
+      }
+    }
 
     if (parsed.action === "cancel") {
       const result = await this.#repository.cancel(
@@ -683,7 +785,12 @@ export class WorkSessionFlow {
         selectedWindow: selected,
         updateId,
       });
-      return transitioned(result, confirmationReply);
+      return this.#transitionConsequence(
+        updateId,
+        chatId,
+        result,
+        confirmationReply,
+      );
     }
 
     if (
@@ -700,11 +807,15 @@ export class WorkSessionFlow {
         reference: parsed,
         updateId,
       });
-      return transitioned(result, (current) =>
-        confirmationReply(
-          current,
-          "You chose to keep the conflicting time.",
-        )
+      return this.#transitionConsequence(
+        updateId,
+        chatId,
+        result,
+        (current) =>
+          confirmationReply(
+            current,
+            "You chose to keep the conflicting time.",
+          ),
       );
     }
 
@@ -826,7 +937,12 @@ export class WorkSessionFlow {
           timingConstraints,
           updateId,
         });
-        return transitioned(transitionedResult, confirmationReply);
+        return this.#transitionConsequence(
+          updateId,
+          chatId,
+          transitionedResult,
+          confirmationReply,
+        );
       }
       const transitionedResult = await this.#repository.transition({
         calendarAttemptedAt: attemptedAt,
@@ -862,11 +978,15 @@ export class WorkSessionFlow {
         timingConstraints,
         updateId,
       });
-      return transitioned(transitionedResult, (current) =>
-        unavailableReply(
-          current,
-          result.status === "authorization_expired",
-        )
+      return this.#transitionConsequence(
+        updateId,
+        chatId,
+        transitionedResult,
+        (current) =>
+          unavailableReply(
+            current,
+            result.status === "authorization_expired",
+          ),
       );
     }
     return { text: workSessionFlowCopy.invalidOwnerTime };
@@ -969,6 +1089,49 @@ export class WorkSessionFlow {
     return { text: TIMING_CONSTRAINT_FORMAT_HELP };
   }
 
+  async #prepareConsequence(
+    updateId: number,
+    chatId: number,
+    draft: DraftReference,
+    decision: DecisionResult,
+    reply: TelegramReply,
+  ): Promise<TelegramReply> {
+    if (!this.#prepareApproval) {
+      return reply;
+    }
+    try {
+      const prepared = await this.#prepareApproval({
+        chatId,
+        decision,
+        draft,
+        updateId,
+      });
+      return prepared
+        ? reply
+        : { text: workSessionFlowCopy.approvalUnavailable };
+    } catch {
+      return { text: workSessionFlowCopy.approvalUnavailable };
+    }
+  }
+
+  async #transitionConsequence(
+    updateId: number,
+    chatId: number,
+    result: WorkSessionFlowTransitionResult,
+    reply: (snapshot: WorkSessionDraftSnapshot) => TelegramReply,
+  ): Promise<TelegramReply | null> {
+    if (result.kind !== "applied") {
+      return transitioned(result, reply);
+    }
+    return this.#prepareConsequence(
+      updateId,
+      chatId,
+      reference(result.snapshot),
+      executionDecision(result.snapshot, "possible_work_session"),
+      reply(result.snapshot),
+    );
+  }
+
   async #recheck(
     updateId: number,
     chatId: number,
@@ -1046,11 +1209,15 @@ export class WorkSessionFlow {
         reference: draftReference,
         updateId,
       });
-      return transitioned(result, (current) =>
-        unavailableReply(
-          current,
-          availability.status === "authorization_expired",
-        )
+      return this.#transitionConsequence(
+        updateId,
+        chatId,
+        result,
+        (current) =>
+          unavailableReply(
+            current,
+            availability.status === "authorization_expired",
+          ),
       );
     }
     return { text: workSessionFlowCopy.invalidOwnerTime };

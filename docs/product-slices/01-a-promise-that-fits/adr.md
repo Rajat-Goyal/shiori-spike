@@ -28,7 +28,7 @@ The design optimizes for:
 
 Shiori will remain one Fastify service deployed on Railway. Fastify serves the React build, Telegram webhook, owner API, Google OAuth callback, and an in-process scheduler. Supabase/Postgres is the durable source of truth.
 
-OpenAI is the initial language-model provider behind a replaceable `DecisionEngine` adapter. The model returns strict structured output for classification and extraction. It does not receive Calendar event details and cannot directly execute product tools. Application services deterministically own authorization, draft transitions, Calendar access, availability calculation, persistence, scheduling, callback validation, and outcome recording.
+OpenAI is the initial language-model provider behind a replaceable bounded-agent adapter. The OpenAI Agents SDK runs an allowlisted loop inside an application-controlled ephemeral session. The model may read authoritative structured draft state, propose strictly validated changes, request sanitized availability without Calendar titles, and request approval-gated execution. Application services deterministically own authentication, callback authority, draft transitions, Calendar access, availability calculation, persistence, scheduling, and outcome recording.
 
 Telegram inline buttons carry opaque, versioned action references. Work is scheduled durably in Postgres and claimed transactionally. Delivery is idempotent inside Shiori, with an at-most-once bias when Telegram's external delivery result is ambiguous.
 
@@ -72,36 +72,39 @@ One backend preserves the deployment foundation proved by the spike, centralizes
 - Supabase Row Level Security should deny unintended direct client access even though the server uses privileged credentials.
 - The Fastify service is security-sensitive and must validate every external boundary.
 
-## Decision 2: bounded OpenAI decision engine
+## Decision 2: bounded OpenAI agent loop
 
 ### Decision
 
-Create a provider-neutral `DecisionEngine` interface with an OpenAI implementation. Configure the model identifier and prompt version through the environment or an application configuration module.
+Create a provider-neutral conversational-agent interface with an OpenAI Agents SDK implementation. Keep the existing `DecisionEngine` behind an adapter only where it remains useful during migration or for ordinary-question behavior. Configure the model identifier and prompt version through the environment or an application configuration module.
 
-Use the OpenAI Responses API with strict Structured Outputs for actionable turns. Define the schema in TypeScript using the same source used for runtime validation, avoiding drift between application types and the API schema.
+Run a bounded allowlisted agent loop with strict tool schemas and deterministic application validation. One SDK run is one application turn. Cap model/tool turns and wall-clock duration. Disable provider storage and sensitive tracing. The application, not the provider, owns one ephemeral session for each active draft and owner chat.
 
-The decision engine may:
+The agent may use only these capabilities:
 
-- Classify explicit requests, implied intentions, and ordinary questions.
-- Extract commitment fields and corrections.
-- Identify missing information.
-- Decide whether to offer help finding work time.
-- Produce ordinary-question answers and conversational response ingredients.
+- Read the current authoritative structured draft and recent bounded session turns.
+- Propose a draft update that the application validates before any state transition.
+- Request sanitized availability containing free/busy windows but no Calendar titles or full events.
+- Request commitment execution through an SDK interruption that requires explicit human approval and resumes the same serialized run.
 
 It may not:
 
 - Authenticate an owner.
 - Interpret Telegram callback authority.
-- Query Calendar.
-- Calculate free windows.
-- Confirm or persist a commitment.
-- Schedule or send reminders.
+- Write to Postgres or call repository RPCs directly.
+- Receive Calendar titles or full Calendar events.
+- Confirm, persist, schedule, or send anything without the owning application service.
 - Mark a commitment done or cancelled.
-- Choose or execute arbitrary tools.
+- Choose or execute tools outside the allowlist.
+- Bypass callback versions, compare-and-swap transitions, idempotency, or atomic state rules.
+
+Every newly complete promise reaches the application-owned preparation question before confirmation. A positive answer enters the existing duration and work-window flow; a negative answer reaches normal confirmation. The model does not decide whether the question is shown.
+
+The application session has a non-sliding hard TTL and a bounded recent-turn window. It is deleted on confirmation, cancellation, or expiry. A paused approval stores only application-encrypted serialized SDK state bound to the exact session, owner chat, draft id, draft version, and allowlisted tool. An approved binding remains retryable across process interruption for that exact binding, with each owner retap supplying its fresh callback update id to the downstream atomic action. It is deleted only after rejection, successful terminal confirmation, cancellation, or session expiry. No permanent transcript or provider-managed conversation is retained.
 
 ### Rationale
 
-Structured output makes the language boundary inspectable and typed, while deterministic orchestration prevents a plausible model response from becoming authorization. OpenAI's current guidance distinguishes structured response formats from function calling and recommends Structured Outputs over JSON mode when schema adherence is required. See [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+The bounded SDK loop gives normal follow-up turns recent conversational context without giving the model state or authorization ownership. Typed allowlisted tools make every capability explicit. Application validation and human approval prevent a plausible model response or tool request from becoming authorization. Resuming the interrupted SDK run preserves approval continuity without treating a callback as an unrelated conversation turn. See [OpenAI Agents SDK](https://developers.openai.com/api/docs/guides/agents) and [Running agents](https://developers.openai.com/api/docs/guides/agents/running-agents).
 
 ### Validation
 
@@ -112,11 +115,13 @@ Application code must still validate semantic invariants, including:
 - A simple action and a duration-based work session are not represented simultaneously.
 - An implied intention cannot act before permission.
 - An ordinary question cannot mutate product state.
-- Model refusal, incomplete response, timeout, or schema failure produces no consequential action.
+- Model refusal, incomplete response, timeout, schema failure, unapproved tool request, invalid callback, stale version, or expired approval produces no consequential action.
 
 ### Rejected alternatives
 
-- **Open-ended agent loop with model-selected tools:** rejected because authorization and state transitions would be harder to bound and test.
+- **Open-ended agent loop with model-selected or arbitrary tools:** rejected because authorization, data exposure, and state transitions would be harder to bound and test. The selected loop is capped and exposes only application-owned allowlisted capabilities.
+- **Treating confirmation callbacks as unrelated turns:** rejected because it loses the SDK interruption's authority and continuity. Consequential tool approval resumes the exact sealed run bound to the current draft version.
+- **Provider-managed conversation state:** rejected because it weakens application-controlled TTL, deletion, and no-permanent-transcript guarantees.
 - **Plain JSON prompting:** rejected because valid JSON alone does not guarantee schema adherence.
 - **Provider logic spread through routes:** rejected because it makes later provider or model changes invasive.
 
@@ -564,6 +569,8 @@ The dashboard validates the single source of truth without becoming a second com
 - Telegram update identity and processing result.
 - Structured draft state.
 - Validated model decisions and version metadata.
+- Bounded ephemeral owner/assistant turns only while their draft session is active.
+- Application-encrypted pending approval state only until rejection, successful terminal confirmation, cancellation, or session expiry.
 - Commitments, work sessions, scheduled messages, and append-only events.
 - Minimal Calendar-check metadata.
 - Encrypted Google credentials and connection metadata.
@@ -572,8 +579,11 @@ The dashboard validates the single source of truth without becoming a second com
 
 - Complete Telegram webhook payloads.
 - Permanent chat transcripts.
+- Provider-managed conversation state.
 - Chain-of-thought.
 - Unrestricted OpenAI debug traces.
+- Decrypted serialized SDK approval state.
+- Tool-call or tool-output history outside the active ephemeral session.
 - Full Calendar responses.
 - Calendar event titles in product history.
 - Secrets or plaintext refresh tokens.

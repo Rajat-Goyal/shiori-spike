@@ -334,7 +334,7 @@ describe("ConversationService", () => {
     await expect(
       service.handle(7000, "private owner input"),
     ).resolves.toEqual(
-      confirmationSummary(completeFields, {
+      workSessionPlanningOffer(workFields, {
         id: "11111111-1111-4111-8111-111111111111",
         version: 1,
       }),
@@ -395,7 +395,7 @@ describe("ConversationService", () => {
       expect(test.decide).toHaveBeenCalledWith({
         context: { fields: null, phase: "none" },
         ownerText: "private raw owner sentinel",
-      });
+      }, { updateId: 7000 });
       expect(test.repository.commands).toEqual([
         {
           action: "create_draft",
@@ -485,7 +485,7 @@ describe("ConversationService", () => {
         phase: "awaiting_target",
       },
       ownerText: "Tomorrow at 5pm",
-    });
+    }, { updateId: 7021 });
     expect(second.repository.commands[0]).toMatchObject({
       action: "update_draft",
       expected: {
@@ -565,7 +565,7 @@ describe("ConversationService", () => {
         phase: "awaiting_permission",
       },
       ownerText: "Yes",
-    });
+    }, { updateId: 7002 });
     expect(second.repository.commands[0]).toMatchObject({
       action: "accept_permission",
     });

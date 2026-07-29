@@ -125,7 +125,7 @@ When no fitting window remains before the target, Shiori may offer a recovery se
 
 1. The owner sends an explicit commitment request.
 2. Shiori extracts the definition of done and target and asks one concise question for each missing field.
-3. When the commitment appears to need work before the target and no work window was supplied, Shiori asks whether the owner wants help finding time.
+3. For every newly complete promise, Shiori asks whether preparation time is needed.
 4. If the owner agrees, Shiori asks for a supported duration.
 5. Shiori checks primary-Calendar availability.
 6. If the proposed time conflicts, Shiori explains the conflict and offers up to two valid alternatives.
@@ -179,19 +179,25 @@ At the end check-in:
 
 ## Input and decision contract
 
-The decision engine returns strict structured output containing:
+The bounded conversational agent may select only these allowlisted capabilities:
 
-- Input class: `explicit_commitment`, `implied_intention`, or `ordinary_question`.
-- Extracted definition of done.
-- Extracted target and time-zone interpretation.
-- Whether the input describes a simple action or possible duration-based work.
-- Whether to offer help finding a work window.
-- Extracted duration and timing constraints.
-- Missing fields.
-- The next conversational action.
-- A user-facing response or response ingredients.
+- Read the authoritative active structured draft and the recent bounded conversation turns.
+- Propose strict structured output containing:
 
-The model does not authorize actions, query Calendar, choose database writes, schedule messages, or interpret button callbacks. Application code validates the structured decision and performs every consequential transition.
+  - Input class: `explicit_commitment`, `implied_intention`, or `ordinary_question`.
+  - Extracted definition of done.
+  - Extracted target and time-zone interpretation.
+  - Extracted duration and timing constraints.
+  - Missing fields.
+  - The next conversational action.
+  - A user-facing response or response ingredients.
+
+- Request sanitized availability containing only free/busy scheduling results and never Calendar titles or full events.
+- Request commitment execution through a paused tool call that the owner must explicitly approve.
+
+The agent loop is capped and has no arbitrary tools. The model does not authenticate the owner, interpret button authority, write the database, schedule messages, or execute a consequential transition by itself. Application code validates every proposal, callback, draft version, and approval before performing an atomic transition. Approval resumes the same bounded paused run; it is not treated as a new uncorrelated owner turn.
+
+Every newly complete promise reaches an application-owned question asking whether preparation time is needed. Yes enters the existing duration and work-window flow. No reaches the normal confirmation flow. The model does not decide whether to omit this question.
 
 ## Draft rules
 
@@ -398,6 +404,8 @@ Persist:
 - Telegram update IDs and processing status.
 - Structured draft state.
 - Validated model decision, configured model identifier, prompt version, and timestamp.
+- Up to six application-encrypted recent owner/assistant turns for the active draft session, with a non-sliding 24-hour hard expiry.
+- Application-encrypted paused approval state bound to the exact session, owner chat, draft version, and allowlisted tool until it is resolved or expires.
 - Commitments and work sessions.
 - Scheduled-message state.
 - Append-only commitment and work-session events.
@@ -408,7 +416,9 @@ Do not persist:
 
 - Complete Telegram webhook payloads.
 - Permanent Telegram conversation transcripts.
+- Provider-managed conversation state.
 - Model chain-of-thought.
+- Decrypted paused-run state or unbounded tool-call/tool-output history.
 - Full Calendar responses.
 - Calendar event titles in commitment history.
 - Unredacted secrets or OAuth tokens.
@@ -437,16 +447,18 @@ Do not persist:
 - Google OAuth verification or production publishing status.
 - Redis, an external queue, another runtime service, or Calendar-write permissions.
 - Runtime mock data for commitments, sessions, reminders, Calendar state, outcomes, history, or dashboard summaries.
+- Arbitrary or open-ended model-selected tools.
+- Permanent transcripts or agent memory beyond the active encrypted six-turn, 24-hour session.
 
 ## Rabbit holes and patches
 
 ### Model output is structurally valid but wrong
 
-Patch: use strict structured output, validate semantic invariants in application code, require explicit confirmation, and keep consequential actions deterministic.
+Patch: use strict allowlisted tool schemas, validate semantic invariants in application code, require explicit confirmation through a resumable paused run, and keep consequential actions deterministic.
 
 ### Calendar data leaks into model or storage
 
-Patch: calculate availability outside the model, pass only scheduling results to the decision layer, and persist only minimal check metadata.
+Patch: calculate availability in application code, expose only sanitized free/busy scheduling results to the agent, and persist only minimal check metadata.
 
 ### A Calendar suggestion becomes stale
 
@@ -502,7 +514,7 @@ The slice is complete only when deployed verification proves:
 20. Unauthorized Telegram and dashboard access expose no owner data.
 21. The dashboard reflects the same live commitment, work-session, delivery, and outcome state.
 22. Only allowed Calendar fields and read-only scopes are requested or exposed.
-23. Calendar event data is not sent to the model or retained as product history.
+23. Calendar titles and full event objects are not sent to the model or retained as product history; only sanitized free/busy availability may reach the bounded agent.
 24. All verification evidence is recorded in [`evidence.md`](./evidence.md).
 
 ## Definition of shipped

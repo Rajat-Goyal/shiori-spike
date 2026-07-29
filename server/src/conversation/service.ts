@@ -2,6 +2,7 @@ import type {
   DecisionAttemptCount,
   DecisionEngine,
   DecisionOutcome,
+  DecisionTurnCompletion,
   DecisionTelemetryReason,
 } from "../decision/engine.js";
 import type {
@@ -13,6 +14,7 @@ import type {
 import {
   confirmationCopy,
   confirmationSummary,
+  type ConfirmationApprovalPreparation,
   type TelegramReply,
 } from "../confirmation.js";
 import {
@@ -42,6 +44,10 @@ type ConversationServiceOptions = {
   modelId: string;
   onDecisionFailure?: (event: DecisionFailureEvent) => void;
   onDecisionRetryRecovered?: (event: DecisionRetryRecoveredEvent) => void;
+  ownerChatId?: number;
+  prepareApproval?: (
+    request: ConfirmationApprovalPreparation,
+  ) => Promise<boolean>;
   promptVersion: string;
   repository: ConversationRepository;
 };
@@ -244,6 +250,10 @@ export class ConversationService {
   readonly #onDecisionRetryRecovered:
     | ((event: DecisionRetryRecoveredEvent) => void)
     | undefined;
+  readonly #ownerChatId: number | undefined;
+  readonly #prepareApproval:
+    | ConversationServiceOptions["prepareApproval"]
+    | undefined;
   readonly #promptVersion: string;
   readonly #repository: ConversationRepository;
 
@@ -252,6 +262,8 @@ export class ConversationService {
     this.#modelId = options.modelId;
     this.#onDecisionFailure = options.onDecisionFailure;
     this.#onDecisionRetryRecovered = options.onDecisionRetryRecovered;
+    this.#ownerChatId = options.ownerChatId;
+    this.#prepareApproval = options.prepareApproval;
     this.#promptVersion = options.promptVersion;
     this.#repository = options.repository;
   }
@@ -262,6 +274,12 @@ export class ConversationService {
   ): Promise<ConversationReply> {
     const read = await this.#repository.readTurn(updateId);
     if (read.kind === "expired") {
+      await this.#decisionEngine.completeTurn?.({
+        activeDraftId: null,
+        assistantText: conversationCopy.expired,
+        status: "expired",
+        updateId,
+      });
       return conversationCopy.expired;
     }
     if (read.kind === "interrupted") {
@@ -276,6 +294,7 @@ export class ConversationService {
     try {
       outcome = await this.#decisionEngine.decide(
         decisionInput(ownerText, snapshot),
+        { updateId },
       );
     } catch {
       outcome = {
@@ -667,7 +686,110 @@ export class ConversationService {
     expectDraft = false,
   ): Promise<ConversationReply> {
     const result = await this.#repository.applyTurn(command);
-    return this.#copyForApply(result, snapshot, copy, expectDraft);
+    const reply = this.#copyForApply(result, snapshot, copy, expectDraft);
+    await this.#decisionEngine.completeTurn?.(
+      this.#turnCompletion(command, result, snapshot, reply),
+    );
+    if (
+      isCompleteReply(copy) &&
+      result.status === "applied" &&
+      typeof reply !== "string" &&
+      (
+        this.#prepareApproval !== undefined ||
+        this.#ownerChatId !== undefined
+      ) &&
+      reply.actions?.some((item) =>
+        item.callbackData.startsWith("d:")
+      )
+    ) {
+      if (
+        !this.#prepareApproval ||
+        this.#ownerChatId === undefined ||
+        !result.draftReference
+      ) {
+        return { text: confirmationCopy.approvalUnavailable };
+      }
+      let prepared = false;
+      try {
+        prepared = await this.#prepareApproval({
+          chatId: this.#ownerChatId,
+          decision: {
+            commitmentMode: "simple_action",
+            definitionOfDone: copy.completeFields.definitionOfDone,
+            durationMinutes: null,
+            inputClass: "explicit_commitment",
+            missingFields: [],
+            nextAction: "ready",
+            offerWorkWindowHelp: false,
+            response: "",
+            targetAt: copy.completeFields.targetAt,
+            targetTimeZone: "Asia/Singapore",
+            timingConstraints: [],
+            turnRelation: "new_request",
+          },
+          draft: result.draftReference,
+          updateId: command.updateId,
+        });
+      } catch {
+        prepared = false;
+      }
+      if (!prepared) {
+        return { text: confirmationCopy.approvalUnavailable };
+      }
+    }
+    return reply;
+  }
+
+  #turnCompletion(
+    command: ConversationCommand,
+    result: ConversationApplyResult,
+    snapshot: ConversationSnapshot,
+    reply: ConversationReply,
+  ): DecisionTurnCompletion {
+    const assistantText =
+      typeof reply === "string" ? reply : reply.text;
+    const activeDraftId =
+      result.draftReference?.id ??
+      (snapshot.kind === "none" ? null : snapshot.id);
+    if (result.status === "expired") {
+      return {
+        activeDraftId: null,
+        assistantText,
+        status: "expired",
+        updateId: command.updateId,
+      };
+    }
+    if (result.status !== "applied") {
+      return {
+        activeDraftId,
+        assistantText,
+        status: "unchanged",
+        updateId: command.updateId,
+      };
+    }
+    if (command.action === "terminate_permission") {
+      return {
+        activeDraftId: null,
+        assistantText,
+        status: "closed",
+        updateId: command.updateId,
+      };
+    }
+    const opensState = [
+      "accept_permission",
+      "accept_work_permission",
+      "create_draft",
+      "create_permission",
+      "rearm_permission",
+      "update_draft",
+    ].includes(command.action);
+    const keepsState = snapshot.kind !== "none";
+    return {
+      activeDraftId,
+      assistantText,
+      status: opensState || keepsState ? "active" : "ignored",
+      updateId: command.updateId,
+    };
   }
 
   #copyForApply(

@@ -12,11 +12,26 @@ import {
   type DashboardRepository,
   SupabaseDashboardRepository,
 } from "./dashboard.js";
-import { OpenAIDecisionEngine } from "./decision/engine.js";
 import {
   ConfirmationService,
   SupabaseConfirmationRepository,
 } from "./confirmation.js";
+import {
+  AgentApprovedConfirmationService,
+  AgentApprovedWorkSessionService,
+} from "./agent/approved-services.js";
+import { createAgentApprovalGate } from "./agent/approval.js";
+import { SessionBackedAgentDecisionEngine } from "./agent/conversation.js";
+import {
+  type AgentCommitmentExecutionResult,
+  type ApprovedAgentExecutionAuthority,
+  createAgentRuntime,
+} from "./agent/runtime.js";
+import { createAgentSessionCipher } from "./agent/session-crypto.js";
+import {
+  SupabaseAgentApprovalRepository,
+  SupabaseAgentSessionRepository,
+} from "./agent/supabase-session-repository.js";
 import {
   SimpleCommitmentActionService,
   SupabaseSimpleCommitmentActionRepository,
@@ -66,6 +81,7 @@ import {
   registerTelegramWebhook,
   type TelegramUpdateHandler,
 } from "./telegram/webhook.js";
+import type { DecisionResult } from "./decision/schema.js";
 
 export type AppOptions = {
   config: ServerConfig;
@@ -139,9 +155,81 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const workSessionAvailability = (
     request: Parameters<typeof checkCalendarAvailability>[0],
   ) => checkCalendarAvailability(request, calendar);
+  const agentSessionCipher = createAgentSessionCipher(
+    options.config.dashboardSessionSecret,
+  );
+  const agentSessions = new SupabaseAgentSessionRepository({
+    cipher: agentSessionCipher,
+    supabaseSecretKey: options.config.supabaseSecretKey,
+    supabaseUrl: options.config.supabaseUrl,
+  });
+  const agentApprovals = new SupabaseAgentApprovalRepository({
+    supabaseSecretKey: options.config.supabaseSecretKey,
+    supabaseUrl: options.config.supabaseUrl,
+  });
+  let executeApprovedCommitment:
+    | ((
+      authority: ApprovedAgentExecutionAuthority,
+      proposal: DecisionResult,
+    ) => Promise<AgentCommitmentExecutionResult>)
+    | undefined;
+  const agentRuntime = createAgentRuntime({
+    apiKey: options.config.openaiApiKey,
+    executeCommitment: async (authority, proposal) =>
+      executeApprovedCommitment
+        ? executeApprovedCommitment(authority, proposal)
+        : { status: "rejected" },
+    model: options.config.openaiModel,
+    now,
+    requestSanitizedAvailability: async (request) => {
+      const result = await calendar.read({
+        calendarId: "primary",
+        range: {
+          endAt: request.endAt,
+          startAt: request.startAt,
+        },
+      });
+      if (result.status !== "ok") {
+        return [];
+      }
+      const start = Date.parse(request.startAt);
+      const end = Date.parse(request.endAt);
+      const busy = result.busyIntervals.some(
+        (interval) =>
+          Date.parse(interval.startAt) < end &&
+          Date.parse(interval.endAt) > start,
+      );
+      return [{
+        endAt: request.endAt,
+        startAt: request.startAt,
+        status: busy ? "busy" : "free",
+      }];
+    },
+  });
+  const agentApprovalGate = createAgentApprovalGate({
+    approvals: agentApprovals,
+    cipher: agentSessionCipher,
+    runtime: agentRuntime,
+    sessions: agentSessions,
+    telemetry: (event) => {
+      app.log.warn({ event: "agent_approval_gate_failure", reason: event });
+    },
+  });
+  const prepareAgentApproval = async (
+    request: Parameters<typeof agentApprovalGate.prepare>[0],
+  ) => {
+    const result = await agentApprovalGate.prepare(request);
+    return result.kind === "prepared" || result.kind === "replay";
+  };
   const telegramClient = new TelegramBotClient({
     botToken: options.config.telegramBotToken,
   });
+  const workSessionFlowRepository =
+    new SupabaseWorkSessionFlowRepository({
+      ownerId: options.config.telegramOwnerUserId,
+      supabaseSecretKey: options.config.supabaseSecretKey,
+      supabaseUrl: options.config.supabaseUrl,
+    });
   const workSessionFlow = new WorkSessionFlow({
     availability: workSessionAvailability,
     committer: new SupabaseWorkSessionCommitter({
@@ -150,11 +238,60 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       supabaseUrl: options.config.supabaseUrl,
     }),
     now,
-    repository: new SupabaseWorkSessionFlowRepository({
+    prepareApproval: prepareAgentApproval,
+    repository: workSessionFlowRepository,
+  });
+  const rawConfirmationService = new ConfirmationService({
+    prepareApproval: prepareAgentApproval,
+    repository: new SupabaseConfirmationRepository({
       ownerId: options.config.telegramOwnerUserId,
       supabaseSecretKey: options.config.supabaseSecretKey,
       supabaseUrl: options.config.supabaseUrl,
     }),
+  });
+  executeApprovedCommitment = async (authority, proposal) => {
+    let reply: Awaited<
+      ReturnType<ConfirmationService["handle"]>
+    >;
+    if (proposal.commitmentMode === "simple_action") {
+      reply = await rawConfirmationService.handle(
+        authority.updateId,
+        authority.chatId,
+        `d:${authority.draftId}:${authority.draftVersion}:confirm`,
+      );
+    } else {
+      const read = await workSessionFlowRepository.read({
+        id: authority.draftId,
+        version: authority.draftVersion,
+      });
+      if (
+        read.kind !== "current" ||
+        ![
+          "confirming",
+          "conflict_confirming",
+          "unverified_confirming",
+        ].includes(read.snapshot.stage)
+      ) {
+        return { status: "rejected" };
+      }
+      const action =
+        read.snapshot.stage === "unverified_confirming"
+          ? "save_unverified"
+          : "confirm";
+      reply = await workSessionFlow.handle(
+        authority.updateId,
+        authority.chatId,
+        `w:${authority.draftId}:${authority.draftVersion}:${action}`,
+      );
+    }
+    return reply
+      ? { reply, status: "executed" }
+      : { status: "replay" };
+  };
+  const approvedWorkSessionFlow = new AgentApprovedWorkSessionService({
+    gate: agentApprovalGate,
+    service: workSessionFlow,
+    sessions: agentSessions,
   });
   const workSessionOutcomeService = new WorkSessionOutcomeService({
     repository: new SupabaseWorkSessionOutcomeRepository({
@@ -177,19 +314,19 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     options.telegramService ??
     new TelegramService({
       client: telegramClient,
-      confirmationService: new ConfirmationService({
-        repository: new SupabaseConfirmationRepository({
-          ownerId: options.config.telegramOwnerUserId,
-          supabaseSecretKey: options.config.supabaseSecretKey,
-          supabaseUrl: options.config.supabaseUrl,
-        }),
+      confirmationService: new AgentApprovedConfirmationService({
+        gate: agentApprovalGate,
+        service: rawConfirmationService,
+        sessions: agentSessions,
       }),
       conversationService: new ConversationService({
-        decisionEngine: new OpenAIDecisionEngine({
-          apiKey: options.config.openaiApiKey,
-          model: options.config.openaiModel,
-          now,
-          promptVersion: options.config.openaiPromptVersion,
+        decisionEngine: new SessionBackedAgentDecisionEngine({
+          chatId: options.config.telegramOwnerUserId,
+          onContinuityFailure: (event) => {
+            app.log.warn(event);
+          },
+          repository: agentSessions,
+          runtime: agentRuntime,
         }),
         modelId: options.config.openaiModel,
         onDecisionFailure: (event) => {
@@ -198,6 +335,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
         onDecisionRetryRecovered: (event) => {
           app.log.warn(event);
         },
+        ownerChatId: options.config.telegramOwnerUserId,
+        prepareApproval: prepareAgentApproval,
         promptVersion: options.config.openaiPromptVersion,
         repository: new SupabaseConversationRepository({
           supabaseSecretKey: options.config.supabaseSecretKey,
@@ -244,7 +383,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
               callbackData,
             );
           }
-          return workSessionFlow.handle(
+          return approvedWorkSessionFlow.handle(
             updateId,
             chatId,
             callbackData,
