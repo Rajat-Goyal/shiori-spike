@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-29T09:28:52Z",
+  "candidate": {
+    "deploymentId": "5ca19ffa-aa5c-4669-8275-0c591ca31bdc",
+    "deploymentStatus": "SUCCESS",
+    "createdAt": "2026-07-29T09:25:34.964Z",
+    "imageDigest": "sha256:08c4da49a78b0e8b05fab3e6c72994dbb9430e4fbf47dca639cdfc2752ba3805",
+    "projectId": "d8806797-6bb9-495b-8e10-b13122a6eff6",
+    "environmentId": "0a533591-3fce-4904-8fb3-84d0f52346e7",
+    "serviceId": "85bc7677-b070-43ce-8ae1-e2c65241a721",
+    "serviceName": "shiori-slice-01",
+    "domain": "shiori-slice-01-production.up.railway.app",
+    "activeDeploymentCount": 1,
+    "replicas": 1,
+    "instanceId": "8bfd0afc-1a40-475c-83d3-9092397dee7b",
+    "instanceStatus": "RUNNING",
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "/Dockerfile"
+  },
+  "exactSource": {
+    "branch": "shiori-spike-slice-impl-story-setup",
+    "commit": "adfaf3dfd3fa394dc8a390887b680ada8db1d1c8",
+    "tree": "00c2645a95485f126a38fbec025eb5d9879ea645",
+    "archiveSha256": "aff78a71cf0a093ef6e2e83563f8ab08a0affe3efe6bc5df82cb6b82b701cd1d",
+    "dockerfileSha256": "5c210e4aff74fd83650322fc619e2b912731c1dee48906d6a58e8681bfb326fc",
+    "lockfileSha256": "5b9c451a7d7255328c0a480867430e78ac8edcfa4db7fcd7a2014cc110e0a041",
+    "cleanBeforeUpload": true,
+    "upstreamMatchedBeforeUpload": true,
+    "uploadType": "cli_archive",
+    "auditLabelPinnedFullCommitArchiveAndMigrationCeiling": true,
+    "railwayCommitMetadataAvailable": false
+  },
+  "hostedSupabase": {
+    "credentialRedacted": true,
+    "preApplyLedgerThrough": "20260725062000",
+    "dryRunPending": [
+      "20260729010000",
+      "20260729011000",
+      "20260729012000"
+    ],
+    "applied": [
+      {
+        "file": "20260729010000_add_ephemeral_agent_sessions.sql",
+        "sha256": "e63f7ee129aca4a8b9bd302b0a7c1d7c75f49ba3db04090e1e3ce259211a8409",
+        "version": "20260729010000"
+      },
+      {
+        "file": "20260729011000_decline_work_session_preparation.sql",
+        "sha256": "6e07b522559989b02778144c6fe5bc2c33d55198367ae32e5264ecac1056c06c",
+        "version": "20260729011000"
+      },
+      {
+        "file": "20260729012000_make_agent_approval_claim_retryable.sql",
+        "sha256": "eecfa4b77a555011b0278d894bc361593d2072c1b9f6e86fc27d1c9082936368",
+        "version": "20260729012000"
+      }
+    ],
+    "postApplyLedgerVerified": true,
+    "schemaVerification": {
+      "tables": [
+        "agent_approval_update_receipts",
+        "agent_pending_approvals",
+        "agent_session_turns",
+        "agent_sessions"
+      ],
+      "functions": [
+        "decline_work_session_preparation",
+        "read_agent_session",
+        "record_agent_session_turn",
+        "resolve_agent_approval"
+      ],
+      "rlsEnabledForCheckedTables": true,
+      "approvedUpdateIdPresent": true,
+      "agentSessionTurnColumns": [
+        "session_id",
+        "turn_index",
+        "update_id",
+        "sealed_turn",
+        "recorded_at"
+      ]
+    }
+  },
+  "publicHealth": {
+    "health": {
+      "body": {
+        "status": "ok"
+      },
+      "observedAt": "2026-07-29T09:26:51Z",
+      "status": 200
+    },
+    "ping": {
+      "body": {
+        "message": "pong"
+      },
+      "observedAt": "2026-07-29T09:26:59Z",
+      "status": 200
+    },
+    "httpLogs": {
+      "deploymentBound": true,
+      "healthDurationMs": 33,
+      "pingDurationMs": 28,
+      "requestsObserved": 2,
+      "statusAtLeast400Count": 0
+    }
+  },
+  "runtimeLogs": {
+    "bounded": true,
+    "containerStarted": true,
+    "serverListeningPort": 8080,
+    "unexpectedErrorCount": 0,
+    "expectedWarnings": [
+      "../.env.local not found. Continuing without it."
+    ],
+    "expectedWarningReason": "The production container uses Railway-injected variables and intentionally does not contain the ignored local environment file."
+  },
+  "isolation": {
+    "legacyServiceId": "15ab9853-c3ea-4387-8486-254e60204693",
+    "legacyServiceName": "shiori-spike",
+    "legacyLatestDeploymentId": "9b84a803-d165-4680-8f02-ea7a5896cbe2",
+    "legacyLatestDeploymentCreatedAt": "2026-07-26T14:58:54.776Z",
+    "legacyLatestDeploymentStatus": "SUCCESS",
+    "legacyServiceMutation": false,
+    "prohibitedActionsPerformed": []
+  },
+  "variance": [
+    "Railway CLI archive uploads expose no native Git commit field; the clean source identity, archive digest, and deployment audit label pin the released commit.",
+    "The startup command logs the absent optional local env file at error level before continuing; bounded runtime and HTTP evidence confirm this is non-fatal in Railway."
+  ]
+}
