@@ -682,7 +682,6 @@ begin
     if
       existing_receipt.chat_id <> p_chat_id
       or existing_receipt.session_id <> p_session_id
-      or existing_receipt.item_id <> p_item_id
     then
       return jsonb_build_object('kind', 'stale');
     end if;
