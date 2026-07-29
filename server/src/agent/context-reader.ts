@@ -13,19 +13,29 @@ const AMBIGUITY_CANDIDATE_LIMIT = 5;
 const AMBIGUITY_STOP_WORDS = new Set([
   "and",
   "change",
+  "friday",
   "edit",
   "for",
   "from",
   "make",
   "move",
+  "monday",
+  "one",
   "please",
   "reschedule",
   "set",
+  "saturday",
+  "sunday",
   "that",
   "the",
   "this",
+  "thursday",
   "to",
+  "today",
+  "tomorrow",
+  "tuesday",
   "update",
+  "wednesday",
   "with",
 ]);
 
@@ -402,38 +412,51 @@ function ambiguity(
           token.length >= 3 && !AMBIGUITY_STOP_WORDS.has(token),
       ) ?? [],
   );
-  const plausible = (label: string): boolean => {
+  const score = (label: string): number => {
     const normalizedLabel = label.toLocaleLowerCase("en");
-    if (normalizedLabel.includes(normalized)) {
-      return true;
-    }
     const labelTokens = new Set(
-      normalizedLabel.match(/[a-z0-9]+/g) ?? [],
+      (normalizedLabel.match(/[a-z0-9]+/g) ?? []).filter(
+        (token) =>
+          token.length >= 3 && !AMBIGUITY_STOP_WORDS.has(token),
+      ),
     );
-    return [...queryTokens].some((token) => labelTokens.has(token));
+    return [...queryTokens].filter((token) => labelTokens.has(token))
+      .length;
   };
-  const candidates: AgentAmbiguityCandidate[] = [
+  const scored: Array<{
+    candidate: AgentAmbiguityCandidate;
+    score: number;
+  }> = [
     ...drafts
       .filter(
         (draft) =>
-          draft.definitionOfDone !== null &&
-          plausible(draft.definitionOfDone),
+          draft.definitionOfDone !== null,
       )
       .map((draft) => ({
-        id: draft.id,
-        kind: "draft" as const,
-        label: draft.definitionOfDone as string,
-        version: draft.version,
+        candidate: {
+          id: draft.id,
+          kind: "draft" as const,
+          label: draft.definitionOfDone as string,
+          version: draft.version,
+        },
+        score: score(draft.definitionOfDone as string),
       })),
     ...commitments
-      .filter((commitment) => plausible(commitment.definitionOfDone))
       .map((commitment) => ({
-        id: commitment.id,
-        kind: "commitment" as const,
-        label: commitment.definitionOfDone,
-        version: commitment.version,
+        candidate: {
+          id: commitment.id,
+          kind: "commitment" as const,
+          label: commitment.definitionOfDone,
+          version: commitment.version,
+        },
+        score: score(commitment.definitionOfDone),
       })),
-  ].slice(0, AMBIGUITY_CANDIDATE_LIMIT);
+  ];
+  const highest = Math.max(0, ...scored.map((item) => item.score));
+  const candidates = scored
+    .filter((item) => highest > 0 && item.score === highest)
+    .slice(0, AMBIGUITY_CANDIDATE_LIMIT)
+    .map((item) => item.candidate);
   return candidates.length > 1
     ? { candidates, query: normalized }
     : null;

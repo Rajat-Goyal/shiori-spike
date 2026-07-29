@@ -209,6 +209,42 @@ describe("SupabaseAgentContextReader", () => {
     });
   });
 
+  it("does not override a unique highest meaningful-token match with a lower-scoring report", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json(
+        response({
+          commitments: [
+            {
+              definitionOfDone: "Send the annual report",
+              id: ids.commitment1,
+              status: "active",
+              targetAt: "2026-08-01T02:00:00.000Z",
+              version: 1,
+            },
+            {
+              definitionOfDone: "Review the finance report",
+              id: ids.commitment2,
+              status: "active",
+              targetAt: "2026-08-02T02:00:00.000Z",
+              version: 2,
+            },
+          ],
+          drafts: [],
+        }),
+      )
+    );
+
+    const context = await reader(
+      fetchFromSupabase as typeof fetch,
+    ).readProductContext({
+      chatId: ownerId,
+      focusedEntityId: null,
+      query: "Move the finance report to Friday",
+    });
+
+    expect(context.ambiguity).toBeNull();
+  });
+
   it("omits an expired parked draft from lists, exact focus, and ambiguity", async () => {
     const expiredDraft = {
       definitionOfDone: "Send the expired report",
