@@ -40,6 +40,21 @@ async function rows(
   return value as Array<Record<string, unknown>>;
 }
 
+async function rpc(
+  supabaseUrl: string,
+  secretKey: string,
+  name: string,
+  body: Record<string, unknown>,
+): Promise<unknown> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, {
+    body: JSON.stringify(body),
+    headers: supabaseHeaders(secretKey, "application/json"),
+    method: "POST",
+  });
+  expect(response.ok).toBe(true);
+  return response.json();
+}
+
 function persistence() {
   const config = localConfig();
   const cipher = createAgentSessionCipher(
@@ -222,7 +237,7 @@ describe("local Supabase ephemeral agent persistence", () => {
     ).toHaveLength(11);
   });
 
-  it("binds one opaque approval to the exact live session and deletes it on every terminal path", async () => {
+  it("retries one exact approval and deletes it only on terminal paths", async () => {
     const { approval, config, session } = persistence();
     const identity = identities();
     const created = await session.recordTurn({
@@ -342,22 +357,67 @@ describe("local Supabase ephemeral agent persistence", () => {
     if (restaged.kind !== "staged") {
       throw new Error("approval did not restage");
     }
-    await expect(
-      approval.resolve({
-        approvalId: restaged.approval.id,
-        approvalVersion: restaged.approval.version,
-        chatId: identity.chatId,
-        decision: "approve",
-        draftId: identity.draftId,
-        draftVersion: 7,
-        toolName: "execute_commitment",
-        updateId: identity.updateId + 4,
-      }),
-    ).resolves.toEqual({
+    const approveCommand = {
+      approvalId: restaged.approval.id,
+      approvalVersion: restaged.approval.version,
+      chatId: identity.chatId,
+      decision: "approve",
+      draftId: identity.draftId,
+      draftVersion: 7,
+      toolName: "execute_commitment",
+      updateId: identity.updateId + 4,
+    } as const;
+    const claimed = {
       kind: "claimed",
       sealedRunState,
       sessionId: created.session.id,
-    });
+    } as const;
+    await expect(approval.resolve(approveCommand)).resolves.toEqual(claimed);
+    await expect(approval.resolve(approveCommand)).resolves.toEqual(claimed);
+    await expect(
+      approval.resolve({
+        ...approveCommand,
+        updateId: identity.updateId + 5,
+      }),
+    ).resolves.toEqual(claimed);
+    await expect(
+      approval.resolve({
+        ...approveCommand,
+        decision: "reject",
+        updateId: identity.updateId + 6,
+      }),
+    ).resolves.toEqual({ kind: "stale" });
+    await expect(
+      approval.resolve({
+        ...approveCommand,
+        draftVersion: 8,
+        updateId: identity.updateId + 7,
+      }),
+    ).resolves.toEqual({ kind: "stale" });
+    await expect(
+      approval.resolve({
+        ...approveCommand,
+        chatId: identity.chatId + 1,
+        updateId: identity.updateId + 8,
+      }),
+    ).resolves.toEqual({ kind: "stale" });
+    await expect(
+      rpc(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "resolve_agent_approval",
+        {
+          p_approval_id: approveCommand.approvalId,
+          p_approval_version: approveCommand.approvalVersion,
+          p_chat_id: approveCommand.chatId,
+          p_decision: "approve",
+          p_draft_id: approveCommand.draftId,
+          p_draft_version: approveCommand.draftVersion,
+          p_tool_name: "read_calendar",
+          p_update_id: identity.updateId + 9,
+        },
+      ),
+    ).resolves.toEqual({ kind: "stale" });
     await expect(
       approval.read(
         identity.chatId,
@@ -365,11 +425,30 @@ describe("local Supabase ephemeral agent persistence", () => {
         7,
         "execute_commitment",
       ),
-    ).resolves.toEqual({ kind: "missing" });
+    ).resolves.toEqual({
+      approval: restaged.approval,
+      kind: "current",
+    });
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "agent_pending_approvals",
+        `&id=eq.${restaged.approval.id}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        approved_update_id: identity.updateId + 4,
+        sealed_run_state: sealedRunState,
+      }),
+    ]);
+    await expect(
+      approval.clearForSession(created.session.id, "confirmed"),
+    ).resolves.toBeUndefined();
 
     const cleared = await approval.stage({
       ...stageCommand,
-      updateId: identity.updateId + 5,
+      updateId: identity.updateId + 10,
     });
     expect(cleared.kind).toBe("staged");
     await expect(
@@ -384,18 +463,45 @@ describe("local Supabase ephemeral agent persistence", () => {
       ),
     ).toEqual([]);
 
+    const sessionBound = await approval.stage({
+      ...stageCommand,
+      updateId: identity.updateId + 11,
+    });
+    expect(sessionBound.kind).toBe("staged");
+    if (sessionBound.kind !== "staged") {
+      throw new Error("session-bound approval did not stage");
+    }
+    const changedSession = await session.recordTurn({
+      activeDraftId: crypto.randomUUID(),
+      assistantText: "Changed active draft",
+      chatId: identity.chatId,
+      expected: {
+        id: created.session.id,
+        kind: "active",
+        version: created.session.version,
+      },
+      ownerText: "Change session binding",
+      updateId: identity.updateId + 30,
+    });
+    expect(changedSession.kind).toBe("applied");
     await expect(
-      approval.stage({
-        ...stageCommand,
-        updateId: identity.updateId + 6,
+      approval.resolve({
+        approvalId: sessionBound.approval.id,
+        approvalVersion: sessionBound.approval.version,
+        chatId: identity.chatId,
+        decision: "approve",
+        draftId: identity.draftId,
+        draftVersion: 7,
+        toolName: "execute_commitment",
+        updateId: identity.updateId + 12,
       }),
-    ).resolves.toMatchObject({ kind: "staged" });
+    ).resolves.toEqual({ kind: "stale" });
     await expect(
       session.clear({
         chatId: identity.chatId,
         expectedSessionId: created.session.id,
         reason: "confirmed",
-        updateId: identity.updateId + 7,
+        updateId: identity.updateId + 13,
       }),
     ).resolves.toEqual({ kind: "cleared" });
     expect(

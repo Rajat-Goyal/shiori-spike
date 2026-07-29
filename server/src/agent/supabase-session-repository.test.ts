@@ -339,6 +339,11 @@ describe("SupabaseAgentApprovalRepository", () => {
         sealedRunState: approval.sealedRunState,
         sessionId,
       },
+      {
+        kind: "claimed",
+        sealedRunState: approval.sealedRunState,
+        sessionId,
+      },
       { kind: "rejected" },
       { kind: "replay" },
     ];
@@ -365,14 +370,21 @@ describe("SupabaseAgentApprovalRepository", () => {
       sessionId,
     });
     await expect(
+      repository.resolve({ ...command, updateId: 53 }),
+    ).resolves.toEqual({
+      kind: "claimed",
+      sealedRunState: approval.sealedRunState,
+      sessionId,
+    });
+    await expect(
       repository.resolve({
         ...command,
         decision: "reject",
-        updateId: 53,
+        updateId: 54,
       }),
     ).resolves.toEqual({ kind: "rejected" });
     await expect(
-      repository.resolve({ ...command, updateId: 54 }),
+      repository.resolve({ ...command, updateId: 55 }),
     ).resolves.toEqual({ kind: "replay" });
   });
 
