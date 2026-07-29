@@ -1,0 +1,166 @@
+{
+  "story_id": "S01-03a",
+  "captured_at": "2026-07-29T09:16:41Z",
+  "repair_commit": "750ef6cabdc3a419bbe1374c288e628e53d7f1b5",
+  "result": "pass",
+  "blocker_status": "closed",
+  "prior_blocker": {
+    "evidence": "evidence/S01-03a/agent-runtime-story-level-qa.json",
+    "evidence_commit": "244c764",
+    "finding": "Newly complete simple actions bypassed the mandatory preparation question and exposed direct confirmation."
+  },
+  "diff_scope": {
+    "result": "pass",
+    "files": [
+      "server/src/conversation/service.ts",
+      "server/src/telegram/conversation.test.ts"
+    ],
+    "file_count": 2,
+    "runtime_dependency_changed": false,
+    "migration_changed": false,
+    "configuration_changed": false,
+    "database_repository_changed": false,
+    "agent_runtime_changed": false
+  },
+  "transition_verification": [
+    {
+      "case": "new_explicit_complete",
+      "result": "pass",
+      "persistence": {
+        "action": "create_draft",
+        "phase": "complete",
+        "stored_mode": "possible_work_session"
+      },
+      "copy": {
+        "type": "preparation_offer",
+        "actions": [
+          "Help me find time",
+          "I’ll choose a time",
+          "No preparation needed",
+          "Cancel"
+        ],
+        "direct_confirm_present": false
+      }
+    },
+    {
+      "case": "accepted_implied_complete",
+      "result": "pass",
+      "persistence": {
+        "action": "accept_work_permission",
+        "phase": "complete",
+        "stored_mode": "possible_work_session",
+        "candidate_copy_verified_before_transition": true
+      },
+      "copy": {
+        "type": "preparation_offer",
+        "target_reasked": false,
+        "direct_confirm_present": false
+      }
+    },
+    {
+      "case": "incomplete_to_complete",
+      "result": "pass",
+      "persistence": {
+        "action": "update_draft",
+        "phase": "complete",
+        "stored_mode": "possible_work_session",
+        "version_bound": true
+      },
+      "copy": {
+        "type": "preparation_offer",
+        "direct_confirm_present": false
+      }
+    },
+    {
+      "case": "already_complete_simple_after_no_preparation",
+      "result": "pass",
+      "persistence": {
+        "action": "update_draft",
+        "phase": "complete",
+        "authoritative_mode_retained": "simple_action",
+        "opposite_model_mode_ignored": true
+      },
+      "copy": {
+        "type": "direct_versioned_confirmation",
+        "actions": [
+          "Confirm",
+          "Cancel"
+        ],
+        "preparation_repeated": false
+      }
+    },
+    {
+      "case": "already_complete_possible_work",
+      "result": "pass",
+      "persistence": {
+        "action": "update_draft",
+        "phase": "complete",
+        "authoritative_mode_retained": "possible_work_session",
+        "opposite_model_mode_ignored": true
+      },
+      "copy": {
+        "type": "preparation_offer",
+        "direct_confirm_present": false
+      }
+    }
+  ],
+  "regression_safety": {
+    "result": "pass",
+    "verified": [
+      "Incomplete definitions and targets retain their original incomplete phases and copy.",
+      "Preparation routing is determined by the application-owned transition and persisted authoritative mode, not model prose.",
+      "Exact stored permission candidates are still required before acceptance.",
+      "Post-No-preparation simple drafts do not loop back into preparation.",
+      "Possible-work drafts cannot be downgraded by an opposite model proposal.",
+      "Approval, raw-confirmation protection, Agents runtime, and confirmation tests remain green."
+    ]
+  },
+  "verification_commands": [
+    {
+      "command": "npm run test --workspace @shiori/server -- src/telegram/conversation.test.ts src/work-sessions/flow.test.ts src/agent/approval.test.ts src/agent/approved-services.test.ts src/agent/runtime.test.ts src/telegram/confirmation.test.ts",
+      "result": "pass",
+      "test_files_passed": 6,
+      "tests_passed": 120
+    },
+    {
+      "command": "npm run check",
+      "result": "pass",
+      "typecheck": "pass",
+      "server_test_files_passed": 30,
+      "server_tests_passed": 454,
+      "release_verifier_tests_passed": 22,
+      "web_build": "pass",
+      "server_build": "pass",
+      "browser_tests_passed": 50
+    }
+  ],
+  "reused_unchanged_evidence": {
+    "source": "evidence/S01-03a/agent-runtime-story-level-qa.json",
+    "reason": "The repair changes only ConversationService and its unit tests; agent runtime, persistence, migrations, database repositories, and configuration are unchanged.",
+    "local_supabase_reset": {
+      "result": "pass",
+      "migrations_applied": 20
+    },
+    "database_suite": {
+      "result": "pass",
+      "test_files_passed": 11,
+      "tests_passed": 30
+    },
+    "sanitized_live_agents_sdk_smoke": {
+      "result": "pass",
+      "normal_decision_tool_accepted": true,
+      "prepared_approval_interruption": true,
+      "executor_calls": 0,
+      "availability_calls": 0
+    }
+  },
+  "qa_actions": {
+    "source_edited": false,
+    "prior_evidence_rewritten": false,
+    "state_files_edited": false,
+    "environment_file_edited": false,
+    "database_mutated": false,
+    "production_deployed": false,
+    "evidence_only_commit_planned": true
+  }
+}
