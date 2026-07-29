@@ -1,0 +1,489 @@
+{
+  "slice": "02-a-conversation-that-holds-together",
+  "generated_at": "2026-07-29T16:54:11Z",
+  "source_docs": [
+    "docs/product-slices/02-a-conversation-that-holds-together/scope.md",
+    "docs/product-slices/02-a-conversation-that-holds-together/adr.md",
+    "docs/product.md",
+    "README.md",
+    "AGENTS.md",
+    "package.json"
+  ],
+  "stories": [
+    {
+      "id": "S02-01",
+      "title": "Persist one durable agent session",
+      "user_story": "As the Telegram owner, I want Shiori to retain the conversation across turns and restarts, so that follow-up answers keep their meaning.",
+      "why_now": "This is the walking skeleton and replaces the six-turn manual replay with the chosen Agents SDK session strategy.",
+      "scope_refs": [
+        "Scope §One application-owned session",
+        "Scope §Context",
+        "ADR Decisions 1, 3, and 8"
+      ],
+      "in_scope": [
+        "Implement an application-owned Agents SDK session backed by encrypted Supabase persistence.",
+        "Store SDK-compatible conversation items, relevant callback choices, pending questions, compaction checkpoints, and opaque history cursors.",
+        "Use the same session across bounded owner turns and service restarts while keeping provider storage disabled.",
+        "Provide owner reset/forget semantics without deleting commitments or product audit events."
+      ],
+      "out_of_scope": [
+        "Provider-managed Conversations or previous-response chaining.",
+        "Commitment editing or multiple-draft behavior.",
+        "Automatic behavioural memory."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "an owner conversation with more than six turns",
+          "when": "the service processes another turn",
+          "then": "the durable session remains coherent without deleting the seventh or older required turn."
+        },
+        {
+          "id": "AC2",
+          "given": "a persisted active session",
+          "when": "the service restarts",
+          "then": "the next owner message continues through the same session."
+        },
+        {
+          "id": "AC3",
+          "given": "older history outside the working context",
+          "when": "history is requested with its opaque cursor",
+          "then": "a bounded non-duplicated page is returned with an accurate continuation cursor."
+        },
+        {
+          "id": "AC4",
+          "given": "persisted conversation and paused state",
+          "when": "storage is inspected",
+          "then": "content is application-encrypted and provider storage remains disabled."
+        },
+        {
+          "id": "AC5",
+          "given": "an authenticated owner reset or forget request",
+          "when": "it succeeds",
+          "then": "conversation context is closed or deleted without deleting authoritative commitments or events."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/agent",
+          "npm run typecheck:server"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S02-01/durable-session.txt"
+          }
+        ],
+        "done_when": "A reviewer can restart the service, continue a conversation beyond six turns, page older context, and verify encrypted application-owned storage."
+      },
+      "depends_on": [],
+      "blocks": [
+        "S02-02",
+        "S02-05"
+      ],
+      "squad": {
+        "type": "agent-session",
+        "members": [
+          "staff-engineer"
+        ],
+        "rationale": "The story is a persistence and SDK lifecycle seam and is best owned end-to-end by one engineer before integrated QA."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/02-a-conversation-that-holds-together/scope.md",
+          "docs/product-slices/02-a-conversation-that-holds-together/adr.md",
+          "server/src/agent/session.ts",
+          "server/src/agent/supabase-session-repository.ts",
+          "server/src/agent/session-crypto.ts",
+          "server/src/agent/runtime.ts",
+          "supabase/migrations"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S02-02",
+      "title": "Unify conversational focus and tools",
+      "user_story": "As the owner, I want every typed reply to stay with the conversation I am having, so that I can answer naturally or begin another promise without losing work.",
+      "why_now": "The durable session becomes useful only when all text uses one orchestrator with authoritative focus and context.",
+      "scope_refs": [
+        "Scope §Conversation contract",
+        "Scope §Focus and ambiguity",
+        "Scope §Tool boundary",
+        "ADR Decisions 2, 4, and 5"
+      ],
+      "in_scope": [
+        "Route every typed Telegram message through one conversational agent.",
+        "Expose authoritative pending interaction, callback choice, draft, commitment, work-session, and outcome context.",
+        "Add bounded typed history and product read tools.",
+        "Allow multiple drafts with one exact focused entity per turn.",
+        "Ask for clarification without mutation when an entity reference is ambiguous.",
+        "Let the agent author ordinary answers and follow-up questions."
+      ],
+      "out_of_scope": [
+        "Consequential commitment editing.",
+        "Recurring commitments or automatic memory.",
+        "Calendar writes."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a focused draft awaiting a preparation or timing answer",
+          "when": "the owner supplies that answer as text",
+          "then": "the unified agent advances the same exact draft."
+        },
+        {
+          "id": "AC2",
+          "given": "one existing draft",
+          "when": "the owner clearly starts a separate promise",
+          "then": "a second draft is created and the first is not overwritten."
+        },
+        {
+          "id": "AC3",
+          "given": "two plausible target entities",
+          "when": "the owner uses an ambiguous reference",
+          "then": "the agent asks which entity is intended and no mutation occurs."
+        },
+        {
+          "id": "AC4",
+          "given": "an ordinary question during an active commitment conversation",
+          "when": "the owner asks it",
+          "then": "the agent answers naturally and preserves the current focus and product state."
+        },
+        {
+          "id": "AC5",
+          "given": "a callback-generated question and owner choice",
+          "when": "the next text run begins",
+          "then": "both are available in structured conversational context."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/agent src/telegram",
+          "npm run typecheck:server"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S02-02/unified-conversation.txt"
+          }
+        ],
+        "done_when": "A reviewer can continue preparation, start a second draft, resolve ambiguity, and ask an ordinary question through the same agent without unintended mutation."
+      },
+      "depends_on": [
+        "S02-01"
+      ],
+      "blocks": [
+        "S02-03",
+        "S02-04",
+        "S02-05"
+      ],
+      "squad": {
+        "type": "agent-orchestration",
+        "members": [
+          "staff-engineer"
+        ],
+        "rationale": "One engineer should own the text-routing and tool-context seam to avoid reintroducing competing conversational flows."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/02-a-conversation-that-holds-together/scope.md",
+          "docs/product-slices/02-a-conversation-that-holds-together/adr.md",
+          "server/src/app.ts",
+          "server/src/agent/conversation.ts",
+          "server/src/agent/runtime.ts",
+          "server/src/conversation/service.ts",
+          "server/src/work-sessions/flow.ts"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S02-03",
+      "title": "Approve creation and commitment edits",
+      "user_story": "As the owner, I want to approve a new promise or a correction to an existing one, so that Shiori changes exactly what I reviewed.",
+      "why_now": "The unified agent needs consequential tools that pause and resume the same run rather than launching a disconnected execution conversation.",
+      "scope_refs": [
+        "Scope §Draft and commitment rules",
+        "ADR Decisions 4, 6, 7, and 9"
+      ],
+      "in_scope": [
+        "Make creation and material commitment edits exact approval-gated tools in the conversational run.",
+        "Resume the same encrypted paused run after a bound owner approval.",
+        "Support definition, target, preparation, and next-work-session edits where the current commitment lifecycle permits.",
+        "Recheck Calendar for relevant time changes and atomically replace obsolete unsent schedules.",
+        "Preserve version, stale-action, replay, and idempotency guarantees."
+      ],
+      "out_of_scope": [
+        "Reopening terminal commitments.",
+        "Recurring commitments.",
+        "Calendar writes."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a complete exact draft",
+          "when": "the agent requests creation",
+          "then": "the same run pauses, the owner sees an application-owned preview, and nothing consequential exists before approval."
+        },
+        {
+          "id": "AC2",
+          "given": "an approved exact creation interruption",
+          "when": "the run resumes",
+          "then": "one commitment and its correct schedules and events are created atomically."
+        },
+        {
+          "id": "AC3",
+          "given": "an active commitment and an owner-requested material correction",
+          "when": "the owner approves the exact current version",
+          "then": "the commitment and affected unsent schedules update atomically with an append-only change event."
+        },
+        {
+          "id": "AC4",
+          "given": "a time-changing edit that requires Calendar validation",
+          "when": "the edit is approved",
+          "then": "availability is rechecked and conflict or unverified-save policy is applied before mutation."
+        },
+        {
+          "id": "AC5",
+          "given": "a rejected, stale, replayed, mismatched, or interrupted approval",
+          "when": "it is processed",
+          "then": "it cannot duplicate or mutate a different entity or version."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/agent src/commitments src/work-sessions",
+          "npm run test:db",
+          "npm run typecheck:server"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S02-03/approval-and-edit.txt"
+          }
+        ],
+        "done_when": "A reviewer can approve one exact creation and one exact edit, observe correct schedules and events, and prove all stale and replay cases are harmless."
+      },
+      "depends_on": [
+        "S02-02"
+      ],
+      "blocks": [
+        "S02-05"
+      ],
+      "squad": {
+        "type": "domain-transactions",
+        "members": [
+          "staff-engineer"
+        ],
+        "rationale": "The story combines SDK approval authority with transactional domain updates and needs one engineer accountable for the complete boundary."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/02-a-conversation-that-holds-together/adr.md",
+          "server/src/agent/approval.ts",
+          "server/src/agent/approved-services.ts",
+          "server/src/commitments/simple-action.ts",
+          "server/src/work-sessions/confirm.ts",
+          "server/src/work-sessions/flow-repository.ts",
+          "supabase/migrations"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S02-04",
+      "title": "Complete flexible preparation conversations",
+      "user_story": "As the owner, I want to describe preparation time and constraints naturally, so that Shiori proposes a realistic work session without forcing fixed-form answers.",
+      "why_now": "This closes the exact production failure that motivated the slice and proves the unified agent across the full preparation path.",
+      "scope_refs": [
+        "Scope §Work-session conversation",
+        "ADR Decisions 2 and 7"
+      ],
+      "in_scope": [
+        "Accept bounded positive preparation durations beyond the old four-value enum.",
+        "Extract timing constraints and owner-selected times through the agent.",
+        "Preserve the mandatory preparation decision and one-next-session rule.",
+        "Generate natural follow-up questions and controlled Calendar warnings.",
+        "Complete free, busy, owner-choice, and no-preparation paths."
+      ],
+      "out_of_scope": [
+        "Several future work sessions planned in advance.",
+        "Automatic behavioral scheduling or Calendar writes.",
+        "Recurring commitments."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "a newly complete promise",
+          "when": "the owner has not supplied a preparation decision",
+          "then": "the agent asks whether preparation is needed while preserving the exact draft."
+        },
+        {
+          "id": "AC2",
+          "given": "the owner supplies a supported bounded duration such as 45 minutes",
+          "when": "the agent interprets it",
+          "then": "the draft records that duration without forcing one of the previous four values."
+        },
+        {
+          "id": "AC3",
+          "given": "the agent asks for timing constraints",
+          "when": "the owner replies naturally",
+          "then": "the same focused draft advances to sanitized availability or an exact owner-time question."
+        },
+        {
+          "id": "AC4",
+          "given": "free, conflicting, unavailable, and Calendar-failure results",
+          "when": "the preparation flow runs",
+          "then": "the owner receives correct choices and controlled warnings without losing conversation focus."
+        },
+        {
+          "id": "AC5",
+          "given": "the owner declines preparation",
+          "when": "the answer is accepted",
+          "then": "the same draft proceeds directly to its exact creation approval."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run test --workspace @shiori/server -- src/agent src/work-sessions src/telegram",
+          "npm run typecheck:server"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S02-04/flexible-preparation.txt"
+          }
+        ],
+        "done_when": "A reviewer can complete the preparation flow with natural constraints and a 45-minute duration through the same agent without a routing fallback."
+      },
+      "depends_on": [
+        "S02-02"
+      ],
+      "blocks": [
+        "S02-05"
+      ],
+      "squad": {
+        "type": "work-session-integration",
+        "members": [
+          "staff-engineer"
+        ],
+        "rationale": "This is an end-to-end agent and deterministic work-session integration best implemented as one vertical concern."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/02-a-conversation-that-holds-together/scope.md",
+          "server/src/agent/conversation.ts",
+          "server/src/agent/runtime.ts",
+          "server/src/work-sessions/flow.ts",
+          "server/src/work-sessions/availability-integration.ts",
+          "server/src/telegram/conversation.test.ts"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    },
+    {
+      "id": "S02-05",
+      "title": "Release the durable conversational agent",
+      "user_story": "As the owner, I want the deployed Telegram agent to retain context and execute only approved changes, so that I can trust it in real use.",
+      "why_now": "The slice is complete only when the integrated architecture survives regression, restart, replay, and real deployed use.",
+      "scope_refs": [
+        "Scope §Acceptance criteria",
+        "Scope §Definition of shipped",
+        "ADR Decision 9"
+      ],
+      "in_scope": [
+        "Run consolidated story-level QA and the full repository gate.",
+        "Apply additive migrations to the configured Supabase environment.",
+        "Push the current branch and deploy the dedicated Railway service.",
+        "Verify create, prepare, approve, correct, edit, restart, replay, ordinary-question, and privacy scenarios.",
+        "Record sanitized evidence and close the slice state."
+      ],
+      "out_of_scope": [
+        "New product capability discovered during release verification.",
+        "Weakening an acceptance criterion to pass.",
+        "Recording secrets or unrelated owner conversation content."
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "given": "the integrated implementation",
+          "when": "the full repository gate runs",
+          "then": "all typechecks, tests, builds, and isolated browser verification pass."
+        },
+        {
+          "id": "AC2",
+          "given": "the configured Supabase and Railway service",
+          "when": "migrations and the current branch are deployed",
+          "then": "the deployment becomes healthy without losing existing commitments, schedules, or Slice 01 behavior."
+        },
+        {
+          "id": "AC3",
+          "given": "a real owner Telegram conversation",
+          "when": "the representative create, preparation, correction, edit, restart, and replay flow runs",
+          "then": "conversation continuity and exact approval behavior match this slice."
+        },
+        {
+          "id": "AC4",
+          "given": "stored session, provider configuration, logs, and evidence",
+          "when": "the privacy boundary is inspected",
+          "then": "provider storage is disabled and no secret, decrypted transcript, or unrelated Calendar content is exposed."
+        }
+      ],
+      "verification": {
+        "method": "automated-test",
+        "commands": [
+          "npm run check",
+          "npm run test:db",
+          "npm run verify:release"
+        ],
+        "evidence": [
+          {
+            "type": "test-output",
+            "path": "evidence/S02-05/full-gate.txt"
+          },
+          {
+            "type": "log",
+            "path": "evidence/S02-05/deployed-smoke.txt"
+          }
+        ],
+        "done_when": "A reviewer can reproduce the full gate and see a healthy deployed service pass the real owner conversation, approval, restart, replay, and privacy checks."
+      },
+      "depends_on": [
+        "S02-01",
+        "S02-02",
+        "S02-03",
+        "S02-04"
+      ],
+      "blocks": [],
+      "squad": {
+        "type": "release-qa",
+        "members": [
+          "qa",
+          "staff-engineer"
+        ],
+        "rationale": "Consolidated verification needs independent acceptance review plus an engineer available for evidence-backed fixes."
+      },
+      "context": {
+        "read_first": [
+          "docs/product-slices/02-a-conversation-that-holds-together/user-story.json",
+          "docs/product-slices/02-a-conversation-that-holds-together/evidence.md",
+          "docs/product-slices/02-a-conversation-that-holds-together/progress.json",
+          "docs/product-slices/01-a-promise-that-fits/progress.json",
+          "scripts/verify-release.mjs",
+          "railway.toml"
+        ]
+      },
+      "status": "todo",
+      "open_questions": []
+    }
+  ]
+}

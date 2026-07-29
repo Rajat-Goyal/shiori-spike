@@ -11,6 +11,7 @@ The product is delivered through shaped vertical slices. Each slice must ship a 
 ## Product slices
 
 1. [A Promise That Fits](./product-slices/01-a-promise-that-fits/scope.md) — the first product slice turns a one-off intention into a confirmed, Calendar-aware commitment, follows one work session at a time, records what happened, and shows the same live state on the dashboard.
+2. [A Conversation That Holds Together](./product-slices/02-a-conversation-that-holds-together/scope.md) — the second product slice replaces the form-like conversational workflow with one durable, tool-using agent session that can preserve focus, retrieve its own history, manage concurrent drafts, and create or edit commitments through explicit approval.
 
 Each slice keeps its scope, architecture decisions, and evidence inside its own folder. Slice-specific behavior is not represented with runtime mock data.
 
