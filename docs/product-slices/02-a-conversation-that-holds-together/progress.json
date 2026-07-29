@@ -1,8 +1,8 @@
 {
   "slice": "02-a-conversation-that-holds-together",
-  "updated_at": "2026-07-29T17:37:08Z",
-  "current_story": "S02-02",
-  "summary": "1/5 done",
+  "updated_at": "2026-07-29T18:20:11Z",
+  "current_story": null,
+  "summary": "2/5 done",
   "log": [
     {
       "story_id": "S02-01",
@@ -62,6 +62,72 @@
         "S02-05: include retention configuration, reset/forget, restart, callback replay, and the premature-deployment deviation in consolidated release verification."
       ],
       "context_for_next": "The application now uses a real Agents SDK session backed by encrypted Supabase items; manual six-turn replay is gone.\nProvider storage remains false and reasoning/provider metadata are not retained.\nSessions survive draft completion and restart; owner reset/forget preserves domain commitments and events.\nWorking context is bounded while older items are available through opaque non-overlapping cursor pages.\nAll d/w/p/x/s/c callbacks persist sanitized context with bounded CAS retry and idempotent replay recovery.\nAGENT_SESSION_RETENTION_SECONDS is optional, defaults to 30 days, and accepts one hour through 30 days.\nFocused agent tests pass 58/58, full server tests pass 471/471, and server typecheck passes.\nS02-02 may rely on the Session adapter and must not reintroduce manual history replay."
+    },
+    {
+      "story_id": "S02-02",
+      "started_at": "2026-07-29T17:37:08Z",
+      "finished_at": "2026-07-29T18:20:11Z",
+      "squad": "agent-orchestration",
+      "outcome": "done",
+      "commits": [
+        "a04990f chore(S02-02): start unified conversation",
+        "90fbf36 feat(S02-02): add bounded agent context reads",
+        "5c3e930 feat(S02-02): persist multiple focused drafts",
+        "4bb94ce feat(S02-02): unify typed conversational focus",
+        "d390599 test(S02-02): record unified conversation evidence",
+        "d59ec02 fix(S02-02): bind exact draft mutation authority",
+        "8f5175f fix(S02-02): preserve exact conversational authority",
+        "777b78b test(S02-02): record independent review repairs",
+        "dce541c fix(S02-02): preserve status through conversation RPC",
+        "1426684 fix(S02-02): align local draft ambiguity scoring",
+        "fb8e9e6 fix(S02-02): resolve natural draft references",
+        "c7aaa62 test(S02-02): record database contract repairs"
+      ],
+      "ac_results": [
+        {
+          "id": "AC1",
+          "result": "pass",
+          "evidence": "evidence/S02-02/unified-conversation.txt"
+        },
+        {
+          "id": "AC2",
+          "result": "pass",
+          "evidence": "evidence/S02-02/unified-conversation.txt"
+        },
+        {
+          "id": "AC3",
+          "result": "pass",
+          "evidence": "evidence/S02-02/unified-conversation.txt"
+        },
+        {
+          "id": "AC4",
+          "result": "pass",
+          "evidence": "evidence/S02-02/unified-conversation.txt"
+        },
+        {
+          "id": "AC5",
+          "result": "pass",
+          "evidence": "evidence/S02-02/unified-conversation.txt"
+        }
+      ],
+      "decisions": [
+        "Every typed Telegram message, including /status, enters one ConversationService and agent-orchestration boundary.",
+        "Pending application question, sanitized callback choice, and exact focused entity ID/version remain distinct authoritative context.",
+        "History and product reads are bounded typed tools; provider storage remains disabled and application authorization remains authoritative.",
+        "Multiple unconfirmed drafts are permitted, but each mutating turn binds one owner-scoped draft ID and expected version.",
+        "Natural draft selection uses deterministic meaningful-token overlap; ties clarify without mutation and no fuzzy or semantic guessing is used.",
+        "/status delegates inside the unified boundary to deterministic StatusService output and preserves focus and pending interaction."
+      ],
+      "deviations_from_plan": [
+        "Independent review required repair passes for pending-question preservation, deterministic /status behavior, exact draft targeting, expired-draft filtering, natural-language draft resolution, and the live status RPC contract.",
+        "No S02-02 migration or implementation was applied to remote Supabase or deployed to Railway while the story was under review."
+      ],
+      "follow_ups": [
+        "S02-03: add approval-gated commitment creation and material edits using the exact focused entity/version authority.",
+        "S02-04: make preparation discussion flexible while preserving the unified pending-interaction contract.",
+        "S02-05: run consolidated live migration, restart, regression, privacy, and Telegram conversation verification."
+      ],
+      "context_for_next": "All typed Telegram input now enters one conversational boundary; /status remains deterministic inside it.\nDurable pending question and sanitized callback choice are preserved separately across ordinary answers.\nThe agent can use bounded owner-scoped context/history/commitment reads with opaque pagination.\nMultiple unconfirmed drafts are supported, but mutations require one exact owner-scoped draft ID and expected version.\nNatural references use exact meaningful-token overlap; ties clarify and make no mutation.\nExpired, terminal, stale, and unavailable drafts cannot become mutation targets.\nSaved-commitment mutation is still unavailable until S02-03; flexible preparation remains S02-04.\nFocused tests pass 186/186; full check passes with 498 server, 22 release-verifier, and 50 Playwright tests.\nDisposable Supabase resolver and status RPC probes passed and rolled back."
     }
   ]
 }
