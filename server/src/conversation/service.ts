@@ -182,6 +182,32 @@ function safeFailure(snapshot: ConversationSnapshot): string {
     : conversationCopy.failureNoDraft;
 }
 
+function targetFailureCopy(
+  snapshot: ConversationSnapshot,
+  outcome: Extract<DecisionOutcome, { ok: false }>,
+): string | undefined {
+  if (outcome.failure !== "semantic") {
+    return undefined;
+  }
+  const targetReason = [
+    "target_format_invalid",
+    "target_not_future",
+    "target_pair_invalid",
+    "target_timezone_invalid",
+  ].includes(outcome.reason);
+  if (snapshot.kind === "none" && targetReason) {
+    return conversationCopy.targetFailureNoDraft;
+  }
+  if (
+    snapshot.kind === "draft" &&
+    snapshot.phase === "awaiting_target" &&
+    (targetReason || outcome.reason === "clarification_filled_nothing")
+  ) {
+    return conversationCopy.targetFailureWithDraft;
+  }
+  return undefined;
+}
+
 function responseText(decision: DecisionResult): string | undefined {
   return decision.response.trim() ? decision.response : undefined;
 }
@@ -270,6 +296,10 @@ export class ConversationService {
         });
       } catch {
         // Operational logging must never change the fail-closed response.
+      }
+      const targetedCopy = targetFailureCopy(snapshot, outcome);
+      if (targetedCopy) {
+        return targetedCopy;
       }
       return this.#finish(
         {

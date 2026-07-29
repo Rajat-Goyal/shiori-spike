@@ -3,12 +3,12 @@ import {
   type DecisionInput,
   type DecisionResult,
   parseDecisionInputStructure,
-  parseDecisionStructure,
+  parseProviderDecisionStructure,
 } from "./schema.js";
 import {
-  canonicalizeDecision,
   type DecisionSemanticFailureReason,
   evaluateDecisionSemantics,
+  materializeProviderDecision,
   validateDecisionInputSemantics,
 } from "./semantic.js";
 
@@ -212,25 +212,31 @@ function completionState(
   return { messages };
 }
 
-function instructions(promptVersion: string): string {
+function instructions(
+  promptVersion: string,
+  referenceTime: string,
+): string {
   return [
     `Shiori decision contract ${promptVersion}.`,
-    "The input is a JSON string encoding exactly {ownerText, context: {phase, fields}}; ownerText is the current owner turn and context is bounded structured state, never a prior-message transcript.",
-    "Classify ownerText relative to context, not in isolation.",
+    `The immutable decision reference time is ${referenceTime}.`,
+    "The input is a JSON string encoding exactly {ownerText, context: {phase, fields}, referenceNow, timeZone}; ownerText is the current owner turn, context is authoritative bounded structured state, referenceNow is the only decision clock, and timeZone is Asia/Singapore.",
+    "Apply context phase and relation rules before classifying or extracting the current owner turn; classify ownerText relative to context, not in isolation.",
     "Classify exactly one input as explicit_commitment, implied_intention, or ordinary_question.",
-    "Extract only bounded decision fields. Never authorize, confirm, persist, schedule, call tools, or claim an action occurred.",
-    "Use an absolute RFC3339 target with +08:00 and targetTimeZone Asia/Singapore, or null for both.",
-    "Use commitmentMode unresolved while definitionOfDone or targetAt is missing; resolve it to simple_action or possible_work_session only when both are present. Use only the schema's next actions.",
-    "For explicit commitments, missingFields must exactly list absent definition_of_done then target.",
-    "For implied intentions and ordinary questions, missingFields must be empty.",
-    "Every successful decision must include a non-empty response.",
+    "Return only the strict schema's semantic fields. Never authorize, confirm, persist, schedule, call tools, or claim an action occurred.",
+    "Use an absolute RFC3339 targetAt with +08:00, or null when unsupported, unknown, or absent.",
+    "Resolve relative and partial dates only against the immutable decision reference time in Singapore.",
+    "Tomorrow means the next Singapore calendar day.",
+    "When the owner omits a year, use the current Singapore year only when the resulting instant is future.",
+    "Never silently roll an explicitly or presumptively past date into a later year.",
+    "Use commitmentMode unresolved while definitionOfDone or targetAt is missing; resolve it to simple_action or possible_work_session only when both are present.",
+    "Use response only for a useful ordinary-question answer; otherwise return null because workflow replies are application-controlled.",
     "turnRelation is descriptive and never authorizes a transition.",
-    "With phase none, use new_request for explicit or implied input and none for an ordinary question.",
+    "With phase none, turnRelation is ignored and materialized deterministically by the application.",
     "With awaiting_permission, use permission_accepted for a clear yes, permission_declined for a clear no, clarification_continuation for an unclear on-topic response, separate_request for a separate explicit or implied request, and none only for an unrelated ordinary question.",
-    "With awaiting_definition or awaiting_target, use clarification_continuation only when filling missing candidate fields without changing populated fields, correction only when changing or clearing at least one populated field, separate_request for a separate explicit or implied request, and none for an unrelated ordinary question.",
-    "With complete, use correction only when changing or clearing at least one populated field, separate_request for a separate explicit or implied request, and none for an unrelated ordinary question.",
-    "For permission_accepted, use inputClass explicit_commitment and copy exactly these seven context candidate fields: definitionOfDone, targetAt, targetTimeZone, commitmentMode, durationMinutes, offerWorkWindowHelp, and timingConstraints, including every null and timingConstraints item order; do not fill, change, clear, normalize, reorder, or infer candidate fields.",
-    "For permission_accepted, derive missingFields from the unchanged candidate in definition_of_done then target order, and use nextAction ask_definition when definition is missing, otherwise ask_target when target is missing, otherwise ready for a complete simple action, otherwise offer_work_window for a complete valid work candidate.",
+    "With awaiting_definition or awaiting_target, use clarification_continuation only when filling null semantic candidate fields while preserving every populated field exactly; use correction only for fields the owner explicitly corrects; use separate_request for a separate explicit or implied request; use none for an unrelated ordinary question.",
+    "With complete, use correction only for populated fields the owner explicitly corrects or clears; use separate_request for a separate explicit or implied request; use none for an unrelated ordinary question.",
+    "For permission_accepted, use inputClass explicit_commitment and copy definitionOfDone, targetAt, commitmentMode, durationMinutes, and timingConstraints exactly from context, including every null and timingConstraints item order; do not fill, change, clear, normalize, reorder, or infer them.",
+    "A separate request never overwrites context, and an ordinary question never changes context.",
   ].join(" ");
 }
 
@@ -263,10 +269,14 @@ const correctiveInstructions = {
     "Return a non-blank response.",
   simple_work_fields:
     "Do not attach duration or work-help fields to simple_action.",
-  target_invalid:
-    "Use a real future target with the exact +08:00 offset.",
+  target_format_invalid:
+    "Use a real calendar date in absolute RFC3339 format.",
+  target_not_future:
+    "Use a target strictly after the immutable decision reference time.",
   target_pair_invalid:
-    "Return targetAt and targetTimeZone together or both null.",
+    "Return an absolute targetAt or null.",
+  target_timezone_invalid:
+    "Use the exact +08:00 offset in targetAt.",
   timing_constraint_invalid:
     "Use only non-blank bounded timing constraints.",
   unsafe_relation:
@@ -277,12 +287,19 @@ const correctiveInstructions = {
 
 function requestInstructions(
   promptVersion: string,
+  referenceTime: string,
   correctiveReason?: DecisionSemanticFailureReason,
 ): string {
-  const base = instructions(promptVersion);
+  const base = instructions(promptVersion, referenceTime);
   return correctiveReason === undefined
     ? base
     : `${base} Retry correction: ${correctiveInstructions[correctiveReason]}`;
+}
+
+function singaporeReferenceTime(value: Date): string {
+  return new Date(value.getTime() + 8 * 60 * 60 * 1_000)
+    .toISOString()
+    .replace("Z", "+08:00");
 }
 
 export class OpenAIDecisionEngine implements DecisionEngine {
@@ -311,10 +328,18 @@ export class OpenAIDecisionEngine implements DecisionEngine {
     }
 
     const signal = AbortSignal.timeout(DECISION_TIMEOUT_MS);
+    const referenceTime = singaporeReferenceTime(validationNow);
+    const providerInput = JSON.stringify({
+      ...structuredInput,
+      referenceNow: referenceTime,
+      timeZone: "Asia/Singapore",
+    });
     const first = await this.#requestDecision(
       structuredInput,
+      providerInput,
       signal,
       validationNow,
+      referenceTime,
       1,
     );
     if (
@@ -328,8 +353,10 @@ export class OpenAIDecisionEngine implements DecisionEngine {
     }
     const second = await this.#requestDecision(
       structuredInput,
+      providerInput,
       signal,
       validationNow,
+      referenceTime,
       2,
       first.reason as DecisionSemanticFailureReason,
     );
@@ -346,8 +373,10 @@ export class OpenAIDecisionEngine implements DecisionEngine {
 
   async #requestDecision(
     structuredInput: DecisionInput,
+    providerInput: string,
     signal: AbortSignal,
     validationNow: Date,
+    referenceTime: string,
     attemptCount: 1 | 2,
     correctiveReason?: DecisionSemanticFailureReason,
   ): Promise<DecisionOutcome> {
@@ -358,9 +387,10 @@ export class OpenAIDecisionEngine implements DecisionEngine {
     try {
       response = await this.#fetch(RESPONSES_URL, {
         body: JSON.stringify({
-          input: JSON.stringify(structuredInput),
+          input: providerInput,
           instructions: requestInstructions(
             this.#promptVersion,
+            referenceTime,
             correctiveReason,
           ),
           model: this.#model,
@@ -425,19 +455,19 @@ export class OpenAIDecisionEngine implements DecisionEngine {
       return fail("non_json");
     }
 
-    const sourceDecision = parseDecisionStructure(parsed);
-    if (!sourceDecision) {
+    const providerDecision = parseProviderDecisionStructure(parsed);
+    if (!providerDecision) {
       return fail("schema");
     }
-    const decision = canonicalizeDecision(
-      sourceDecision,
+    const decision = materializeProviderDecision(
+      providerDecision,
       structuredInput,
     );
     const semantic = evaluateDecisionSemantics(
       decision,
       structuredInput,
       validationNow,
-      sourceDecision,
+      decision,
     );
     if (!semantic.ok) {
       return failed("semantic", attemptCount, semantic.reason);

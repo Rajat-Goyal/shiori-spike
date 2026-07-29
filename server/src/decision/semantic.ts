@@ -2,6 +2,7 @@ import type {
   DecisionCandidateFields,
   DecisionInput,
   DecisionResult,
+  ProviderDecisionResult,
 } from "./schema.js";
 
 const TARGET_PATTERN =
@@ -22,8 +23,10 @@ export type DecisionSemanticFailureReason =
   | "permission_candidate_mismatch"
   | "response_blank"
   | "simple_work_fields"
-  | "target_invalid"
+  | "target_format_invalid"
+  | "target_not_future"
   | "target_pair_invalid"
+  | "target_timezone_invalid"
   | "timing_constraint_invalid"
   | "unsafe_relation"
   | "unresolved_work_help";
@@ -32,16 +35,27 @@ export type DecisionSemanticResult =
   | { ok: true }
   | { ok: false; reason: DecisionSemanticFailureReason };
 
-function validFutureSingaporeTarget(value: string, now: Date): boolean {
+function singaporeTargetFailureReason(
+  value: string,
+  now: Date,
+): DecisionSemanticFailureReason | undefined {
   const match = TARGET_PATTERN.exec(value);
   if (!match) {
-    return false;
+    return /(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+      ? "target_timezone_invalid"
+      : "target_format_invalid";
   }
 
   const [, year, month, day, hour, minute, second] = match;
   const parts = [year, month, day, hour, minute, second].map(Number);
-  const [yearNumber, monthNumber, dayNumber, hourNumber, minuteNumber, secondNumber] =
-    parts;
+  const [
+    yearNumber,
+    monthNumber,
+    dayNumber,
+    hourNumber,
+    minuteNumber,
+    secondNumber,
+  ] = parts;
   const utcMillis = Date.UTC(
     yearNumber,
     monthNumber - 1,
@@ -52,16 +66,22 @@ function validFutureSingaporeTarget(value: string, now: Date): boolean {
   );
   const singapore = new Date(utcMillis + 8 * 60 * 60 * 1_000);
 
-  return (
-    Number.isFinite(utcMillis) &&
-    singapore.getUTCFullYear() === yearNumber &&
-    singapore.getUTCMonth() === monthNumber - 1 &&
-    singapore.getUTCDate() === dayNumber &&
-    singapore.getUTCHours() === hourNumber &&
-    singapore.getUTCMinutes() === minuteNumber &&
-    singapore.getUTCSeconds() === secondNumber &&
-    utcMillis > now.getTime()
-  );
+  if (
+    !Number.isFinite(utcMillis) ||
+    !(
+      singapore.getUTCFullYear() === yearNumber &&
+      singapore.getUTCMonth() === monthNumber - 1 &&
+      singapore.getUTCDate() === dayNumber &&
+      singapore.getUTCHours() === hourNumber &&
+      singapore.getUTCMinutes() === minuteNumber &&
+      singapore.getUTCSeconds() === secondNumber
+    )
+  ) {
+    return "target_format_invalid";
+  }
+  return utcMillis > now.getTime()
+    ? undefined
+    : "target_not_future";
 }
 
 function expectedMissingFields(
@@ -110,11 +130,6 @@ export function canonicalizeDecision(
   decision: DecisionResult,
   input: DecisionInput,
 ): DecisionResult {
-  const coreIsIncomplete =
-    decision.definitionOfDone === null || decision.targetAt === null;
-  const commitmentMode = coreIsIncomplete
-    ? "unresolved"
-    : decision.commitmentMode;
   const targetTimeZone =
     decision.targetAt !== null && TARGET_PATTERN.test(decision.targetAt)
       ? "Asia/Singapore"
@@ -127,7 +142,6 @@ export function canonicalizeDecision(
       : decision.turnRelation;
   const projected = {
     ...decision,
-    commitmentMode,
     offerWorkWindowHelp: false,
     targetTimeZone,
     turnRelation,
@@ -137,6 +151,24 @@ export function canonicalizeDecision(
     missingFields: expectedMissingFields(projected),
     nextAction: canonicalNextAction(projected),
   };
+}
+
+export function materializeProviderDecision(
+  decision: ProviderDecisionResult,
+  input: DecisionInput,
+): DecisionResult {
+  return canonicalizeDecision(
+    {
+      ...decision,
+      missingFields: [],
+      nextAction: "answer",
+      offerWorkWindowHelp: false,
+      response: decision.response ?? "",
+      targetTimeZone:
+        decision.targetAt === null ? null : "Asia/Singapore",
+    },
+    input,
+  );
 }
 
 function sameItems(left: readonly string[], right: readonly string[]): boolean {
@@ -171,10 +203,18 @@ function candidateFailureReason(
   }
   if (
     fields.targetAt !== null &&
-    (fields.targetTimeZone !== "Asia/Singapore" ||
-      !validFutureSingaporeTarget(fields.targetAt, now))
+    fields.targetTimeZone !== "Asia/Singapore"
   ) {
-    return "target_invalid";
+    return "target_timezone_invalid";
+  }
+  if (fields.targetAt !== null) {
+    const targetReason = singaporeTargetFailureReason(
+      fields.targetAt,
+      now,
+    );
+    if (targetReason) {
+      return targetReason;
+    }
   }
   const coreIsIncomplete =
     fields.definitionOfDone === null || fields.targetAt === null;
@@ -422,7 +462,10 @@ export function evaluateDecisionSemantics(
   if (!validateDecisionInputSemantics(input, now)) {
     return failed("input_invalid");
   }
-  if (decision.response.trim().length === 0) {
+  if (
+    decision.inputClass === "ordinary_question" &&
+    decision.response.trim().length === 0
+  ) {
     return failed("response_blank");
   }
   const candidateReason = candidateFailureReason(decision, now);

@@ -260,12 +260,32 @@ function failureOutcome(
 }
 
 function providerResponse(value: unknown): Response {
+  const providerValue =
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "missingFields" in value &&
+    "nextAction" in value &&
+    "offerWorkWindowHelp" in value &&
+    "targetTimeZone" in value
+      ? Object.fromEntries(
+          Object.entries(value).filter(
+            ([key]) =>
+              ![
+                "missingFields",
+                "nextAction",
+                "offerWorkWindowHelp",
+                "targetTimeZone",
+              ].includes(key),
+          ),
+        )
+      : value;
   return Response.json({
     output: [
       {
         content: [
           {
-            text: JSON.stringify(value),
+            text: JSON.stringify(providerValue),
             type: "output_text",
           },
         ],
@@ -328,7 +348,7 @@ describe("ConversationService", () => {
     expect(decisionRetryRecoveredEvents).toHaveBeenCalledWith({
       attemptCount: 2,
       event: "decision_retry_recovered",
-      reason: "target_invalid",
+      reason: "target_format_invalid",
     });
     expect(
       Object.keys(decisionRetryRecoveredEvents.mock.calls[0][0]),
@@ -493,6 +513,63 @@ describe("ConversationService", () => {
         updateId: 7001,
       },
     ]);
+  });
+
+  it("retains an implied definition and target through exact Yes acceptance without asking for the target again", async () => {
+    const first = controlled(
+      { kind: "none" },
+      success(implied(completeFields)),
+    );
+
+    await expect(
+      first.service.handle(
+        7001,
+        "I should submit the synthetic note by 27 July 10am",
+      ),
+    ).resolves.toBe(conversationCopy.impliedPermission);
+    expect(first.repository.commands[0]).toMatchObject({
+      action: "create_permission",
+      fields: completeFields,
+    });
+
+    const stored = permissionCandidate(completeFields);
+    const second = controlled(
+      stored,
+      success(
+        decision(completeFields, {
+          turnRelation: "permission_accepted",
+        }),
+      ),
+    );
+    second.repository.applyResult.draftCreated = true;
+
+    const reply = await second.service.handle(7002, "Yes");
+    expect(reply).toEqual(
+      confirmationSummary(completeFields, {
+        id: "11111111-1111-4111-8111-111111111111",
+        version: 1,
+      }),
+    );
+    expect(reply).not.toBe(conversationCopy.missingTarget);
+    expect(second.decide).toHaveBeenCalledWith({
+      context: {
+        fields: {
+          commitmentMode: "simple_action",
+          definitionOfDone: completeFields.definitionOfDone,
+          durationMinutes: completeFields.durationMinutes,
+          offerWorkWindowHelp: false,
+          targetAt: completeFields.targetAt,
+          targetTimeZone: completeFields.targetTimeZone,
+          timingConstraints: completeFields.timingConstraints,
+        },
+        phase: "awaiting_permission",
+      },
+      ownerText: "Yes",
+    });
+    expect(second.repository.commands[0]).toMatchObject({
+      action: "accept_permission",
+    });
+    expect(second.repository.commands[0]).not.toHaveProperty("fields");
   });
 
   it("answers an ordinary phase-none question with only one bounded audit mutation", async () => {
@@ -674,6 +751,67 @@ describe("ConversationService", () => {
       expect(test.repository.commands[0]).toMatchObject({ action });
     },
   );
+
+  it.each([
+    {
+      copy: conversationCopy.targetFailureWithDraft,
+      read: activeDraft("awaiting_target", targetMissingFields, 10),
+      reason: "target_not_future",
+      text: "Tomorrow 9am",
+    },
+    {
+      copy: conversationCopy.targetFailureNoDraft,
+      read: { kind: "none" } as const,
+      reason: "target_timezone_invalid",
+      text:
+        "I have to create a video for telegram setup by tomorrow 9am",
+    },
+  ] as const)(
+    "returns targeted future-date guidance for $reason without state or audit writes",
+    async ({ copy, read, reason, text }) => {
+      const test = controlled(
+        read,
+        failureOutcome("semantic", 2, reason),
+      );
+
+      await expect(test.service.handle(7015, text)).resolves.toBe(copy);
+      expect(test.repository.commands).toHaveLength(0);
+      expect(test.repository.audits).toHaveLength(0);
+      expect(test.decisionFailureEvents).toHaveBeenCalledWith({
+        attemptCount: 2,
+        event: "decision_failure",
+        reason,
+      });
+      expect(
+        Object.keys(test.decisionFailureEvents.mock.calls[0][0]),
+      ).toEqual(["event", "attemptCount", "reason"]);
+      expect(
+        JSON.stringify(test.decisionFailureEvents.mock.calls),
+      ).not.toMatch(/Tomorrow|telegram|2026|9am|gpt|private/);
+    },
+  );
+
+  it("uses targeted date guidance when an awaiting-target clarification extracts nothing", async () => {
+    const snapshot = activeDraft(
+      "awaiting_target",
+      targetMissingFields,
+      10,
+    );
+    const test = controlled(
+      snapshot,
+      failureOutcome(
+        "semantic",
+        2,
+        "clarification_filled_nothing",
+      ),
+    );
+
+    await expect(
+      test.service.handle(7015, "29 July 9am"),
+    ).resolves.toBe(conversationCopy.targetFailureWithDraft);
+    expect(test.repository.commands).toHaveLength(0);
+    expect(test.repository.audits).toHaveLength(0);
+  });
 
   it.each([
     {
@@ -1068,7 +1206,7 @@ describe("ConversationService", () => {
           ok: true,
           recovery: {
             attemptCount: 2,
-            reason: "target_invalid",
+            reason: "target_format_invalid",
           },
         })),
       },

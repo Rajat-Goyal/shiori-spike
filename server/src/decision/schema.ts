@@ -188,12 +188,40 @@ export const decisionSpec = {
   kind: "object",
 } as const satisfies Spec;
 
+const providerCandidateFieldSpecs = {
+  definitionOfDone: candidateFieldSpecs.definitionOfDone,
+  durationMinutes: candidateFieldSpecs.durationMinutes,
+  commitmentMode: candidateFieldSpecs.commitmentMode,
+  targetAt: {
+    kind: "string",
+    maxLength: 64,
+    minLength: 1,
+    nullable: true,
+  },
+  timingConstraints: candidateFieldSpecs.timingConstraints,
+} as const satisfies Readonly<Record<string, Spec>>;
+
+export const providerDecisionSpec = {
+  fields: {
+    ...providerCandidateFieldSpecs,
+    inputClass: decisionSpec.fields.inputClass,
+    response: {
+      kind: "string",
+      maxLength: 1_000,
+      minLength: 1,
+      nullable: true,
+    },
+    turnRelation: decisionSpec.fields.turnRelation,
+  },
+  kind: "object",
+} as const satisfies Spec;
+
 export type DecisionInput = InferSpec<typeof decisionInputSpec>;
 export type DecisionContext = DecisionInput["context"];
 export type DecisionCandidateFields = NonNullable<DecisionContext["fields"]>;
 /**
- * Application/persistence compatibility shape. The provider-facing decision
- * contract uses DecisionCandidateFields.commitmentMode exclusively.
+ * Application/persistence compatibility shape. Provider semantic output is
+ * materialized into this bounded shape before it reaches conversation state.
  */
 export type DecisionContextFields = Omit<
   DecisionCandidateFields,
@@ -203,6 +231,9 @@ export type DecisionContextFields = Omit<
   simpleAction: boolean;
 };
 export type DecisionResult = InferSpec<typeof decisionSpec>;
+export type ProviderDecisionResult = InferSpec<
+  typeof providerDecisionSpec
+>;
 export type TurnRelation = DecisionResult["turnRelation"];
 
 type JsonSchema = Readonly<Record<string, unknown>>;
@@ -258,7 +289,7 @@ function schemaFor(spec: Spec): JsonSchema {
     : schema;
 }
 
-export const decisionJsonSchema = schemaFor(decisionSpec);
+export const decisionJsonSchema = schemaFor(providerDecisionSpec);
 
 function structurallyMatches(spec: Spec, value: unknown): boolean {
   if (value === null) {
@@ -312,6 +343,14 @@ function structurallyMatches(spec: Spec, value: unknown): boolean {
 export function parseDecisionStructure(value: unknown): DecisionResult | null {
   return structurallyMatches(decisionSpec, value)
     ? (value as DecisionResult)
+    : null;
+}
+
+export function parseProviderDecisionStructure(
+  value: unknown,
+): ProviderDecisionResult | null {
+  return structurallyMatches(providerDecisionSpec, value)
+    ? (value as ProviderDecisionResult)
     : null;
 }
 

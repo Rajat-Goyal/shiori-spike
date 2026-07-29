@@ -11,10 +11,11 @@ import {
   type DecisionInput,
   decisionJsonSchema,
   decisionInputSpec,
-  decisionSpec,
+  providerDecisionSpec,
   type DecisionResult,
   parseDecisionInputStructure,
   parseDecisionStructure,
+  parseProviderDecisionStructure,
 } from "./schema.js";
 import {
   canonicalizeDecision,
@@ -100,12 +101,32 @@ function contextInput(
 }
 
 function providerResponse(value: unknown): Response {
+  const providerValue =
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "missingFields" in value &&
+    "nextAction" in value &&
+    "offerWorkWindowHelp" in value &&
+    "targetTimeZone" in value
+      ? Object.fromEntries(
+          Object.entries(value).filter(
+            ([key]) =>
+              ![
+                "missingFields",
+                "nextAction",
+                "offerWorkWindowHelp",
+                "targetTimeZone",
+              ].includes(key),
+          ),
+        )
+      : value;
   return Response.json({
     output: [
       {
         content: [
           {
-            text: JSON.stringify(value),
+            text: JSON.stringify(providerValue),
             type: "output_text",
           },
         ],
@@ -213,12 +234,17 @@ describe("DecisionEngine contract", () => {
       additionalProperties: false,
       properties: {
         response: {
-          maxLength: 1_000,
-          minLength: 1,
-          type: "string",
+          anyOf: [
+            {
+              maxLength: 1_000,
+              minLength: 1,
+              type: "string",
+            },
+            { type: "null" },
+          ],
         },
       },
-      required: Object.keys(decisionSpec.fields),
+      required: Object.keys(providerDecisionSpec.fields),
       type: "object",
     });
     expect(
@@ -227,9 +253,34 @@ describe("DecisionEngine contract", () => {
           string,
           Record<string, unknown>
         >
-      ).response,
-    ).not.toHaveProperty("anyOf");
+    ).response,
+    ).toHaveProperty("anyOf");
     expect(parseDecisionStructure(explicitDecision)).toEqual(explicitDecision);
+    expect(parseProviderDecisionStructure(explicitDecision)).toBeNull();
+    expect(
+      parseProviderDecisionStructure({
+        commitmentMode: explicitDecision.commitmentMode,
+        definitionOfDone: explicitDecision.definitionOfDone,
+        durationMinutes: explicitDecision.durationMinutes,
+        inputClass: explicitDecision.inputClass,
+        response: null,
+        targetAt: explicitDecision.targetAt,
+        timingConstraints: explicitDecision.timingConstraints,
+        turnRelation: explicitDecision.turnRelation,
+      }),
+    ).not.toBeNull();
+    expect(
+      parseProviderDecisionStructure({
+        commitmentMode: "simple_action",
+        definitionOfDone: "Submit the expense report",
+        durationMinutes: null,
+        inputClass: "explicit_commitment",
+        response: null,
+        targetAt: "not-rfc3339",
+        timingConstraints: [],
+        turnRelation: "new_request",
+      }),
+    ).not.toBeNull();
     expect(parseDecisionInputStructure(privateDecisionInput)).toEqual(
       privateDecisionInput,
     );
@@ -259,6 +310,16 @@ describe("DecisionEngine contract", () => {
         unauthorizedAction: "save",
       }),
     ).toBeNull();
+    expect(Object.keys(providerDecisionSpec.fields).sort()).toEqual([
+      "commitmentMode",
+      "definitionOfDone",
+      "durationMinutes",
+      "inputClass",
+      "response",
+      "targetAt",
+      "timingConstraints",
+      "turnRelation",
+    ]);
     expect(
       parseDecisionStructure({
         ...explicitDecision,
@@ -292,8 +353,13 @@ describe("DecisionEngine contract", () => {
     });
 
     const body = JSON.parse(String(request?.body)) as Record<string, unknown>;
+    const expectedProviderInput = {
+      ...privateDecisionInput,
+      referenceNow: "2026-07-24T20:00:00.000+08:00",
+      timeZone: "Asia/Singapore",
+    };
     expect(body).toMatchObject({
-      input: JSON.stringify(privateDecisionInput),
+      input: JSON.stringify(expectedProviderInput),
       model: "gpt-test-model",
       store: false,
       text: {
@@ -308,32 +374,201 @@ describe("DecisionEngine contract", () => {
     });
     expect(body.instructions).toContain("shiori-test-v1");
     expect(body.instructions).toContain(
-      "JSON string encoding exactly {ownerText, context: {phase, fields}}",
+      "JSON string encoding exactly {ownerText, context: {phase, fields}, referenceNow, timeZone}",
     );
     expect(body.instructions).toContain(
-      "Classify ownerText relative to context, not in isolation.",
+      "Apply context phase and relation rules before classifying",
     );
     expect(body.instructions).toContain("descriptive and never authorizes");
     expect(body.instructions).toContain(
       "For permission_accepted, use inputClass explicit_commitment",
     );
     expect(body.instructions).toContain(
-      "definitionOfDone, targetAt, targetTimeZone, commitmentMode, durationMinutes, offerWorkWindowHelp, and timingConstraints",
+      "definitionOfDone, targetAt, commitmentMode, durationMinutes, and timingConstraints exactly from context",
     );
     expect(body.instructions).toContain(
-      "derive missingFields from the unchanged candidate in definition_of_done then target order",
+      "Tomorrow means the next Singapore calendar day.",
     );
     expect(body.instructions).toContain(
-      "use nextAction ask_definition when definition is missing, otherwise ask_target when target is missing, otherwise ready for a complete simple action, otherwise offer_work_window for a complete valid work candidate",
+      "Never silently roll an explicitly or presumptively past date into a later year.",
     );
     expect(body.instructions).toContain(
-      "Every successful decision must include a non-empty response.",
+      "workflow replies are application-controlled",
     );
-    expect(JSON.parse(String(body.input))).toEqual(privateDecisionInput);
+    expect(JSON.parse(String(body.input))).toEqual(expectedProviderInput);
+    expect(
+      Object.keys(
+        (body.text as {
+          format: { schema: { properties: object } };
+        }).format.schema.properties,
+      ).sort(),
+    ).toEqual(Object.keys(providerDecisionSpec.fields).sort());
     expect(body).not.toHaveProperty("previous_response_id");
     expect(String(request?.body)).not.toMatch(
       /previous_response_id|priorMessages|providerOutput|authority/,
     );
+  });
+
+  it("grounds the exact initial tomorrow phrase in one immutable Singapore clock", async () => {
+    const referenceNow = new Date("2026-07-28T18:02:00.000Z");
+    const ownerText =
+      "I have to create a video for telegram setup by tomorrow 9am";
+    const extracted: DecisionResult = {
+      ...explicitDecision,
+      definitionOfDone: "Create a video for Telegram setup",
+      response: "",
+      targetAt: "2026-07-30T09:00:00+08:00",
+    };
+    const fetchFromOpenAI = vi.fn(async () =>
+      providerResponse({ ...extracted, response: null }),
+    );
+    const engine = new OpenAIDecisionEngine({
+      apiKey,
+      fetch: fetchFromOpenAI,
+      model: "gpt-test-model",
+      now: () => referenceNow,
+      promptVersion: "shiori-test-v1",
+    });
+
+    await expect(
+      engine.decide({
+        context: { fields: null, phase: "none" },
+        ownerText,
+      }),
+    ).resolves.toEqual({ decision: extracted, ok: true });
+    const body = JSON.parse(
+      String(fetchFromOpenAI.mock.calls[0]?.[1]?.body),
+    ) as { input: string; instructions: string };
+    expect(JSON.parse(body.input)).toEqual({
+      context: { fields: null, phase: "none" },
+      ownerText,
+      referenceNow: "2026-07-29T02:02:00.000+08:00",
+      timeZone: "Asia/Singapore",
+    });
+    expect(body.instructions).toContain(
+      "The immutable decision reference time is 2026-07-29T02:02:00.000+08:00.",
+    );
+  });
+
+  it("retries the exact awaiting-target tomorrow phrase against the same input, clock, validation time, and deadline", async () => {
+    const signal = new AbortController().signal;
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(signal);
+    const nowFromEngine = vi
+      .fn<() => Date>()
+      .mockReturnValue(new Date("2026-07-28T18:02:00.000Z"));
+    const fields: DecisionCandidateFields = {
+      commitmentMode: "unresolved",
+      definitionOfDone: "Create a video for Telegram setup",
+      durationMinutes: null,
+      offerWorkWindowHelp: false,
+      targetAt: null,
+      targetTimeZone: null,
+      timingConstraints: [],
+    };
+    const input: DecisionInput = {
+      context: { fields, phase: "awaiting_target" },
+      ownerText: "Tomorrow 9am",
+    };
+    const recovered: DecisionResult = {
+      ...explicitDecision,
+      definitionOfDone: fields.definitionOfDone,
+      response: "",
+      targetAt: "2026-07-30T09:00:00+08:00",
+      turnRelation: "clarification_continuation",
+    };
+    const fetchFromOpenAI = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        providerResponse({
+          ...recovered,
+          response: null,
+          targetAt: "2026-07-30T09:00:00+07:00",
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResponse({ ...recovered, response: null }),
+      );
+    const engine = new OpenAIDecisionEngine({
+      apiKey,
+      fetch: fetchFromOpenAI,
+      model: "gpt-test-model",
+      now: nowFromEngine,
+      promptVersion: "shiori-test-v1",
+    });
+
+    await expect(engine.decide(input)).resolves.toEqual({
+      decision: recovered,
+      ok: true,
+      recovery: {
+        attemptCount: 2,
+        reason: "target_timezone_invalid",
+      },
+    });
+    expect(nowFromEngine).toHaveBeenCalledOnce();
+    expect(timeout).toHaveBeenCalledOnce();
+    expect(timeout).toHaveBeenCalledWith(30_000);
+    const requests = fetchFromOpenAI.mock.calls.map(([, request]) => ({
+      body: JSON.parse(String(request?.body)) as {
+        input: string;
+        instructions: string;
+      },
+      signal: request?.signal,
+    }));
+    expect(requests[0]?.signal).toBe(signal);
+    expect(requests[1]?.signal).toBe(signal);
+    expect(requests[1]?.body.input).toBe(requests[0]?.body.input);
+    expect(JSON.parse(requests[0]!.body.input)).toEqual({
+      ...input,
+      referenceNow: "2026-07-29T02:02:00.000+08:00",
+      timeZone: "Asia/Singapore",
+    });
+    expect(requests[1]?.body.instructions).toContain(
+      "Retry correction: Use the exact +08:00 offset in targetAt.",
+    );
+  });
+
+  it("accepts the exact same-day partial-date phrase when its Singapore instant is future", async () => {
+    const fields: DecisionCandidateFields = {
+      commitmentMode: "unresolved",
+      definitionOfDone: "Create a video for Telegram setup",
+      durationMinutes: null,
+      offerWorkWindowHelp: false,
+      targetAt: null,
+      targetTimeZone: null,
+      timingConstraints: [],
+    };
+    const decision: DecisionResult = {
+      ...explicitDecision,
+      definitionOfDone: fields.definitionOfDone,
+      response: "",
+      targetAt: "2026-07-29T09:00:00+08:00",
+      turnRelation: "clarification_continuation",
+    };
+    const fetchFromOpenAI = vi.fn(async () =>
+      providerResponse({ ...decision, response: null }),
+    );
+    const engine = new OpenAIDecisionEngine({
+      apiKey,
+      fetch: fetchFromOpenAI,
+      model: "gpt-test-model",
+      now: () => new Date("2026-07-28T18:03:00.000Z"),
+      promptVersion: "shiori-test-v1",
+    });
+
+    await expect(
+      engine.decide({
+        context: { fields, phase: "awaiting_target" },
+        ownerText: "29 July 9am",
+      }),
+    ).resolves.toEqual({ decision, ok: true });
+    const body = JSON.parse(
+      String(fetchFromOpenAI.mock.calls[0]?.[1]?.body),
+    ) as { input: string };
+    expect(JSON.parse(body.input)).toMatchObject({
+      ownerText: "29 July 9am",
+      referenceNow: "2026-07-29T02:03:00.000+08:00",
+      timeZone: "Asia/Singapore",
+    });
   });
 
   it.each([
@@ -491,7 +726,11 @@ describe("DecisionEngine contract", () => {
         string,
         unknown
       >;
-      expect(JSON.parse(String(body.input))).toEqual(input);
+      expect(JSON.parse(String(body.input))).toEqual({
+        ...input,
+        referenceNow: "2026-07-24T20:00:00.000+08:00",
+        timeZone: "Asia/Singapore",
+      });
       expect(decision.response?.trim().length).toBeGreaterThan(0);
 
       if (smoke) {
@@ -544,7 +783,7 @@ describe("DecisionEngine contract", () => {
   it("canonicalizes deterministic non-authorizing projections idempotently", () => {
     const missingBoth: DecisionResult = {
       ...explicitDecision,
-      commitmentMode: "possible_work_session",
+      commitmentMode: "unresolved",
       definitionOfDone: null,
       durationMinutes: 30,
       missingFields: ["target", "definition_of_done"],
@@ -578,6 +817,16 @@ describe("DecisionEngine contract", () => {
         missingBoth,
       ),
     ).toEqual({ ok: true });
+    expect(
+      validateDecisionSemantics(
+        {
+          ...missingBoth,
+          commitmentMode: "possible_work_session",
+        },
+        privateDecisionInput,
+        now,
+      ),
+    ).toBe(false);
   });
 
   it("derives canonical target zone, action, and phase-none relation", () => {
@@ -641,6 +890,50 @@ describe("DecisionEngine contract", () => {
       ).toBe(false);
     }
   });
+
+  it.each([
+    {
+      reason: "target_format_invalid",
+      targetAt: "not-rfc3339",
+    },
+    {
+      reason: "target_format_invalid",
+      targetAt: "2026-02-30T10:00:00+08:00",
+    },
+    {
+      reason: "target_timezone_invalid",
+      targetAt: "2026-07-25T10:00:00+07:00",
+    },
+    {
+      reason: "target_not_future",
+      targetAt: "2026-07-24T10:00:00+08:00",
+    },
+  ] as const)(
+    "classifies target rejection as bounded $reason",
+    ({ reason, targetAt }) => {
+      const source = {
+        ...explicitDecision,
+        targetAt,
+        targetTimeZone: "Asia/Singapore",
+      };
+      const decision = canonicalizeDecision(
+        source,
+        privateDecisionInput,
+      );
+
+      expect(
+        evaluateDecisionSemantics(
+          decision,
+          privateDecisionInput,
+          now,
+          source,
+        ),
+      ).toEqual({ ok: false, reason });
+      expect(JSON.stringify({ reason })).not.toMatch(
+        /2026|expense|Singapore|synthetic/,
+      );
+    },
+  );
 
   it("requires definition before target in canonical missing-field order", () => {
     const missingBoth: DecisionResult = {
@@ -1687,7 +1980,11 @@ describe("DecisionEngine contract", () => {
       const body = JSON.parse(String(request?.body)) as {
         input: string;
       };
-      expect(JSON.parse(body.input)).toEqual(input);
+      expect(JSON.parse(body.input)).toEqual({
+        ...input,
+        referenceNow: "2026-07-24T20:00:00.000+08:00",
+        timeZone: "Asia/Singapore",
+      });
       expect(body.input).not.toContain(
         separateDecision.definitionOfDone!,
       );
@@ -1769,11 +2066,20 @@ describe("DecisionEngine contract", () => {
 });
 
 describe("OpenAI decision failure boundary", () => {
+  it("accepts a null provider response for application-controlled workflow copy", async () => {
+    const fetchFromOpenAI = vi.fn(async () =>
+      providerResponse({ ...explicitDecision, response: null }),
+    );
+
+    await expect(
+      engineWith(fetchFromOpenAI).decide(privateDecisionInput),
+    ).resolves.toEqual({
+      decision: { ...explicitDecision, response: "" },
+      ok: true,
+    });
+  });
+
   it.each([
-    {
-      label: "null",
-      value: { ...explicitDecision, response: null },
-    },
     {
       label: "missing",
       value: Object.fromEntries(
@@ -1825,7 +2131,7 @@ describe("OpenAI decision failure boundary", () => {
       ok: true,
       recovery: {
         attemptCount: 2,
-        reason: "target_invalid",
+        reason: "target_format_invalid",
       },
     });
 
@@ -1852,7 +2158,7 @@ describe("OpenAI decision failure boundary", () => {
       tools: [],
     });
     expect(secondBody.instructions).toBe(
-      `${String(firstBody.instructions)} Retry correction: Use a real future target with the exact +08:00 offset.`,
+      `${String(firstBody.instructions)} Retry correction: Use a real calendar date in absolute RFC3339 format.`,
     );
     expect(String(secondBody.instructions)).not.toMatch(
       /synthetic private|2026-02-30|providerResponse|output_text/,
@@ -1872,7 +2178,7 @@ describe("OpenAI decision failure boundary", () => {
     await expect(
       engineWith(fetchFromOpenAI).decide(privateDecisionInput),
     ).resolves.toEqual(
-      failureOutcome("semantic", 2, "target_invalid"),
+      failureOutcome("semantic", 2, "target_format_invalid"),
     );
     expect(fetchFromOpenAI).toHaveBeenCalledTimes(2);
   });
@@ -2021,7 +2327,7 @@ describe("OpenAI decision failure boundary", () => {
       failureOutcome(
         expected,
         attemptCount,
-        expected === "semantic" ? "target_invalid" : expected,
+        expected === "semantic" ? "target_format_invalid" : expected,
       ),
     );
     expect(fetchFromOpenAI).toHaveBeenCalledTimes(attemptCount);
