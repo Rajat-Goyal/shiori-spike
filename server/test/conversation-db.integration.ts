@@ -508,6 +508,7 @@ describe("local Supabase conversation state", () => {
         config.supabaseUrl,
         config.supabaseSecretKey,
         "commitments",
+        `&source_draft_id=eq.${restored.id}`,
       ),
     ).toHaveLength(0);
 
@@ -559,8 +560,8 @@ describe("local Supabase conversation state", () => {
 
     const [
       commitmentRows,
-      scheduledRows,
-      eventRows,
+      allScheduledRows,
+      allEventRows,
       confirmedDraftRows,
       confirmUpdateRows,
     ] = await Promise.all([
@@ -568,6 +569,7 @@ describe("local Supabase conversation state", () => {
         config.supabaseUrl,
         config.supabaseSecretKey,
         "commitments",
+        `&source_draft_id=eq.${restored.id}`,
       ),
       rows(
         config.supabaseUrl,
@@ -583,7 +585,7 @@ describe("local Supabase conversation state", () => {
         config.supabaseUrl,
         config.supabaseSecretKey,
         "conversation_drafts",
-        "&state=eq.confirmed",
+        `&id=eq.${restored.id}&state=eq.confirmed`,
       ),
       rows(
         config.supabaseUrl,
@@ -605,6 +607,9 @@ describe("local Supabase conversation state", () => {
     expect(
       new Date(String(commitmentRows[0].target_at)).getTime(),
     ).toBe(new Date(String(restored.fields.targetAt)).getTime());
+    const scheduledRows = allScheduledRows.filter(
+      (row) => row.commitment_id === commitmentRows[0].id,
+    );
     expect(scheduledRows).toHaveLength(1);
     expect(scheduledRows[0]).toMatchObject({
       attempt_count: 0,
@@ -615,6 +620,9 @@ describe("local Supabase conversation state", () => {
     expect(
       new Date(String(scheduledRows[0].due_at)).getTime(),
     ).toBe(new Date(String(restored.fields.targetAt)).getTime());
+    const eventRows = allEventRows.filter(
+      (row) => row.commitment_id === commitmentRows[0].id,
+    );
     expect(
       eventRows
         .map((row) => row.event_type)
@@ -719,6 +727,7 @@ describe("local Supabase conversation state", () => {
         config.supabaseUrl,
         config.supabaseSecretKey,
         "commitments",
+        `&source_draft_id=eq.${restored.id}`,
       ),
     ).toHaveLength(1);
     expect(
@@ -726,6 +735,7 @@ describe("local Supabase conversation state", () => {
         config.supabaseUrl,
         config.supabaseSecretKey,
         "scheduled_messages",
+        `&commitment_id=eq.${String(commitmentRows[0].id)}`,
       ),
     ).toHaveLength(1);
     expect(
@@ -733,8 +743,8 @@ describe("local Supabase conversation state", () => {
         config.supabaseUrl,
         config.supabaseSecretKey,
         "commitment_events",
+        `&commitment_id=eq.${String(commitmentRows[0].id)}`,
       ),
     ).toHaveLength(2);
-
   });
 });

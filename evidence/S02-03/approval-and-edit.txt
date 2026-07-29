@@ -1,0 +1,105 @@
+S02-03 — Exact approval-gated creation and commitment edits
+Verified: 2026-07-30 (Asia/Singapore)
+
+Required focused verification
+Command:
+  npm run test --workspace @shiori/server -- src/agent src/commitments src/work-sessions
+Result: PASS
+Test files: 16 passed (16)
+Tests: 156 passed (156)
+
+Required server type verification
+Command:
+  npm run typecheck:server
+Result: PASS
+
+Clean migration verification
+Command:
+  npx supabase@latest db reset --local
+Result: PASS
+All migrations applied through:
+  20260730080000_approve_commitment_edits.sql
+
+Focused local database probes
+Command:
+  node --env-file=.env.local node_modules/vitest/vitest.mjs run
+  --config vitest.db.config.ts
+  server/test/approved-commitment-change-db.integration.ts
+  server/test/agent-session-db.integration.ts
+Result: PASS
+Test files: 2 passed (2)
+Tests: 4 passed (4)
+
+Required full database verification
+Command:
+  npm run test:db
+Result: PASS
+Test files: 13 passed (13)
+Tests: 33 passed (33)
+
+Full repository gate
+Command:
+  npm run check
+Result: PASS
+Server tests: 510 passed
+Release-verifier tests: 22 passed
+Isolated Playwright tests: 50 passed
+Server and web typechecks: PASS
+Server and web production builds: PASS
+
+Acceptance evidence
+AC1 PASS — The update_commitment Agents SDK tool and the existing exact
+creation tool interrupt the active durable run. The application renders the
+preview and seals the paused state against the exact tool, owner chat, session,
+entity ID, and version. Unit tests prove the consequential callback is not
+invoked before approval.
+
+AC2 PASS — Creation continues to resume the same encrypted interrupted run and
+uses the existing atomic confirmation transaction. Approval tests preserve the
+exact creation binding and reject stale, mismatched, replayed, or rejected
+interactions without a second consequence.
+
+AC3 PASS — The local database probe applies one exact version-1 edit, writes
+version 2, cancels the obsolete unsent reminder, creates the version-2
+replacement, and appends one commitment.changed event plus one receipt. A
+work-shaped probe cancels the former planned session and both unsent messages,
+then creates exactly one replacement session and two replacement schedules.
+
+AC4 PASS — ApprovedCommitmentChangeService rechecks the exact proposed window
+immediately before the transaction. Unit tests cover free, reject-on-conflict,
+explicit conflict keep, reject-on-unavailable, and explicit unverified-save
+policies. Calendar is read-only and raw Calendar data is not persisted.
+
+AC5 PASS — Runtime, approval-gate, callback, service, and local database tests
+cover rejection, authority mismatch, stale versions, exact replay, terminal
+commitments, and interrupted retry. The transaction probe proves exact replay
+is harmless, a different stale update cannot mutate, and a completed promise
+cannot reopen.
+
+Database and security notes
+- The edit RPC owns one row-locked transaction for commitment fields, planned
+  work-session replacement, unsent schedule cancellation/replacement, receipt,
+  version increment, and append-only change event.
+- Existing target immutability remains fail-closed. Only the approved edit RPC
+  sets a transaction-local binding for the exact commitment while performing
+  its version-checked update.
+- Change-event metadata contains only changed field names and versions.
+- No production or remote Supabase state was accessed or changed.
+- Local Supabase credentials were supplied only to the test process and are
+  not present in this artifact.
+
+Test-contract debt repaired
+The two S02-01/S02-02 database tests still called the removed recordTurn API
+and asserted the superseded six-turn model. They now use the durable Agents SDK
+Session contract while retaining equivalent coverage for encrypted storage,
+restart restoration, operation replay, stale-handle CAS, approval authority,
+and terminal cleanup.
+
+Verification deviations
+- The first npm run check attempt was sandboxed and Playwright could not bind
+  its local server to 0.0.0.0:3000 (EPERM). The exact command was rerun with
+  local port binding permission and passed in full.
+- Adding the new alphabetically earlier DB test exposed an order-dependent
+  conversation test that asserted global table emptiness. Its assertions now
+  scope commitments, schedules, and events to the draft under test; the clean
+  full DB suite then passed.

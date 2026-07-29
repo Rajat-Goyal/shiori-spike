@@ -83,122 +83,84 @@ function identities() {
   };
 }
 
-describe("local Supabase ephemeral agent persistence", () => {
-  it("keeps a fixed-lifetime encrypted six-turn window with CAS and replay safety", async () => {
+describe("local Supabase durable agent persistence", () => {
+  it("keeps encrypted SDK items with CAS and replay safety", async () => {
     const { config, session } = persistence();
     const identity = identities();
-    const first = await session.recordTurn({
+    const active = await session.open(identity.chatId);
+    const durableItems = Array.from({ length: 16 }, (_, index) => ({
+      content: `Private owner item ${index + 1}`,
+      role: "user" as const,
+    }));
+    await active.addItems(durableItems);
+    const initial = active.currentSnapshot();
+    expect(initial.version).toBe(1);
+    expect(initial.items.map((item) => item.item)).toEqual(
+      durableItems,
+    );
+    const staleHandle = await session.open(identity.chatId);
+    const first = await active.recordApplicationReply({
       activeDraftId: identity.draftId,
-      assistantText: "Private assistant turn 1",
-      chatId: identity.chatId,
-      expected: { kind: "none" },
-      ownerText: "Private owner turn 1",
+      assistantText: "Private application reply",
+      pendingQuestion: "replace",
       updateId: identity.updateId,
     });
     expect(first.kind).toBe("applied");
     if (first.kind !== "applied") {
-      throw new Error("initial agent session turn did not apply");
+      throw new Error("agent application reply did not apply");
     }
-    const initialExpiry = first.session.expiresAt;
-    let current = first.session;
-
-    for (let index = 2; index <= 8; index += 1) {
-      const result = await session.recordTurn({
-        activeDraftId: identity.draftId,
-        assistantText: `Private assistant turn ${index}`,
-        chatId: identity.chatId,
-        expected: {
-          id: current.id,
-          kind: "active",
-          version: current.version,
-        },
-        ownerText: `Private owner turn ${index}`,
-        updateId: identity.updateId + index - 1,
-      });
-      expect(result.kind).toBe("applied");
-      if (result.kind !== "applied") {
-        throw new Error("agent session continuation did not apply");
-      }
-      current = result.session;
-      expect(current.expiresAt).toBe(initialExpiry);
-    }
-
-    expect(current.version).toBe(8);
-    expect(current.turns).toHaveLength(6);
-    expect(current.turns.map((turn) => turn.updateId)).toEqual(
-      Array.from(
-        { length: 6 },
-        (_, index) => identity.updateId + index + 2,
-      ),
-    );
-    expect(current.turns[0]).toMatchObject({
-      assistantText: "Private assistant turn 3",
-      ownerText: "Private owner turn 3",
+    expect(first.session.version).toBe(2);
+    expect(first.session.activeDraftId).toBe(identity.draftId);
+    expect(first.session.itemCount).toBe(17);
+    expect(first.session.interaction.pendingQuestion).toEqual({
+      text: "Private application reply",
+      updateId: identity.updateId,
     });
 
-    const storedTurns = await rows(
+    const storedItems = await rows(
       config.supabaseUrl,
       config.supabaseSecretKey,
-      "agent_session_turns",
-      `&session_id=eq.${current.id}`,
+      "agent_session_sdk_items",
+      `&session_id=eq.${active.sessionId}`,
     );
-    expect(storedTurns).toHaveLength(6);
-    expect(JSON.stringify(storedTurns)).not.toContain("Private owner");
-    expect(JSON.stringify(storedTurns)).not.toContain("Private assistant");
+    expect(storedItems).toHaveLength(17);
+    expect(JSON.stringify(storedItems)).not.toContain("Private owner");
+    expect(JSON.stringify(storedItems)).not.toContain(
+      "Private application reply",
+    );
     expect(
-      storedTurns.every(
-        (turn) =>
-          typeof turn.sealed_turn === "string" &&
-          String(turn.sealed_turn).includes(
+      storedItems.every(
+        (item) =>
+          typeof item.sealed_item === "string" &&
+          String(item.sealed_item).includes(
             "shiori.agent.ephemeral.v1",
           ),
       ),
     ).toBe(true);
 
     await expect(
-      session.recordTurn({
+      active.recordApplicationReply({
         activeDraftId: identity.draftId,
-        assistantText: "duplicate assistant",
-        chatId: identity.chatId,
-        expected: {
-          id: current.id,
-          kind: "active",
-          version: current.version,
-        },
-        ownerText: "duplicate owner",
-        updateId: identity.updateId + 7,
+        assistantText: "Duplicate application reply",
+        pendingQuestion: "replace",
+        updateId: identity.updateId,
       }),
-    ).resolves.toEqual({ kind: "replay" });
+    ).resolves.toMatchObject({
+      kind: "replay",
+      session: {
+        itemCount: 17,
+        version: 2,
+      },
+    });
 
-    const staleUpdateId = identity.updateId + 20;
     await expect(
-      session.recordTurn({
+      staleHandle.recordApplicationReply({
         activeDraftId: identity.draftId,
-        assistantText: "stale assistant",
-        chatId: identity.chatId,
-        expected: {
-          id: current.id,
-          kind: "active",
-          version: current.version - 1,
-        },
-        ownerText: "stale owner",
-        updateId: staleUpdateId,
+        assistantText: "Stale application reply",
+        pendingQuestion: "replace",
+        updateId: identity.updateId + 1,
       }),
     ).resolves.toEqual({ kind: "stale" });
-    await expect(
-      session.recordTurn({
-        activeDraftId: identity.draftId,
-        assistantText: "stale retry assistant",
-        chatId: identity.chatId,
-        expected: {
-          id: current.id,
-          kind: "active",
-          version: current.version,
-        },
-        ownerText: "stale retry owner",
-        updateId: staleUpdateId,
-      }),
-    ).resolves.toEqual({ kind: "replay" });
 
     await expect(
       session.clear({
@@ -211,9 +173,9 @@ describe("local Supabase ephemeral agent persistence", () => {
     await expect(
       session.clear({
         chatId: identity.chatId,
-        expectedSessionId: current.id,
+        expectedSessionId: active.sessionId,
         reason: "confirmed",
-        updateId: identity.updateId + 22,
+        updateId: identity.updateId + 3,
       }),
     ).resolves.toEqual({ kind: "cleared" });
     await expect(session.read(identity.chatId)).resolves.toEqual({
@@ -223,29 +185,26 @@ describe("local Supabase ephemeral agent persistence", () => {
       await rows(
         config.supabaseUrl,
         config.supabaseSecretKey,
-        "agent_session_turns",
-        `&session_id=eq.${current.id}`,
+        "agent_session_sdk_items",
+        `&session_id=eq.${active.sessionId}`,
       ),
     ).toEqual([]);
-    expect(
-      await rows(
-        config.supabaseUrl,
-        config.supabaseSecretKey,
-        "agent_session_update_receipts",
-        `&chat_id=eq.${identity.chatId}`,
-      ),
-    ).toHaveLength(11);
   });
 
   it("retries one exact approval and deletes it only on terminal paths", async () => {
     const { approval, config, session } = persistence();
     const identity = identities();
-    const created = await session.recordTurn({
+    const active = await session.open(identity.chatId);
+    await active.addItems([
+      {
+        content: "Approval setup owner",
+        role: "user",
+      },
+    ]);
+    const created = await active.recordApplicationReply({
       activeDraftId: identity.draftId,
       assistantText: "Approval setup assistant",
-      chatId: identity.chatId,
-      expected: { kind: "none" },
-      ownerText: "Approval setup owner",
+      pendingQuestion: "clear",
       updateId: identity.updateId,
     });
     expect(created.kind).toBe("applied");
@@ -260,7 +219,7 @@ describe("local Supabase ephemeral agent persistence", () => {
       draftVersion: 7,
       expected: { kind: "none" },
       sealedRunState,
-      sessionId: created.session.id,
+      sessionId: active.sessionId,
       toolName: "execute_commitment",
       updateId: identity.updateId,
     } as const;
@@ -273,9 +232,9 @@ describe("local Supabase ephemeral agent persistence", () => {
       chatId: identity.chatId,
       draftId: identity.draftId,
       draftVersion: 7,
-      expiresAt: created.session.expiresAt,
+      expiresAt: active.currentSnapshot().expiresAt,
       sealedRunState,
-      sessionId: created.session.id,
+      sessionId: active.sessionId,
       toolName: "execute_commitment",
       version: 1,
     });
@@ -305,9 +264,9 @@ describe("local Supabase ephemeral agent persistence", () => {
       chat_id: identity.chatId,
       draft_id: identity.draftId,
       draft_version: 7,
-      expires_at: created.session.expiresAt,
+      expires_at: active.currentSnapshot().expiresAt,
       sealed_run_state: sealedRunState,
-      session_id: created.session.id,
+      session_id: active.sessionId,
       tool_name: "execute_commitment",
       version: 1,
     });
@@ -370,7 +329,7 @@ describe("local Supabase ephemeral agent persistence", () => {
     const claimed = {
       kind: "claimed",
       sealedRunState,
-      sessionId: created.session.id,
+      sessionId: active.sessionId,
     } as const;
     await expect(approval.resolve(approveCommand)).resolves.toEqual(claimed);
     await expect(approval.resolve(approveCommand)).resolves.toEqual(claimed);
@@ -443,7 +402,7 @@ describe("local Supabase ephemeral agent persistence", () => {
       }),
     ]);
     await expect(
-      approval.clearForSession(created.session.id, "confirmed"),
+      approval.clearForSession(active.sessionId, "confirmed"),
     ).resolves.toBeUndefined();
 
     const cleared = await approval.stage({
@@ -452,14 +411,14 @@ describe("local Supabase ephemeral agent persistence", () => {
     });
     expect(cleared.kind).toBe("staged");
     await expect(
-      approval.clearForSession(created.session.id, "cancelled"),
+      approval.clearForSession(active.sessionId, "cancelled"),
     ).resolves.toBeUndefined();
     expect(
       await rows(
         config.supabaseUrl,
         config.supabaseSecretKey,
         "agent_pending_approvals",
-        `&session_id=eq.${created.session.id}`,
+        `&session_id=eq.${active.sessionId}`,
       ),
     ).toEqual([]);
 
@@ -471,16 +430,10 @@ describe("local Supabase ephemeral agent persistence", () => {
     if (sessionBound.kind !== "staged") {
       throw new Error("session-bound approval did not stage");
     }
-    const changedSession = await session.recordTurn({
+    const changedSession = await active.recordApplicationReply({
       activeDraftId: crypto.randomUUID(),
       assistantText: "Changed active draft",
-      chatId: identity.chatId,
-      expected: {
-        id: created.session.id,
-        kind: "active",
-        version: created.session.version,
-      },
-      ownerText: "Change session binding",
+      pendingQuestion: "clear",
       updateId: identity.updateId + 30,
     });
     expect(changedSession.kind).toBe("applied");
@@ -499,7 +452,7 @@ describe("local Supabase ephemeral agent persistence", () => {
     await expect(
       session.clear({
         chatId: identity.chatId,
-        expectedSessionId: created.session.id,
+        expectedSessionId: active.sessionId,
         reason: "confirmed",
         updateId: identity.updateId + 13,
       }),
@@ -509,7 +462,7 @@ describe("local Supabase ephemeral agent persistence", () => {
         config.supabaseUrl,
         config.supabaseSecretKey,
         "agent_pending_approvals",
-        `&session_id=eq.${created.session.id}`,
+        `&session_id=eq.${active.sessionId}`,
       ),
     ).toEqual([]);
   });
