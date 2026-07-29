@@ -1,0 +1,241 @@
+{
+  "story_id": "S01-03a",
+  "captured_at": "2026-07-29T09:09:51Z",
+  "head": "6d00192da360ea5453e0b953007580e16d5480d1",
+  "implementation_commits_reviewed": [
+    "3497801",
+    "59a7631",
+    "1128035",
+    "6d00192"
+  ],
+  "result": "blocked",
+  "summary": {
+    "requested_review_items_passed": 8,
+    "requested_review_items_failed": 1,
+    "product_defects": 1,
+    "environment_blockers_remaining": 0
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "result": "pass",
+      "evidence": "Deterministic runtime fixtures and the sanitized live SDK smoke accepted bounded ordinary and commitment decisions only through propose_draft_update."
+    },
+    {
+      "id": "AC2",
+      "result": "pass",
+      "evidence": "The current Scope and ADR contract uses the real @openai/agents Responses runtime with exactly four allowlisted tools, store false, a 30000 millisecond timeout, disabled tracing, and disabled sensitive trace data."
+    },
+    {
+      "id": "AC3",
+      "result": "pass",
+      "evidence": "Application semantic validation rejected invalid and past Singapore targets, invalid proposal shapes, authority mismatches, and unapproved consequential calls."
+    },
+    {
+      "id": "AC4",
+      "result": "pass",
+      "evidence": "Closed failures, stale bindings, replay, unavailable approval, rejection, expiry, and direct tool invocation produced no unauthorized domain action."
+    },
+    {
+      "id": "AC5",
+      "result": "pass",
+      "evidence": "Focused, database, repository-wide, and sanitized live-provider gates completed without retained raw input, raw output, trace, credentials, or production mutation."
+    }
+  ],
+  "requested_review_items": [
+    {
+      "id": 1,
+      "name": "real_bounded_agents_runtime",
+      "result": "pass",
+      "evidence": [
+        "@openai/agents Agent, OpenAIProvider, Runner, RunState, and tool are used by the production runtime.",
+        "OpenAIProvider is configured with useResponses true.",
+        "The only normal-run tools are read_active_draft, propose_draft_update, request_sanitized_availability, and execute_commitment.",
+        "Agent and Runner model storage are false; Runner tracing is disabled and sensitive trace inclusion is false.",
+        "The loop is capped at four turns and one 30000 millisecond deadline."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "singapore_time_and_encrypted_continuity",
+      "result": "pass",
+      "evidence": [
+        "The runtime fixes one immutable +08:00 Singapore reference timestamp for each run.",
+        "Tomorrow and same-day partial-time fixtures resolve against that timestamp; an already-past same-day target fails with target_not_future.",
+        "Only the latest six owner/assistant turns are replayed.",
+        "Local database verification retained a non-sliding 24-hour expiry while eight turns reduced to the latest six.",
+        "Persisted turns were authenticated AES-256-GCM envelopes bound to the exact owner session and update; plaintext sentinels were absent from database rows."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "every_new_complete_promise_asks_preparation",
+      "result": "fail",
+      "defect": {
+        "severity": "story_blocker",
+        "contract_refs": [
+          "docs/product-slices/01-a-promise-that-fits/scope.md:128",
+          "docs/product-slices/01-a-promise-that-fits/scope.md:200",
+          "docs/product-slices/01-a-promise-that-fits/adr.md:101"
+        ],
+        "code_refs": [
+          "server/src/conversation/service.ts:816",
+          "server/src/work-sessions/flow.ts:301"
+        ],
+        "test_ref": "server/src/telegram/conversation.test.ts:360",
+        "actual": "ConversationService routes a complete simple_action directly to confirmationSummary, which displays Confirm and Cancel.",
+        "expected": "Every newly complete promise must first display the application-owned preparation question; only a negative preparation answer may reach normal confirmation.",
+        "encoded_regression": "The current restart-safe simple-draft test explicitly expects Confirm and Cancel for a newly complete simple action, so the green suite confirms the contract violation rather than detecting it.",
+        "repair_required": "Route every newly complete promise through the preparation question and update the test to reject direct confirmation before the owner answers that question."
+      }
+    },
+    {
+      "id": 4,
+      "name": "approval_stage_pause_resume_and_atomic_action",
+      "result": "pass",
+      "evidence": [
+        "Simple d:confirm approval is staged before exposure, pauses at execute_commitment, resumes the same sealed SDK run, and invokes the deterministic simple confirmation action.",
+        "Final w:confirm and w:save_unverified actions stage the same approval interruption and dispatch the exact work-session atomic action selected from the current durable stage.",
+        "The execution tool requires SDK approval plus exact chat, session, draft id, draft version, callback update id, and complete proposal authority.",
+        "The SDK tool invokes the configured executeCommitment callback exactly once after approval."
+      ]
+    },
+    {
+      "id": 5,
+      "name": "redelivery_and_crash_gap",
+      "result": "pass",
+      "evidence": [
+        "Same-update staging and resolution redelivery return replay without rerunning the agent.",
+        "After a process interruption following an approval claim, the exact binding remains retryable.",
+        "A new callback update id on owner retap reaches the resumed SDK run and downstream idempotent atomic action.",
+        "Local database verification retained the exact claimed approval until a terminal path."
+      ]
+    },
+    {
+      "id": 6,
+      "name": "no_raw_confirmation_bypass",
+      "result": "pass",
+      "evidence": [
+        "Application wiring exposes AgentApprovedConfirmationService and AgentApprovedWorkSessionService at Telegram ingress.",
+        "Unavailable simple approval never delegates to the raw confirmation service.",
+        "Unavailable final work approval never delegates confirm or save_unverified to the raw work-session service.",
+        "The application-owned SDK executor constructs only the exact versioned d:confirm or final w:confirm/save_unverified action."
+      ]
+    },
+    {
+      "id": 7,
+      "name": "terminal_clear_and_ttl",
+      "result": "pass",
+      "evidence": [
+        "Sessions and pending approvals clear after confirmed, cancelled, and expired outcomes.",
+        "The session expiry is constrained to created_at plus 24 hours and does not slide when turns are added.",
+        "Expired state fails closed and deletes bounded ephemeral continuity."
+      ]
+    },
+    {
+      "id": 8,
+      "name": "clean_local_supabase_and_full_database_suite",
+      "result": "pass",
+      "evidence": [
+        "A disposable local-only reset applied all 20 migrations through 20260729012000_make_agent_approval_claim_retryable.sql.",
+        "The full database suite passed 30 tests across 11 files.",
+        "The database target was guarded to 127.0.0.1:54321 and local credentials were injected in memory; .env.local and hosted Supabase were not modified."
+      ]
+    },
+    {
+      "id": 9,
+      "name": "full_repository_check",
+      "result": "pass",
+      "evidence": [
+        "Server and web typechecks passed.",
+        "All 452 server tests across 30 files passed.",
+        "All 22 release-verifier tests passed.",
+        "Web and server production builds passed.",
+        "All 50 Chromium and mobile-Chromium tests passed."
+      ]
+    }
+  ],
+  "verification_commands": [
+    {
+      "command": "npm run test --workspace @shiori/server -- src/agent/runtime.test.ts src/agent/conversation.test.ts src/agent/session-crypto.test.ts src/agent/supabase-session-repository.test.ts src/agent/approval.test.ts src/agent/approved-services.test.ts src/work-sessions/flow.test.ts src/telegram/conversation.test.ts",
+      "result": "pass",
+      "test_files_passed": 8,
+      "tests_passed": 107
+    },
+    {
+      "command": "DOCKER_CONFIG=<isolated-empty-config> npx --yes supabase@latest db reset --local",
+      "result": "pass",
+      "migrations_applied": 20,
+      "last_migration": "20260729012000_make_agent_approval_claim_retryable.sql"
+    },
+    {
+      "command": "npm run test:db with guarded local Supabase values injected in memory",
+      "result": "pass",
+      "test_files_passed": 11,
+      "tests_passed": 30
+    },
+    {
+      "command": "sanitized temporary live @openai/agents smoke",
+      "result": "pass",
+      "normal_decision_tool_accepted": true,
+      "prepared_approval_interruption": true,
+      "executor_calls": 0,
+      "availability_calls": 0,
+      "harness_retained": false
+    },
+    {
+      "command": "npm run check",
+      "result": "pass",
+      "server_test_files_passed": 30,
+      "server_tests_passed": 452,
+      "release_verifier_tests_passed": 22,
+      "web_build": "pass",
+      "server_build": "pass",
+      "browser_tests_passed": 50
+    },
+    {
+      "command": "npm run test --workspace @shiori/server -- src/telegram/conversation.test.ts -t \"restart-safe simple draft\"",
+      "result": "current_behavior_confirmed",
+      "tests_passed": 3,
+      "finding": "The complete simple-action fixture passes while expecting direct Confirm and Cancel instead of the required preparation question."
+    }
+  ],
+  "live_smoke": {
+    "result": "pass",
+    "provider": "OpenAI Agents SDK",
+    "synthetic_input_only": true,
+    "normal_decision_tool_accepted": true,
+    "prepared_approval_interruption": true,
+    "fake_domain_executor_calls": 0,
+    "no_op_availability_calls": 0,
+    "production_mutation": false,
+    "raw_input_retained": false,
+    "raw_output_retained": false,
+    "provider_trace_retained": false,
+    "credential_retained": false,
+    "temporary_harness_retained": false
+  },
+  "database_reset_history": [
+    {
+      "attempt": 1,
+      "result": "environment_interrupted",
+      "stage": "docker_registry_credentials",
+      "detail": "The host Docker credential helper did not return. The QA process was interrupted cleanly while the local database remained healthy."
+    },
+    {
+      "attempt": 2,
+      "result": "pass",
+      "detail": "An isolated empty Docker client configuration avoided the host credential helper; missing pinned local images were downloaded and the complete reset finished."
+    }
+  ],
+  "qa_actions": {
+    "source_edited": false,
+    "state_files_edited": false,
+    "environment_file_edited": false,
+    "migration_edited_or_added": false,
+    "hosted_database_mutated": false,
+    "production_deployed": false,
+    "disposable_local_database_reset": true,
+    "evidence_only_commit_planned": true
+  }
+}
