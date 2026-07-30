@@ -99,6 +99,42 @@ Run the default local release contract:
 npm run verify:release
 ```
 
+### Diagnose fail-closed conversation replies
+
+When Telegram answers "I couldn't safely process that", the cause is recorded in
+`public.conversation_turn_failures`. Read the distribution before changing any
+conversation logic — the reachable reasons are far fewer than the declared ones,
+so guessing wastes effort.
+
+```sql
+-- Which causes actually fire, most frequent first.
+select source, site, reason, count(*) as turns
+from public.conversation_turn_failures
+group by source, site, reason
+order by turns desc;
+
+-- Recent failures with the turn shape that produced them.
+select created_at, source, site, reason, snapshot_kind, phase, update_id
+from public.conversation_turn_failures
+order by created_at desc
+limit 50;
+```
+
+`source` separates a bounded decision-engine failure (`decision`, carrying
+`reason` and `attempt_count`) from an application-side rejection of a successful
+decision (`application`, carrying `site`). The table holds reason codes and turn
+shape only — never owner text, draft fields, Calendar data, or model output.
+
+Set `CONVERSATION_FAILURE_CODES=true` to append the reason code to the Telegram
+reply itself, so a screenshot identifies the path without correlating
+timestamps. It is off by default and is a temporary diagnostic aid.
+
+Operational logs carry the same signal for failures that never reach the
+database: `conversation_failure`, `conversation_engine_threw`,
+`agent_runtime_failure`, and `agent_approval_preparation_failed`. Each carries
+error class names and stack frames, never messages, because a thrown message can
+embed owner text or a token.
+
 The bare command is the local-only phase. It checks Node/npm, the ordered local
 migration manifest, and `npm run check`. It does not read `.env.local`, invoke
 Railway or Supabase CLIs, contact hosted services, or require network access.
