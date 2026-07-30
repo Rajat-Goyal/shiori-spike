@@ -14,6 +14,7 @@ export type DecisionSemanticFailureReason =
   | "complete_mode_unresolved"
   | "correction_changed_nothing"
   | "definition_blank"
+  | "draft_target_invalid"
   | "implied_payload_conflict"
   | "incomplete_mode_resolved"
   | "input_invalid"

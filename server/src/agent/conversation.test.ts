@@ -261,6 +261,110 @@ describe("SessionBackedAgentDecisionEngine", () => {
     ]);
   });
 
+  it("keeps the old focus as an application-owned create precondition for the exact separate smoke promise", async () => {
+    const test = fixture();
+    const oldFields = {
+      commitmentMode: "possible_work_session" as const,
+      definitionOfDone: "Publish the existing note",
+      durationMinutes: 30,
+      offerWorkWindowHelp: false,
+      targetAt: "2026-07-30T12:00:00+08:00",
+      targetTimeZone: "Asia/Singapore" as const,
+      timingConstraints: ["wed 08:00-12:00"],
+    };
+    const oldDraft = {
+      definitionOfDone: oldFields.definitionOfDone,
+      focused: true,
+      id: snapshot.activeDraftId!,
+      mode: oldFields.commitmentMode,
+      phase: "complete" as const,
+      targetAt: oldFields.targetAt,
+      version: 5,
+    };
+    const oldDraftTargetFields = {
+      definitionOfDone: oldFields.definitionOfDone,
+      durationMinutes: oldFields.durationMinutes,
+      offerWorkWindowHelp: oldFields.offerWorkWindowHelp,
+      possibleWorkSession: true,
+      simpleAction: false,
+      targetAt: oldFields.targetAt,
+      targetTimeZone: oldFields.targetTimeZone,
+      timingConstraints: oldFields.timingConstraints,
+    };
+    vi.mocked(test.contextReader.readProductContext).mockResolvedValueOnce({
+      ...productContext(true),
+      drafts: [oldDraft],
+      focusedEntity: { entity: oldDraft, kind: "draft" },
+    });
+    const separateDecision: DecisionResult = {
+      commitmentMode: "possible_work_session",
+      definitionOfDone: "Review the Slice 02 smoke notes",
+      durationMinutes: null,
+      inputClass: "explicit_commitment",
+      missingFields: [],
+      nextAction: "offer_work_window",
+      offerWorkWindowHelp: false,
+      response: "",
+      targetAt: "2026-07-31T17:00:00+08:00",
+      targetTimeZone: "Asia/Singapore",
+      timingConstraints: [],
+      turnRelation: "separate_request",
+    };
+    vi.mocked(test.runtime.run).mockResolvedValueOnce({
+      outcome: {
+        decision: separateDecision,
+        initialWorkSessionInput: {
+          durationMinutes: 45,
+          followUpQuestion: null,
+          nextInput: null,
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: "fri 08:00-12:00",
+        },
+        ok: true,
+      },
+    });
+    const input = {
+      context: {
+        fields: oldFields,
+        phase: "complete" as const,
+      },
+      ownerText:
+        "I promise to review the Slice 02 smoke notes by tomorrow at 5:00 PM Singapore time. I need 45 minutes to prepare tomorrow morning.",
+    };
+
+    const outcome = await test.engine.decide(input, { updateId: 12 });
+
+    expect(outcome).toMatchObject({
+      decision: separateDecision,
+      draftTarget: {
+        authority: {
+          expectedVersion: 5,
+          id: snapshot.activeDraftId,
+          kind: "draft",
+        },
+        fields: oldDraftTargetFields,
+        phase: "complete",
+      },
+      initialWorkSessionInput: {
+        durationMinutes: 45,
+      },
+      ok: true,
+    });
+    expect(test.runtime.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authority: expect.objectContaining({
+          draftId: snapshot.activeDraftId,
+          draftVersion: 5,
+        }),
+        conversation: expect.objectContaining({
+          draftResolution: { kind: "none" },
+        }),
+        input,
+      }),
+    );
+  });
+
   it("records an ordinary application answer in the same session", async () => {
     const test = fixture(false);
     await test.engine.decide(
@@ -432,6 +536,10 @@ describe("SessionBackedAgentDecisionEngine", () => {
   it("turns an ambiguous entity reference into a clarification without mutation intent", async () => {
     const test = fixture();
     const ambiguous = productContext(true);
+    const ambiguousSeparateDecision = {
+      ...decision,
+      turnRelation: "separate_request" as const,
+    };
     const secondDraftId = "22222222-2222-4222-8222-222222222222";
     vi.mocked(
       test.draftRepository.resolveDraftReference,
@@ -514,12 +622,12 @@ describe("SessionBackedAgentDecisionEngine", () => {
     });
     vi.mocked(test.runtime.run).mockResolvedValueOnce({
       approval: {
-        proposal: decision,
+        proposal: ambiguousSeparateDecision,
         target: { id: snapshot.activeDraftId!, version: 3 },
         toolName: "execute_commitment",
       },
       outcome: {
-        decision,
+        decision: ambiguousSeparateDecision,
         initialWorkSessionInput: {
           durationMinutes: 45,
           followUpQuestion: null,

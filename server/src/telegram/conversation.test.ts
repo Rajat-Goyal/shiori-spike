@@ -1870,6 +1870,138 @@ describe("ConversationService", () => {
     },
   );
 
+  it("creates and focuses the exact separate smoke promise while preserving target and preparation roles", async () => {
+    const snapshot = activeDraft("complete", completeFields, 8);
+    const repository = new ControlledRepository(snapshot);
+    repository.applyResult = {
+      completed: true,
+      draftCreated: true,
+      draftReference: {
+        id: "33333333-3333-4333-8333-333333333333",
+        version: 1,
+      },
+      status: "applied",
+    };
+    const initialWorkSessionInput = {
+      durationMinutes: 45,
+      followUpQuestion: null,
+      nextInput: null,
+      preparationRequired: true,
+      startAt: null,
+      timingConstraints: "fri 08:00-12:00",
+    } as const;
+    const workSessionConversation = {
+      handleConversationInput: vi.fn(async () => ({
+        actions: [{
+          callbackData:
+            "w:33333333-3333-4333-8333-333333333333:2:option_1",
+          text: "Choose option 1",
+        }],
+        text: "I found an available work window.",
+      })),
+    };
+    const smokeFields = {
+      ...completeFields,
+      definitionOfDone: "Review the Slice 02 smoke notes",
+      durationMinutes: null,
+      possibleWorkSession: true,
+      simpleAction: false,
+      targetAt: "2026-07-31T17:00:00+08:00",
+      timingConstraints: [],
+    };
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => ({
+          decision: decision(smokeFields, {
+            turnRelation: "separate_request",
+          }),
+          draftTarget: {
+            authority: {
+              expectedVersion: snapshot.version,
+              id: snapshot.id,
+              kind: "draft" as const,
+            },
+            fields: snapshot.fields,
+            phase: snapshot.phase,
+          },
+          initialWorkSessionInput,
+          ok: true as const,
+        })),
+      },
+      modelId: "gpt-test-model",
+      ownerChatId: 42,
+      promptVersion: "shiori-test-v1",
+      repository,
+      workSessionConversation,
+    });
+
+    const reply = await service.handle(
+      70121,
+      "I promise to review the Slice 02 smoke notes by tomorrow at 5:00 PM Singapore time. I need 45 minutes to prepare tomorrow morning.",
+    );
+
+    expect(repository.commands[0]).toMatchObject({
+      action: "create_separate_draft",
+      expected: {
+        id: snapshot.id,
+        kind: "draft",
+        version: 8,
+      },
+      fields: {
+        definitionOfDone: "Review the Slice 02 smoke notes",
+        durationMinutes: 45,
+        possibleWorkSession: true,
+        simpleAction: false,
+        targetAt: "2026-07-31T17:00:00+08:00",
+        timingConstraints: ["fri 08:00-12:00"],
+      },
+      phase: "complete",
+      updateId: 70121,
+    });
+    expect(repository.commands[0]).not.toMatchObject({
+      action: "update_draft",
+    });
+    expect(workSessionConversation.handleConversationInput)
+      .toHaveBeenCalledWith(70121, 42, {
+        draftId: "33333333-3333-4333-8333-333333333333",
+        draftVersion: 1,
+        ...initialWorkSessionInput,
+      });
+    expect(reply).toMatchObject({
+      text: "I found an available work window.",
+    });
+  });
+
+  it("logs invalid draft authority classification without mutating the old draft", async () => {
+    const snapshot = activeDraft("complete", completeFields, 8);
+    const test = controlled(
+      snapshot,
+      failureOutcome("semantic", 1, "draft_target_invalid"),
+    );
+
+    await expect(
+      test.service.handle(70122, "private malformed separate promise"),
+    ).resolves.toBe(conversationCopy.failureWithDraft);
+    expect(test.repository.commands).toEqual([{
+      action: "preserve",
+      expected: {
+        id: snapshot.id,
+        kind: "draft",
+        version: 8,
+      },
+      processingResult: "conversation_failed",
+      updateId: 70122,
+    }]);
+    expect(test.repository.audits).toHaveLength(0);
+    expect(test.decisionFailureEvents).toHaveBeenCalledWith({
+      attemptCount: 1,
+      event: "decision_failure",
+      reason: "draft_target_invalid",
+    });
+    expect(JSON.stringify(test.decisionFailureEvents.mock.calls))
+      .not.toContain("private malformed separate promise");
+  });
+
   it("answers an ordinary question without extending or changing active draft", async () => {
     const snapshot = activeDraft("complete", completeFields, 9);
     const test = controlled(

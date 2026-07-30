@@ -732,9 +732,9 @@ function runtimeInstructions(
     "Use read_history with its opaque cursor only when the bounded recent session is insufficient.",
     "Use list_commitments for a bounded view of authoritative commitments.",
     "Maintain the exact focused entity for a continuation or an ordinary question.",
-    "A clearly separate promise must use turnRelation separate_request; never overwrite the current draft.",
+    "A clearly separate promise must use turnRelation separate_request with target null; the application owns the current-focus precondition and creates a new focused draft without overwriting the old one.",
     "If more than one entity plausibly matches a reference, ask which one the owner means and propose no mutation.",
-    "Every clarification_continuation, correction, or separate_request proposal must copy the exact draft target kind, id, and expectedVersion from authoritative context; all non-draft-mutation proposals must use target null.",
+    "Every clarification_continuation or correction proposal must copy the exact draft target kind, id, and expectedVersion from authoritative context; every other proposal, including separate_request, must use target null.",
     "Every decision that may affect application state, including ordinary-question responses, must be submitted through propose_draft_update.",
     "When the focused draft has authoritative preparation state, answer that pending preparation question with propose_work_session_input instead of propose_draft_update.",
     "For preparation input, preserve the exact draft id and version, extract a positive whole-minute duration from 1 through 1440, translate natural timing constraints into the canonical Singapore format used by the context, and translate an owner-selected time into an exact future RFC3339 +08:00 instant on a 30-minute start boundary.",
@@ -885,14 +885,13 @@ function buildTools(
         context.lastSemanticFailure = semantic.reason;
         return { accepted: false, reason: semantic.reason };
       }
-      const mutatesDraft = [
+      const patchesDraft = [
         "clarification_continuation",
         "correction",
-        "separate_request",
       ].includes(proposal.turnRelation);
       const expectedTarget = expectedDraftAuthority(context);
       if (
-        mutatesDraft &&
+        patchesDraft &&
         (
           target === null ||
           expectedTarget === null ||
@@ -901,12 +900,12 @@ function buildTools(
           target.expectedVersion !== expectedTarget.expectedVersion
         )
       ) {
-        context.lastSemanticFailure = "input_invalid";
-        return { accepted: false, reason: "input_invalid" };
+        context.lastSemanticFailure = "draft_target_invalid";
+        return { accepted: false, reason: "draft_target_invalid" };
       }
-      if (!mutatesDraft && target !== null) {
-        context.lastSemanticFailure = "input_invalid";
-        return { accepted: false, reason: "input_invalid" };
+      if (!patchesDraft && target !== null) {
+        context.lastSemanticFailure = "draft_target_invalid";
+        return { accepted: false, reason: "draft_target_invalid" };
       }
       context.proposal = proposal;
       context.proposalTarget = target;

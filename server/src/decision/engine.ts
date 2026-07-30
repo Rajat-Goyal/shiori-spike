@@ -298,6 +298,8 @@ const correctiveInstructions = {
     "Use correction only when a populated context candidate field changes.",
   definition_blank:
     "Use a non-blank definitionOfDone or null.",
+  draft_target_invalid:
+    "Use the exact application-owned target only for a clarification or correction; a separate request must use no target.",
   implied_payload_conflict:
     "For implied_intention, keep duration null and use ask_permission.",
   incomplete_mode_resolved:

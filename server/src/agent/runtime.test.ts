@@ -240,6 +240,7 @@ function runtimeWith(runner: AgentRunner, overrides: {
   requestSanitizedAvailability?: Parameters<
     typeof createAgentRuntime
   >[0]["requestSanitizedAvailability"];
+  now?: () => Date;
   updateCommitment?: Parameters<
     typeof createAgentRuntime
   >[0]["updateCommitment"];
@@ -259,7 +260,7 @@ function runtimeWith(runner: AgentRunner, overrides: {
       overrides.executeCommitment ??
       (async () => ({ status: "executed" })),
     model: "gpt-test",
-    now: () => now,
+    now: overrides.now ?? (() => now),
     requestSanitizedAvailability:
       overrides.requestSanitizedAvailability ?? (async () => []),
     runner,
@@ -1101,7 +1102,7 @@ describe("bounded Agents SDK runtime", () => {
       });
       expect(response).toEqual({
         accepted: false,
-        reason: "input_invalid",
+        reason: "draft_target_invalid",
       });
       return emptyResult();
     });
@@ -1116,7 +1117,181 @@ describe("bounded Agents SDK runtime", () => {
     expect(result.outcome).toMatchObject({
       failure: "semantic",
       ok: false,
-      reason: "input_invalid",
+      reason: "draft_target_invalid",
+    });
+  });
+
+  it("accepts the exact live-smoke promise as a separate create with preparation kept distinct", async () => {
+    const smokeInput: DecisionInput = {
+      context: {
+        fields: {
+          commitmentMode: validatedDecision.commitmentMode,
+          definitionOfDone: validatedDecision.definitionOfDone,
+          durationMinutes: validatedDecision.durationMinutes,
+          offerWorkWindowHelp: validatedDecision.offerWorkWindowHelp,
+          targetAt: validatedDecision.targetAt,
+          targetTimeZone: validatedDecision.targetTimeZone,
+          timingConstraints: validatedDecision.timingConstraints,
+        },
+        phase: "complete",
+      },
+      ownerText:
+        "I promise to review the Slice 02 smoke notes by tomorrow at 5:00 PM Singapore time. I need 45 minutes to prepare tomorrow morning.",
+    };
+    const runner = new ScriptedRunner(async (request) => {
+      await expect(
+        invoke(request, "propose_draft_update", {
+          ...proposalInput,
+          definitionOfDone: "Review the Slice 02 smoke notes",
+          targetAt: "2026-07-31T17:00:00+08:00",
+          turnRelation: "separate_request",
+        }),
+      ).resolves.toMatchObject({
+        accepted: true,
+        decision: {
+          definitionOfDone: "Review the Slice 02 smoke notes",
+          durationMinutes: null,
+          targetAt: "2026-07-31T17:00:00+08:00",
+          turnRelation: "separate_request",
+        },
+      });
+      await expect(
+        invoke(request, "propose_initial_preparation", {
+          durationMinutes: 45,
+          followUpQuestion: null,
+          nextInput: null,
+          preparationRequired: true,
+          startAt: null,
+          timingConstraints: "fri 08:00-12:00",
+        }),
+      ).resolves.toEqual({ accepted: true });
+      return emptyResult();
+    });
+
+    const result = await runtimeWith(runner, {
+      now: () => new Date("2026-07-30T01:03:00.000Z"),
+    }).run({
+      authority,
+      conversation: runtimeConversation,
+      input: smokeInput,
+      session: sdkSession(),
+    });
+
+    expect(result.outcome).toMatchObject({
+      decision: {
+        definitionOfDone: "Review the Slice 02 smoke notes",
+        durationMinutes: null,
+        targetAt: "2026-07-31T17:00:00+08:00",
+        turnRelation: "separate_request",
+      },
+      initialWorkSessionInput: {
+        durationMinutes: 45,
+        preparationRequired: true,
+        timingConstraints: "fri 08:00-12:00",
+      },
+      ok: true,
+    });
+  });
+
+  it("accepts a shortened separate promise but rejects provider-supplied authority for it", async () => {
+    const smokeInput: DecisionInput = {
+      context: {
+        fields: {
+          commitmentMode: validatedDecision.commitmentMode,
+          definitionOfDone: validatedDecision.definitionOfDone,
+          durationMinutes: validatedDecision.durationMinutes,
+          offerWorkWindowHelp: validatedDecision.offerWorkWindowHelp,
+          targetAt: validatedDecision.targetAt,
+          targetTimeZone: validatedDecision.targetTimeZone,
+          timingConstraints: validatedDecision.timingConstraints,
+        },
+        phase: "complete",
+      },
+      ownerText:
+        "I promise to review the Slice 02 smoke notes by tomorrow at 5:00 PM Singapore time.",
+    };
+    const separateProposal = {
+      ...proposalInput,
+      definitionOfDone: "Review the Slice 02 smoke notes",
+      targetAt: "2026-07-31T17:00:00+08:00",
+      turnRelation: "separate_request" as const,
+    };
+    const acceptedRunner = new ScriptedRunner(async (request) => {
+      await expect(
+        invoke(request, "propose_draft_update", separateProposal),
+      ).resolves.toMatchObject({ accepted: true });
+      return emptyResult();
+    });
+    const accepted = await runtimeWith(acceptedRunner, {
+      now: () => new Date("2026-07-30T01:03:00.000Z"),
+    }).run({
+      authority,
+      conversation: runtimeConversation,
+      input: smokeInput,
+      session: sdkSession(),
+    });
+    expect(accepted.outcome).toMatchObject({
+      decision: {
+        definitionOfDone: "Review the Slice 02 smoke notes",
+        turnRelation: "separate_request",
+      },
+      ok: true,
+    });
+
+    const adversarialRunner = new ScriptedRunner(async (request) => {
+      await expect(
+        invoke(request, "propose_draft_update", {
+          ...separateProposal,
+          target: {
+            expectedVersion: authority.draftVersion,
+            id: authority.draftId,
+            kind: "draft",
+          },
+        }),
+      ).resolves.toEqual({
+        accepted: false,
+        reason: "draft_target_invalid",
+      });
+      return emptyResult();
+    });
+    const adversarial = await runtimeWith(adversarialRunner, {
+      now: () => new Date("2026-07-30T01:03:00.000Z"),
+    }).run({
+      authority,
+      conversation: runtimeConversation,
+      input: smokeInput,
+      session: sdkSession(),
+    });
+    expect(adversarial.outcome).toMatchObject({
+      failure: "semantic",
+      ok: false,
+      reason: "draft_target_invalid",
+    });
+
+    const malformedRunner = new ScriptedRunner(async (request) => {
+      await expect(
+        invoke(request, "propose_draft_update", {
+          ...separateProposal,
+          targetAt: "tomorrow at five",
+        }),
+      ).resolves.toEqual({
+        accepted: false,
+        reason: "target_format_invalid",
+      });
+      return emptyResult();
+    });
+    const malformed = await runtimeWith(malformedRunner, {
+      now: () => new Date("2026-07-30T01:03:00.000Z"),
+    }).run({
+      authority,
+      conversation: runtimeConversation,
+      input: smokeInput,
+      session: sdkSession(),
+    });
+    expect(malformed.outcome).toMatchObject({
+      failure: "semantic",
+      ok: false,
+      reason: "target_format_invalid",
     });
   });
 
