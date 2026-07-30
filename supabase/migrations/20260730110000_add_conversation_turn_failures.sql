@@ -132,9 +132,12 @@ exception
 end;
 $$;
 
+-- `public` must be revoked explicitly: Postgres grants function EXECUTE to
+-- PUBLIC by default, and anon/authenticated inherit it, so revoking only those
+-- two roles leaves this security-definer function callable unauthenticated.
 revoke all on function public.record_conversation_turn_failure(
   bigint, text, text, text, text, smallint, text
-) from anon, authenticated;
+) from public, anon, authenticated;
 grant execute on function public.record_conversation_turn_failure(
   bigint, text, text, text, text, smallint, text
 ) to service_role;
