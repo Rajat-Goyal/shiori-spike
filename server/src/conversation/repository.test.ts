@@ -333,17 +333,18 @@ describe("SupabaseConversationRepository", () => {
     const body = JSON.parse(
       String(fetchFromSupabase.mock.calls[0][1]?.body),
     ) as Record<string, unknown>;
+    expect(fetchFromSupabase.mock.calls[0][0]).toBe(
+      "http://127.0.0.1:54321/rest/v1/rpc/resolve_separate_conversation_permission",
+    );
     expect(body).toMatchObject({
       p_action: "accept_permission",
-      p_definition_of_done: null,
       p_expected_correlated_update_id: 9007,
       p_expected_id: "44444444-4444-4444-8444-444444444444",
-      p_expected_kind: "permission",
       p_expected_source_update_id: 9006,
-      p_timing_constraints: null,
       p_update_id: 9007,
     });
-    expect(body.p_definition_of_done).toBeNull();
+    expect(body).not.toHaveProperty("p_definition_of_done");
+    expect(body).not.toHaveProperty("p_timing_constraints");
     expect(body.p_audit_payload).toMatchObject({
       definitionOfDone: simpleFields.definitionOfDone,
       turnRelation: "permission_accepted",
@@ -555,6 +556,83 @@ describe("SupabaseConversationRepository", () => {
       p_phase: "complete",
       p_processing_result: "conversation",
       p_update_id: 9100,
+    });
+  });
+
+  it("routes a separate implied permission through exact focus authority", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({
+        completed: true,
+        draftCreated: false,
+        status: "applied",
+      })
+    );
+    const impliedAudit: DecisionAudit = {
+      ...explicitAudit,
+      inputClass: "implied_intention",
+      payload: {
+        ...explicitAudit.payload,
+        turnRelation: "separate_request",
+      },
+    };
+
+    await expect(
+      repositoryWith(fetchFromSupabase as typeof fetch).applyTurn({
+        action: "create_permission",
+        audit: impliedAudit,
+        expected: {
+          id: focusedDraft.id,
+          kind: "draft",
+          version: focusedDraft.version,
+        },
+        fields: simpleFields,
+        processingResult: "conversation",
+        updateId: 9015,
+      }),
+    ).resolves.toMatchObject({
+      completed: true,
+      draftCreated: false,
+      status: "applied",
+    });
+
+    expect(fetchFromSupabase.mock.calls[0][0]).toBe(
+      "http://127.0.0.1:54321/rest/v1/rpc/create_separate_conversation_permission",
+    );
+    expect(
+      JSON.parse(String(fetchFromSupabase.mock.calls[0][1]?.body)),
+    ).toMatchObject({
+      p_audit_input_class: "implied_intention",
+      p_expected_focus_id: focusedDraft.id,
+      p_expected_focus_version: focusedDraft.version,
+      p_update_id: 9015,
+    });
+  });
+
+  it("resets only owner unconfirmed conversation state through the bounded RPC", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({
+        completed: true,
+        draftCreated: false,
+        status: "applied",
+      })
+    );
+
+    await expect(
+      repositoryWith(fetchFromSupabase as typeof fetch)
+        .resetUnconfirmed(9016, 42),
+    ).resolves.toEqual({
+      completed: true,
+      draftCreated: false,
+      status: "applied",
+    });
+    expect(fetchFromSupabase.mock.calls[0][0]).toBe(
+      "http://127.0.0.1:54321/rest/v1/rpc/reset_owner_unconfirmed_conversation",
+    );
+    expect(
+      JSON.parse(String(fetchFromSupabase.mock.calls[0][1]?.body)),
+    ).toEqual({
+      p_owner_chat_id: 42,
+      p_update_id: 9016,
     });
   });
 

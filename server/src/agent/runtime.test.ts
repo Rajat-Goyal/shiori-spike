@@ -1073,6 +1073,55 @@ describe("bounded Agents SDK runtime", () => {
     });
   });
 
+  it("runs a separate intention against an authoritative draft whose target has passed", async () => {
+    const agedInput: DecisionInput = {
+      context: {
+        fields: {
+          commitmentMode: "possible_work_session",
+          definitionOfDone: "Publish the old video",
+          durationMinutes: null,
+          offerWorkWindowHelp: false,
+          targetAt: "2026-07-28T17:00:00+08:00",
+          targetTimeZone: "Asia/Singapore",
+          timingConstraints: [],
+        },
+        phase: "complete",
+      },
+      ownerText: "I have to finish revamping my prototype",
+    };
+    const runner = new ScriptedRunner(async (request) => {
+      const response = await invoke(request, "propose_draft_update", {
+        commitmentMode: "unresolved",
+        definitionOfDone: "Finish revamping the prototype",
+        durationMinutes: null,
+        inputClass: "implied_intention",
+        response: null,
+        target: null,
+        targetAt: null,
+        timingConstraints: [],
+        turnRelation: "separate_request",
+      });
+      expect(response).toMatchObject({ accepted: true });
+      return emptyResult();
+    });
+
+    const result = await runtimeWith(runner).run({
+      authority,
+      conversation: runtimeConversation,
+      input: agedInput,
+      session: sdkSession(),
+    });
+
+    expect(result.outcome).toMatchObject({
+      decision: {
+        definitionOfDone: "Finish revamping the prototype",
+        inputClass: "implied_intention",
+        turnRelation: "separate_request",
+      },
+      ok: true,
+    });
+  });
+
   it("fails closed when a draft mutation target version is stale or mismatched", async () => {
     const datedInput: DecisionInput = {
       context: {

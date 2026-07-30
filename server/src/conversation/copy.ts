@@ -15,6 +15,8 @@ export const conversationCopy = {
   missingDefinition: "What will count as done?",
   missingTarget:
     "When should this be done? Please include a date and time in Singapore time.",
+  overdueTarget:
+    "That date and time has already passed. Your current draft is unchanged. Please send a future Singapore date and time.",
   targetFailureNoDraft:
     "I still need a future Singapore date and time. Nothing was saved. For example: 30 July 2026 at 9:00am Singapore time.",
   targetFailureWithDraft:
@@ -23,6 +25,8 @@ export const conversationCopy = {
     "I’m still waiting for your answer about the current intention. I didn’t start another promise.\n\nPlease reply yes or no: would you like me to help turn that into a promise?",
   permissionUnclear:
     "Please reply yes or no: would you like me to help turn that into a promise?",
+  reset:
+    "Reset complete. Unconfirmed drafts were cleared. Confirmed promises were unchanged.",
 } as const;
 
 export function collectedDraftCopy(phase: ConversationPhase): string {

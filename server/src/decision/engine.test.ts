@@ -1882,6 +1882,29 @@ describe("DecisionEngine contract", () => {
       ).toBe(false);
     });
 
+    it("accepts an aged authoritative target while still rejecting it as a proposed target", () => {
+      const agedFields: DecisionCandidateFields = {
+        ...completeFields,
+        targetAt: "2026-07-23T10:00:00+08:00",
+      };
+      const input = contextInput("complete", agedFields);
+
+      expect(validateDecisionInputSemantics(input, now)).toBe(true);
+      expect(
+        evaluateDecisionSemantics(
+          {
+            ...explicitDecision,
+            commitmentMode: "possible_work_session",
+            nextAction: "offer_work_window",
+            targetAt: agedFields.targetAt,
+            turnRelation: "correction",
+          },
+          input,
+          now,
+        ),
+      ).toEqual({ ok: false, reason: "target_not_future" });
+    });
+
     it("requires a clarification that completes core fields to resolve mode", () => {
       const unresolvedFields: DecisionCandidateFields = {
         ...completeFields,

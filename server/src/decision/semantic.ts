@@ -197,6 +197,7 @@ function sameItems(left: readonly string[], right: readonly string[]): boolean {
 function candidateFailureReason(
   fields: DecisionCandidateFields | DecisionResult,
   now: Date,
+  allowPastTarget = false,
 ): DecisionSemanticFailureReason | undefined {
   if (
     fields.definitionOfDone !== null &&
@@ -228,7 +229,10 @@ function candidateFailureReason(
       fields.targetAt,
       now,
     );
-    if (targetReason) {
+    if (
+      targetReason &&
+      !(allowPastTarget && targetReason === "target_not_future")
+    ) {
       return targetReason;
     }
   }
@@ -272,7 +276,7 @@ export function validateDecisionInputSemantics(
   if (phase === "none") {
     return fields === null;
   }
-  if (fields === null || candidateFailureReason(fields, now)) {
+  if (fields === null || candidateFailureReason(fields, now, true)) {
     return false;
   }
 

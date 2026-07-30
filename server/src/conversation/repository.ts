@@ -215,6 +215,10 @@ export interface ConversationDraftRepository
     query: string,
     limit?: number,
   ): Promise<ConversationDraftResolution>;
+  resetUnconfirmed(
+    updateId: number,
+    ownerChatId: number,
+  ): Promise<ConversationApplyResult>;
 }
 
 type SupabaseConversationRepositoryOptions = {
@@ -688,6 +692,18 @@ export class SupabaseConversationRepository
     return parseReadResult(await response.json());
   }
 
+  async resetUnconfirmed(
+    updateId: number,
+    ownerChatId: number,
+  ): Promise<ConversationApplyResult> {
+    return parseApplyResult(
+      await this.#rpc("reset_owner_unconfirmed_conversation", {
+        p_owner_chat_id: ownerChatId,
+        p_update_id: updateId,
+      }),
+    );
+  }
+
   async recordDecision(command: Readonly<{
     audit: DecisionAudit;
     draftReference: Readonly<{ id: string; version: number }> | null;
@@ -750,6 +766,58 @@ export class SupabaseConversationRepository
         processingResult: command.processingResult,
         updateId: command.updateId,
       });
+    }
+    if (
+      command.action === "create_permission" &&
+      command.expected.kind === "draft"
+    ) {
+      if (
+        command.processingResult !== "conversation" ||
+        command.audit === undefined
+      ) {
+        throw new Error(
+          "Separate permission creation requires a successful audited decision",
+        );
+      }
+      return parseApplyResult(
+        await this.#rpc("create_separate_conversation_permission", {
+          ...this.#focusBody(command.expected),
+          p_audit_input_class: command.audit.inputClass,
+          p_audit_payload: command.audit.payload,
+          p_definition_of_done: command.fields.definitionOfDone,
+          p_duration_minutes: command.fields.durationMinutes,
+          p_model_id: command.audit.modelId,
+          p_offer_work_window_help: command.fields.offerWorkWindowHelp,
+          p_possible_work_session: command.fields.possibleWorkSession,
+          p_processing_result: command.processingResult,
+          p_prompt_version: command.audit.promptVersion,
+          p_simple_action: command.fields.simpleAction,
+          p_target_at: command.fields.targetAt,
+          p_target_time_zone: command.fields.targetTimeZone,
+          p_timing_constraints: command.fields.timingConstraints,
+          p_update_id: command.updateId,
+        }),
+      );
+    }
+    if (
+      ["accept_permission", "terminate_permission"].includes(command.action) &&
+      command.expected.kind === "permission"
+    ) {
+      return parseApplyResult(
+        await this.#rpc("resolve_separate_conversation_permission", {
+          p_action: command.action,
+          p_audit_input_class: command.audit?.inputClass ?? null,
+          p_audit_payload: command.audit?.payload ?? null,
+          p_expected_correlated_update_id:
+            command.expected.correlatedUpdateId,
+          p_expected_id: command.expected.id,
+          p_expected_source_update_id: command.expected.sourceUpdateId,
+          p_model_id: command.audit?.modelId ?? null,
+          p_processing_result: command.processingResult,
+          p_prompt_version: command.audit?.promptVersion ?? null,
+          p_update_id: command.updateId,
+        }),
+      );
     }
     const candidate =
       "fields" in command

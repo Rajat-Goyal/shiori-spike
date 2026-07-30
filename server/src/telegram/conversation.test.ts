@@ -831,6 +831,69 @@ describe("ConversationService", () => {
     }]);
   });
 
+  it("distinguishes an unconfirmed draft from no active promises without leaking its fields", async () => {
+    const snapshot = activeDraft("awaiting_target", targetMissingFields, 8);
+    const repository = new ControlledRepository(snapshot) as
+      ControlledRepository & {
+        listDrafts: () => Promise<{
+          drafts: readonly unknown[];
+          nextCursor: null;
+        }>;
+      };
+    repository.listDrafts = vi.fn(async () => ({
+      drafts: [snapshot],
+      nextCursor: null,
+    }));
+    const service = new ConversationService({
+      decisionEngine: { decide: vi.fn() },
+      modelId: "gpt-test-model",
+      promptVersion: "shiori-test-v1",
+      repository,
+      statusService: new StatusService({
+        repository: { listActive: vi.fn(async () => []) },
+      }),
+    });
+
+    const reply = await service.handle(6997, "/status");
+
+    expect(reply).toEqual([{
+      text:
+        "No active promises. You have an unconfirmed draft in progress.",
+    }]);
+    expect(JSON.stringify(reply)).not.toContain(
+      snapshot.fields.definitionOfDone,
+    );
+  });
+
+  it("handles exact /reset before reading state or calling the model", async () => {
+    const readTurn = vi.fn();
+    const resetUnconfirmed = vi.fn(async () => ({
+      completed: true,
+      draftCreated: false,
+      status: "applied" as const,
+    }));
+    const decide = vi.fn();
+    const service = new ConversationService({
+      decisionEngine: { decide },
+      modelId: "gpt-test-model",
+      ownerChatId: 42,
+      promptVersion: "shiori-test-v1",
+      repository: {
+        applyTurn: vi.fn(),
+        patchFocusedDraft: vi.fn(),
+        readTurn,
+        resetUnconfirmed,
+      },
+    });
+
+    await expect(service.handle(6996, "/reset")).resolves.toBe(
+      conversationCopy.reset,
+    );
+    expect(resetUnconfirmed).toHaveBeenCalledWith(6996, 42);
+    expect(readTurn).not.toHaveBeenCalled();
+    expect(decide).not.toHaveBeenCalled();
+  });
+
   it("applies repository state once only after a semantic retry succeeds", async () => {
     const repository = new ControlledRepository({ kind: "none" });
     const validDecision = decision(completeFields);
@@ -972,6 +1035,67 @@ describe("ConversationService", () => {
       }
     },
   );
+
+  it("asks permission for a separate implied intention while preserving the old draft as the exact precondition", async () => {
+    const snapshot = activeDraft("complete", completeFields, 8);
+    const impliedFields = {
+      ...incompleteFields,
+      definitionOfDone: "Finish revamping the prototype",
+    };
+    const test = controlled(
+      snapshot,
+      {
+        decision: decision(impliedFields, {
+          inputClass: "implied_intention",
+          missingFields: [],
+          nextAction: "ask_permission",
+          turnRelation: "separate_request",
+        }),
+        draftTarget: {
+          authority: {
+            expectedVersion: snapshot.version,
+            id: snapshot.id,
+            kind: "draft",
+          },
+          fields: snapshot.fields,
+          phase: snapshot.phase,
+        },
+        ok: true,
+      } as Extract<DecisionOutcome, { ok: true }>,
+    );
+
+    await expect(
+      test.service.handle(
+        70123,
+        "I have to finish revamping my prototype based on the new details shared by April",
+      ),
+    ).resolves.toBe(conversationCopy.impliedPermission);
+    expect(test.repository.commands[0]).toMatchObject({
+      action: "create_permission",
+      expected: {
+        id: snapshot.id,
+        kind: "draft",
+        version: snapshot.version,
+      },
+      fields: {
+        definitionOfDone: "Finish revamping the prototype",
+        targetAt: null,
+      },
+      updateId: 70123,
+    });
+  });
+
+  it("gives controlled future-target guidance when an overdue complete draft is continued unchanged", async () => {
+    const snapshot = activeDraft("complete", completeFields, 8);
+    const test = controlled(
+      snapshot,
+      failureOutcome("semantic", 1, "target_not_future"),
+    );
+
+    await expect(
+      test.service.handle(70124, "Keep the current target"),
+    ).resolves.toBe(conversationCopy.overdueTarget);
+  });
 
   it("continues a work-shaped definition-only request against the same awaiting-target draft", async () => {
     const definitionOnlyWorkFields: DecisionContextFields = {

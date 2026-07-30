@@ -56,7 +56,10 @@ type ConversationServiceOptions = {
   ) => Promise<boolean>;
   promptVersion: string;
   repository: ConversationRepository &
-    Pick<ConversationDraftRepository, "patchFocusedDraft">;
+    Pick<ConversationDraftRepository, "patchFocusedDraft"> &
+    Partial<
+      Pick<ConversationDraftRepository, "listDrafts" | "resetUnconfirmed">
+    >;
   statusService?: {
     read(): Promise<readonly TelegramReply[]>;
   };
@@ -287,6 +290,13 @@ function targetFailureCopy(
     "target_pair_invalid",
     "target_timezone_invalid",
   ].includes(outcome.reason);
+  if (
+    snapshot.kind === "draft" &&
+    snapshot.phase === "complete" &&
+    outcome.reason === "target_not_future"
+  ) {
+    return conversationCopy.overdueTarget;
+  }
   if (snapshot.kind === "none" && targetReason) {
     return conversationCopy.targetFailureNoDraft;
   }
@@ -368,6 +378,9 @@ export class ConversationService {
     updateId: number,
     ownerText: string,
   ): Promise<ConversationHandleReply> {
+    if (ownerText === "/reset") {
+      return this.#reset(updateId);
+    }
     const read = await this.#repository.readTurn(updateId);
     if (read.kind === "expired") {
       await this.#decisionEngine.completeTurn?.({
@@ -601,10 +614,18 @@ export class ConversationService {
       throw new Error("Status service is unavailable");
     }
     const statuses = await this.#statusService.read();
+    const hasUnconfirmedDraft =
+      this.#repository.listDrafts === undefined
+        ? snapshot.kind === "draft"
+        : (await this.#repository.listDrafts({ limit: 1 })).drafts.length > 0;
     const replies =
       statuses.length > 0
         ? statuses
-        : [{ text: "No active promises." }];
+        : [{
+            text: hasUnconfirmedDraft
+              ? "No active promises. You have an unconfirmed draft in progress."
+              : "No active promises.",
+          }];
     const result = await this.#repository.applyTurn({
       action: "preserve",
       expected: expectedSnapshot(snapshot),
@@ -630,6 +651,28 @@ export class ConversationService {
       updateId,
     });
     return replies;
+  }
+
+  async #reset(updateId: number): Promise<ConversationReply> {
+    if (
+      this.#ownerChatId === undefined ||
+      this.#repository.resetUnconfirmed === undefined
+    ) {
+      return "Reset is unavailable here. No conversation state was changed.";
+    }
+    const result = await this.#repository.resetUnconfirmed(
+      updateId,
+      this.#ownerChatId,
+    );
+    if (
+      !result.completed ||
+      !["applied", "stale"].includes(result.status)
+    ) {
+      throw new Error("Conversation reset did not complete");
+    }
+    return result.status === "applied"
+      ? conversationCopy.reset
+      : "Reset was already handled. Confirmed promises were unchanged.";
   }
 
   async #withoutState(
@@ -855,7 +898,9 @@ export class ConversationService {
 
     if (decision.turnRelation === "separate_request") {
       if (
-        decision.inputClass !== "explicit_commitment" ||
+        !["explicit_commitment", "implied_intention"].includes(
+          decision.inputClass,
+        ) ||
         draftTarget === undefined ||
         draftTarget.authority.id !== snapshot.id ||
         draftTarget.authority.expectedVersion !== snapshot.version
@@ -863,6 +908,20 @@ export class ConversationService {
         return this.#preserveFailure(updateId, snapshot);
       }
       const extractedFields = candidateFields(decision);
+      if (decision.inputClass === "implied_intention") {
+        return this.#finish(
+          {
+            action: "create_permission",
+            audit: this.#audit(decision),
+            expected: expectedSnapshot(snapshot),
+            fields: extractedFields,
+            processingResult: "conversation",
+            updateId,
+          },
+          snapshot,
+          conversationCopy.impliedPermission,
+        );
+      }
       const extractedPhase = phaseFor(extractedFields);
       const fields =
         extractedPhase === "complete" &&
@@ -1218,10 +1277,10 @@ export class ConversationService {
     }
     if (command.action === "terminate_permission") {
       return {
-        activeDraftId: null,
+        activeDraftId: result.draftReference?.id ?? null,
         assistantText,
         pendingQuestion: "clear",
-        status: "closed",
+        status: result.draftReference ? "active" : "closed",
         updateId: command.updateId,
       };
     }
