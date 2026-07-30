@@ -12,6 +12,12 @@ import {
   type ObservationRequest,
 } from "./agent-trace-bridge.js";
 import { failureChain, failureFrames } from "../failure-chain.js";
+import { LangfuseClient } from "@langfuse/client";
+import type { AgentPrompts } from "../agent/instructions.js";
+import {
+  loadAgentPrompts,
+  type PromptResolutionEvent,
+} from "./prompt-store.js";
 
 export type LangfuseTracingOptions = Readonly<{
   baseUrl?: string;
@@ -120,4 +126,42 @@ export function startLangfuseTracing(
       }
     },
   };
+}
+
+/**
+ * Resolves the agent prompts from Langfuse once, at boot.
+ *
+ * Langfuse is the source of truth and the in-code templates are the fallback, so
+ * an outage or an unconfigured project degrades to the shipped text rather than
+ * taking the bot down.
+ */
+export async function loadPromptsFromLangfuse(
+  options: Readonly<{
+    baseUrl?: string;
+    label?: string;
+    onResolution?: (event: PromptResolutionEvent) => void;
+    publicKey: string;
+    secretKey: string;
+  }>,
+): Promise<AgentPrompts> {
+  const client = new LangfuseClient({
+    publicKey: options.publicKey,
+    secretKey: options.secretKey,
+    ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+  });
+  return loadAgentPrompts({
+    fetch: async (name, fetchOptions) => {
+      const prompt = await client.prompt.get(name, {
+        fallback: fetchOptions.fallback,
+        label: fetchOptions.label,
+      });
+      return {
+        isFallback: prompt.isFallback,
+        prompt: prompt.prompt,
+        version: prompt.version,
+      };
+    },
+    ...(options.label ? { label: options.label } : {}),
+    ...(options.onResolution ? { onResolution: options.onResolution } : {}),
+  });
 }

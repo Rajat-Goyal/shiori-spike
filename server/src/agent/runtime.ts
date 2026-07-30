@@ -11,6 +11,12 @@ import {
 } from "@openai/agents";
 import { z } from "zod";
 import { failureChain, failureFrames } from "../failure-chain.js";
+import {
+  AGENT_PROMPT_NAMES,
+  type AgentPrompts,
+  FALLBACK_AGENT_PROMPTS,
+  renderPrompt,
+} from "./instructions.js";
 
 import type { TelegramReply } from "../confirmation.js";
 import {
@@ -256,6 +262,11 @@ export type AgentRuntimeOptions = Readonly<{
     request: SanitizedAvailabilityRequest,
   ) => Promise<readonly SanitizedAvailabilitySlot[]>;
   onRuntimeFailure?: (event: AgentRuntimeFailureEvent) => void;
+  /**
+   * Instruction templates resolved at boot. Defaults to the in-code
+   * fallbacks so the runtime works with Langfuse absent.
+   */
+  prompts?: AgentPrompts;
   /**
    * Enables the Agents SDK trace pipeline so registered processors receive the
    * run. Off by default: with no processor attached, tracing is pure overhead.
@@ -751,63 +762,36 @@ function runtimeInstructions(
   input: DecisionInput,
   now: Date,
   conversation: AgentRuntimeConversationContext | null,
+  prompts: AgentPrompts,
 ): string {
-  const referenceTimestamp = singaporeReferenceTimestamp(now);
-  return [
-    "You are Shiori's single conversational agent for every typed Telegram message.",
-    "You have no direct database, callback, authentication, or provider access.",
-    `The current application-owned decision input is ${JSON.stringify(input)}.`,
-    `The authoritative bounded conversation context is ${JSON.stringify(conversation)}.`,
-    `The one immutable decision reference timestamp is ${referenceTimestamp}; its offset and decision timezone are Asia/Singapore (+08:00).`,
-    "Resolve every relative or partial date only against that immutable Singapore reference timestamp.",
-    "Tomorrow means the next Singapore calendar day.",
-    "When the owner omits a year, use the reference timestamp's Singapore calendar year only when the resulting instant is strictly in the future.",
-    "Never roll an explicitly or presumptively past date or time into a later day or year.",
-    "Use read_context for the exact pending application question, sanitized callback choice, focused entity, drafts, commitments, work sessions, and outcomes.",
-    "The pending question and callback choice are separate facts: interpret a choice only as an answer to the supplied pending question.",
-    "Use read_history with its opaque cursor only when the bounded recent session is insufficient.",
-    "Use list_commitments for a bounded view of authoritative commitments.",
-    "Maintain the exact focused entity for a continuation or an ordinary question.",
-    "A clearly separate promise must use turnRelation separate_request with target null; the application owns the current-focus precondition and creates a new focused draft without overwriting the old one.",
-    "If more than one entity plausibly matches a reference, ask which one the owner means and propose no mutation.",
-    "Every clarification_continuation or correction proposal must copy the exact draft target kind, id, and expectedVersion from authoritative context; every other proposal, including separate_request, must use target null.",
-    "Every decision that may affect application state, including ordinary-question responses, must be submitted through propose_draft_update.",
-    "When the focused draft has authoritative preparation state, answer that pending preparation question with propose_work_session_input instead of propose_draft_update.",
-    "For preparation input, preserve the exact draft id and version, extract a positive whole-minute duration from 1 through 1440, translate natural timing constraints into the canonical Singapore format used by the context, and translate an owner-selected time into an exact future RFC3339 +08:00 instant on a 30-minute start boundary.",
-    "Use nextInput and one short natural followUpQuestion only when another owner answer is required. Do not put Calendar facts, availability, conflicts, or warnings in that question; application code owns those.",
-    "When there is exactly one authoritative continuation awaiting duration and no focused draft, submit a natural duration with propose_continuation_duration using its exact id and version.",
-    "When the current message explicitly says preparation is or is not needed while completing a promise that has no durable preparation state yet, submit those exact facts with propose_initial_preparation in the same run. A duration or working constraint explicitly supplied for preparation means preparationRequired true. Never infer preparation from the promise target time or an unrelated time phrase. Omit this tool when the decision or facts are ambiguous so the application asks the mandatory preparation question.",
-    "Only a structurally and semantically accepted proposal can be returned by the application; final prose is never authoritative.",
-    "request_sanitized_availability returns free/busy intervals only.",
-    "execute_commitment is exclusively for an exact application-owned draft id and version and always requires explicit human approval.",
-    "update_commitment is exclusively for one exact active commitment id and current version, must contain the complete desired definition, target, preparation choice, next work session, and explicit Calendar conflict/unavailable policies, and always requires human approval.",
-    "Never use update_commitment for a completed or cancelled commitment, to create recurrence, to write Calendar, or to reopen terminal state.",
-    "Never claim that a draft was saved, confirmed, scheduled, or executed unless the corresponding tool reports success.",
-  ].join(" ");
+  return renderPrompt(prompts[AGENT_PROMPT_NAMES.decision].template, {
+    conversationContext: JSON.stringify(conversation),
+    decisionInput: JSON.stringify(input),
+    referenceTimestamp: singaporeReferenceTimestamp(now),
+  });
 }
 
 function executionInstructions(
   authority: ApprovedAgentExecutionAuthority,
+  prompts: AgentPrompts,
 ): string {
-  return [
-    "This is the continuation of one application-owned commitment-creation approval, not a new owner conversation turn.",
-    "The application has already structurally and semantically validated the complete commitment decision.",
-    `Request execute_commitment exactly once with draftId ${JSON.stringify(authority.draftId)} and draftVersion ${authority.draftVersion}.`,
-    "Do not reinterpret, summarize, correct, or reclassify the decision.",
-    "The application, not model prose, owns the final Telegram reply.",
-  ].join(" ");
+  return renderPrompt(prompts[AGENT_PROMPT_NAMES.execution].template, {
+    draftId: JSON.stringify(authority.draftId),
+    draftVersion: String(authority.draftVersion),
+  });
 }
 
 function editExecutionInstructions(
   authority: ApprovedAgentExecutionAuthority,
+  prompts: AgentPrompts,
 ): string {
-  return [
-    "This is the continuation of one application-owned approved commitment-edit run, not a new owner conversation turn.",
-    `The exact active commitment id is ${JSON.stringify(authority.draftId)} and its approved expected version is ${authority.draftVersion}.`,
-    "Request update_commitment exactly once using the application-bound complete edit.",
-    "Do not reinterpret, summarize, correct, broaden, or target another commitment.",
-    "The application rechecks Calendar when required and owns all final mutation and Telegram copy.",
-  ].join(" ");
+  return renderPrompt(
+    prompts[AGENT_PROMPT_NAMES.commitmentEdit].template,
+    {
+      commitmentId: JSON.stringify(authority.draftId),
+      expectedVersion: String(authority.draftVersion),
+    },
+  );
 }
 
 function exactCreationProposal(context: RuntimeContext): boolean {
@@ -1670,6 +1654,7 @@ export function createAgentRuntime(
   const runner =
     options.runner ?? new OpenAIAgentsRunner(options.apiKey);
   const now = options.now ?? (() => new Date());
+  const prompts = options.prompts ?? FALLBACK_AGENT_PROMPTS;
 
   function prepare(
     input: DecisionInput,
@@ -1703,6 +1688,7 @@ export function createAgentRuntime(
         structured,
         validationNow,
         conversation,
+        prompts,
       ),
       model: options.model,
       modelSettings: {
@@ -1766,7 +1752,7 @@ export function createAgentRuntime(
       return null;
     }
     const agent = new Agent<RuntimeContext, "text">({
-      instructions: executionInstructions(authority),
+      instructions: executionInstructions(authority, prompts),
       model: options.model,
       modelSettings: { store: false },
       name: "Shiori bounded decision",
@@ -1828,8 +1814,8 @@ export function createAgentRuntime(
     const agent = new Agent<RuntimeContext, "text">({
       instructions:
         envelope.toolName === "update_commitment"
-          ? editExecutionInstructions(authority)
-          : executionInstructions(authority),
+          ? editExecutionInstructions(authority, prompts)
+          : executionInstructions(authority, prompts),
       model: options.model,
       modelSettings: { store: false },
       name:

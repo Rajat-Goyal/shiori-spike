@@ -91,6 +91,7 @@ import {
   type TelegramUpdateHandler,
 } from "./telegram/webhook.js";
 import type { DecisionResult } from "./decision/schema.js";
+import type { AgentPrompts } from "./agent/instructions.js";
 
 export type AppOptions = {
   agentSessions?: AgentSessionRepository;
@@ -100,6 +101,8 @@ export type AppOptions = {
   logger?: FastifyServerOptions["logger"];
   now?: () => Date;
   serveStatic?: boolean;
+  /** Instruction templates resolved from Langfuse at boot. */
+  prompts?: AgentPrompts;
   /** True when Langfuse tracing was started, so agent runs emit spans. */
   tracingEnabled?: boolean;
   simpleReminderScheduler?: {
@@ -212,6 +215,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       app.log.error(event);
     },
     tracingEnabled: options.tracingEnabled === true,
+    ...(options.prompts === undefined ? {} : { prompts: options.prompts }),
     executeCommitment: async (authority, proposal) =>
       executeApprovedCommitment
         ? executeApprovedCommitment(authority, proposal)

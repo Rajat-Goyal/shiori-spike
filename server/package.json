@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@fastify/static": "^10.1.2",
+    "@langfuse/client": "^5.9.1",
     "@langfuse/otel": "^5.9.1",
     "@langfuse/tracing": "^5.9.1",
     "@openai/agents": "^0.14.0",

@@ -1,6 +1,10 @@
 import { buildApp } from "./app.js";
 import { readServerConfig } from "./config.js";
-import { startLangfuseTracing } from "./observability/langfuse.js";
+import type { PromptResolutionEvent } from "./observability/prompt-store.js";
+import {
+  loadPromptsFromLangfuse,
+  startLangfuseTracing,
+} from "./observability/langfuse.js";
 
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 
@@ -9,6 +13,8 @@ if (!Number.isInteger(port) || port < 1 || port > 65_535) {
 }
 
 const config = readServerConfig();
+// Buffered because prompts resolve before the Fastify logger exists.
+const promptResolutions: PromptResolutionEvent[] = [];
 
 // Started before buildApp so the global agent trace provider already carries the
 // Langfuse processor when the first agent run happens.
@@ -28,11 +34,39 @@ const tracing =
           : {}),
       });
 
+// Prompts resolve before the app so a model run never waits on, or fails
+// because of, a network call to an observability service.
+const prompts =
+  config.langfuse === undefined
+    ? undefined
+    : await loadPromptsFromLangfuse({
+        onResolution: (event) => {
+          promptResolutions.push(event);
+        },
+        publicKey: config.langfuse.publicKey,
+        secretKey: config.langfuse.secretKey,
+        ...(config.langfuse.baseUrl
+          ? { baseUrl: config.langfuse.baseUrl }
+          : {}),
+        ...(process.env.LANGFUSE_PROMPT_LABEL
+          ? { label: process.env.LANGFUSE_PROMPT_LABEL }
+          : {}),
+      });
+
 const app = await buildApp({
   config,
   logger: true,
   tracingEnabled: tracing !== undefined,
+  ...(prompts === undefined ? {} : { prompts }),
 });
+
+for (const event of promptResolutions) {
+  if (event.event === "agent_prompt_fallback") {
+    app.log.warn(event, "agent prompt fell back to the in-code template");
+  } else {
+    app.log.info(event, "agent prompt resolved from Langfuse");
+  }
+}
 
 if (tracing !== undefined) {
   app.log.info(
