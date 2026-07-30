@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { timingSafeEqual } from "node:crypto";
+import { failureChain, failureFrames } from "../failure-chain.js";
 
 export interface TelegramUpdateHandler {
   handle(value: unknown): Promise<void>;
@@ -33,12 +34,13 @@ export function registerTelegramWebhook(
         await options.service.handle(request.body);
         return { ok: true };
       } catch (error) {
+        const chain = failureChain(error);
         request.log.error(
           {
-            failureClass:
-              error instanceof Error
-                ? error.constructor.name
-                : "UnknownTelegramFailure",
+            failureChain: chain,
+            failureClass: chain[0],
+            failureFrames: failureFrames(error),
+            rootCause: chain[chain.length - 1],
           },
           "Telegram update processing failed",
         );

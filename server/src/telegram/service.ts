@@ -194,8 +194,8 @@ export class TelegramService {
   async handle(value: unknown): Promise<void> {
     try {
       await this.#process(value);
-    } catch {
-      throw new Error("Telegram processing failed");
+    } catch (error) {
+      throw new Error("Telegram processing failed", { cause: error });
     }
   }
 
@@ -315,11 +315,11 @@ export class TelegramService {
       }
 
       await this.#repository.completeUpdate(update.updateId, result);
-    } catch {
+    } catch (error) {
       await this.#repository
         .completeUpdate(update.updateId, "failed")
         .catch(() => undefined);
-      throw new Error("Telegram processing failed");
+      throw new Error("Telegram processing failed", { cause: error });
     }
   }
 }

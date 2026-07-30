@@ -6,6 +6,7 @@ import type {
 } from "../decision/engine.js";
 import type { DecisionInput } from "../decision/schema.js";
 import { confirmationSummary } from "../confirmation.js";
+import { failureChain, failureFrames } from "../failure-chain.js";
 import {
   commitmentChangeCopy,
   commitmentEditPreview,
@@ -38,6 +39,9 @@ type SessionBackedAgentDecisionEngineOptions = Readonly<{
     ConversationDraftRepository,
     "resolveDraftReference"
   >;
+  onApprovalPreparationFailure?: (
+    event: AgentApprovalPreparationFailureEvent,
+  ) => void;
   onContinuityFailure?: (event: AgentSessionContinuityFailureEvent) => void;
   prepareApproval?: (command: Readonly<{
     chatId: number;
@@ -55,6 +59,16 @@ export type AgentSessionContinuityFailureEvent = Readonly<{
   event: "agent_session_continuity_dropped";
   operation: "record_reply";
   reason: "repository_error" | "stale";
+}>;
+
+/**
+ * Reports the concrete error behind a failed approval staging. Without it the
+ * owner sees `commitmentChangeCopy.uncertain` and nothing records why.
+ */
+export type AgentApprovalPreparationFailureEvent = Readonly<{
+  event: "agent_approval_preparation_failed";
+  failureChain: readonly string[];
+  failureFrames: readonly string[];
 }>;
 
 type PendingTurn = Readonly<{
@@ -212,6 +226,9 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
     ConversationDraftRepository,
     "resolveDraftReference"
   >;
+  readonly #onApprovalPreparationFailure:
+    | ((event: AgentApprovalPreparationFailureEvent) => void)
+    | undefined;
   readonly #onContinuityFailure:
     | ((event: AgentSessionContinuityFailureEvent) => void)
     | undefined;
@@ -226,6 +243,8 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
     this.#chatId = options.chatId;
     this.#contextReader = options.contextReader;
     this.#draftRepository = options.draftRepository;
+    this.#onApprovalPreparationFailure =
+      options.onApprovalPreparationFailure;
     this.#onContinuityFailure = options.onContinuityFailure;
     this.#prepareApproval = options.prepareApproval;
     this.#repository = options.repository;
@@ -308,8 +327,9 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
             toolName: result.approval.toolName,
             updateId: context.updateId,
           });
-      } catch {
+      } catch (error) {
         prepared = false;
+        this.#reportApprovalFailure(error);
       }
       if (!prepared) {
         return {
@@ -401,6 +421,18 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
         "record_reply",
         "repository_error",
       );
+    }
+  }
+
+  #reportApprovalFailure(error: unknown): void {
+    try {
+      this.#onApprovalPreparationFailure?.({
+        event: "agent_approval_preparation_failed",
+        failureChain: failureChain(error),
+        failureFrames: failureFrames(error),
+      });
+    } catch {
+      // Operational telemetry must never suppress the fail-closed reply.
     }
   }
 

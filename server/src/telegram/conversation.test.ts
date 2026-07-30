@@ -2422,6 +2422,70 @@ describe("ConversationService", () => {
     );
   });
 
+  it("reports the real cause behind an engine rejection classified as HTTP", async () => {
+    class SupabaseSessionError extends Error {}
+    const snapshot = activeDraft("complete", completeFields, 10);
+    const repository = new ControlledRepository(snapshot);
+    const decisionFailureEvents = vi.fn();
+    const engineFailureEvents = vi.fn();
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => {
+          throw new SupabaseSessionError(
+            "private provider trace and credential",
+          );
+        }),
+      },
+      modelId: "gpt-test-model",
+      onDecisionFailure: decisionFailureEvents,
+      onEngineFailure: engineFailureEvents,
+      promptVersion: "shiori-test-v1",
+      repository,
+    });
+
+    // The fail-closed reply and the opaque "http" class stay unchanged; the new
+    // event is the only way to tell a Supabase outage from a provider outage.
+    await expect(service.handle(7015, "private sentinel")).resolves.toBe(
+      conversationCopy.failureWithDraft,
+    );
+    expect(decisionFailureEvents).toHaveBeenCalledWith({
+      attemptCount: 0,
+      event: "decision_failure",
+      reason: "http",
+    });
+    expect(engineFailureEvents).toHaveBeenCalledTimes(1);
+    const [event] = engineFailureEvents.mock.calls[0] as [
+      { failureChain: string[]; failureFrames: string[] },
+    ];
+    expect(event.failureChain).toEqual(["SupabaseSessionError"]);
+    expect(event.failureFrames.length).toBeGreaterThan(0);
+    expect(JSON.stringify(engineFailureEvents.mock.calls)).not.toMatch(
+      /private|credential|trace/,
+    );
+  });
+
+  it("keeps the fail-closed reply when engine failure reporting throws", async () => {
+    const snapshot = activeDraft("complete", completeFields, 10);
+    const repository = new ControlledRepository(snapshot);
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => {
+          throw new Error("bounded engine failure");
+        }),
+      },
+      modelId: "gpt-test-model",
+      onEngineFailure: () => {
+        throw new Error("logging sink unavailable");
+      },
+      promptVersion: "shiori-test-v1",
+      repository,
+    });
+
+    await expect(service.handle(7017, "owner input")).resolves.toBe(
+      conversationCopy.failureWithDraft,
+    );
+  });
+
   it.each([
     {
       copy: conversationCopy.expired,

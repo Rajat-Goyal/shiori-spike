@@ -10,6 +10,7 @@ import {
   type ModelProvider,
 } from "@openai/agents";
 import { z } from "zod";
+import { failureChain, failureFrames } from "../failure-chain.js";
 
 import type { TelegramReply } from "../confirmation.js";
 import {
@@ -253,11 +254,25 @@ export type AgentRuntimeOptions = Readonly<{
   requestSanitizedAvailability: (
     request: SanitizedAvailabilityRequest,
   ) => Promise<readonly SanitizedAvailabilitySlot[]>;
+  onRuntimeFailure?: (event: AgentRuntimeFailureEvent) => void;
   runner?: AgentRunner;
   updateCommitment?: (
     authority: ApprovedAgentExecutionAuthority,
     proposal: CommitmentEditProposal,
   ) => Promise<AgentCommitmentExecutionResult>;
+}>;
+
+/**
+ * Reports the concrete error behind a mapped runtime failure class. Without it a
+ * thrown Supabase error, a bug in a tool `execute` body, and a genuine provider
+ * outage are all indistinguishable `provider_error`.
+ */
+export type AgentRuntimeFailureEvent = Readonly<{
+  event: "agent_runtime_failure";
+  failure: Extract<DecisionOutcome, { ok: false }>["failure"];
+  failureChain: readonly string[];
+  failureFrames: readonly string[];
+  operation: "continue_creation" | "resume" | "run";
 }>;
 
 export interface AgentRuntime {
@@ -1592,19 +1607,40 @@ function resultFromRunner(
   return { outcome: fail("missing_output") };
 }
 
-function caught(error: unknown, signal: AbortSignal): AgentRuntimeResult {
+function caughtFailure(
+  error: unknown,
+  signal: AbortSignal,
+): Extract<DecisionOutcome, { ok: false }>["failure"] {
   const name = error instanceof Error ? error.name : "";
   if (
     signal.aborted ||
     name === "AbortError" ||
     name === "TimeoutError"
   ) {
-    return { outcome: fail("timeout") };
+    return "timeout";
   }
-  if (name === "MaxTurnsExceeded") {
-    return { outcome: fail("incomplete") };
+  return name === "MaxTurnsExceeded" ? "incomplete" : "provider_error";
+}
+
+function caught(
+  error: unknown,
+  signal: AbortSignal,
+  operation: AgentRuntimeFailureEvent["operation"],
+  onRuntimeFailure?: (event: AgentRuntimeFailureEvent) => void,
+): AgentRuntimeResult {
+  const failure = caughtFailure(error, signal);
+  try {
+    onRuntimeFailure?.({
+      event: "agent_runtime_failure",
+      failure,
+      failureChain: failureChain(error),
+      failureFrames: failureFrames(error),
+      operation,
+    });
+  } catch {
+    // Operational telemetry must never change the fail-closed outcome.
   }
-  return { outcome: fail("provider_error") };
+  return { outcome: fail(failure) };
 }
 
 export function createAgentRuntime(
@@ -1816,7 +1852,12 @@ export function createAgentRuntime(
         });
         return resultFromRunner(result, prepared.context);
       } catch (error) {
-        return caught(error, signal);
+        return caught(
+          error,
+          signal,
+          "continue_creation",
+          options.onRuntimeFailure,
+        );
       }
     },
 
@@ -1850,7 +1891,7 @@ export function createAgentRuntime(
         });
         return resultFromRunner(result, prepared.context);
       } catch (error) {
-        return caught(error, signal);
+        return caught(error, signal, "run", options.onRuntimeFailure);
       }
     },
 
@@ -1890,7 +1931,7 @@ export function createAgentRuntime(
         });
         return resultFromRunner(result, resumed.context);
       } catch (error) {
-        return caught(error, signal);
+        return caught(error, signal, "resume", options.onRuntimeFailure);
       }
     },
   };

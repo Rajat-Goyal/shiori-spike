@@ -565,4 +565,58 @@ describe("POST /api/telegram/webhook", () => {
       { result: "failed", updateId: 6001 },
     ]);
   });
+
+  it("logs the root failure class behind a wrapped processing error", async () => {
+    class SupabaseClaimError extends Error {}
+    let logs = "";
+    const logStream = new Writable({
+      write(chunk, _encoding, callback) {
+        logs += String(chunk);
+        callback();
+      },
+    });
+    const repository = new ControlledRepository();
+    repository.claimUpdate = vi
+      .fn()
+      .mockRejectedValue(new SupabaseClaimError("claim rejected"));
+    const service = new TelegramService({
+      client: { sendText: vi.fn() },
+      conversationService: {
+        handle: vi.fn().mockResolvedValue("Bounded safe response."),
+      },
+      ownerUserId,
+      repository,
+    });
+    const app = await appWith(service, {
+      level: "info",
+      stream: logStream,
+    });
+
+    const response = await app.inject({
+      headers: validHeaders,
+      method: "POST",
+      payload: textUpdate({ text: "Bounded owner text.", updateId: 6002 }),
+      url: "/api/telegram/webhook",
+    });
+
+    expect(response.statusCode).toBe(503);
+    const logged = JSON.parse(
+      logs.trim().split("\n").at(-1) as string,
+    ) as {
+      failureChain: string[];
+      failureClass: string;
+      failureFrames: string[];
+      rootCause: string;
+    };
+    // Before the cause chain was preserved this was always "Error" with no
+    // way to tell a database failure from a provider failure.
+    expect(logged.rootCause).toBe("SupabaseClaimError");
+    expect(logged.failureChain).toEqual([
+      "Error",
+      "SupabaseClaimError",
+    ]);
+    expect(logged.failureClass).toBe("Error");
+    expect(logged.failureFrames.length).toBeGreaterThan(0);
+    expect(logs).not.toContain("claim rejected");
+  });
 });

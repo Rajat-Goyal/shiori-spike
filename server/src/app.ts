@@ -206,6 +206,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const agentRuntime = createAgentRuntime({
     apiKey: options.config.openaiApiKey,
     contextReader: agentContextReader,
+    onRuntimeFailure: (event) => {
+      app.log.error(event);
+    },
     executeCommitment: async (authority, proposal) =>
       executeApprovedCommitment
         ? executeApprovedCommitment(authority, proposal)
@@ -420,6 +423,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
           chatId: options.config.telegramOwnerUserId,
           contextReader: agentContextReader,
           draftRepository: conversationRepository,
+          onApprovalPreparationFailure: (event) => {
+            app.log.error(event);
+          },
           onContinuityFailure: (event) => {
             app.log.warn(event);
           },
@@ -433,6 +439,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
         },
         onDecisionRetryRecovered: (event) => {
           app.log.warn(event);
+        },
+        onEngineFailure: (event) => {
+          app.log.error(event);
         },
         ownerChatId: options.config.telegramOwnerUserId,
         prepareApproval: prepareCreationApproval,

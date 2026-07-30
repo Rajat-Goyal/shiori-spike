@@ -44,12 +44,14 @@ import type {
   WorkSessionConversationInput,
 } from "../work-sessions/conversation-input.js";
 import type { WorkSessionContinuationConversationInput } from "../work-sessions/continuation.js";
+import { failureChain, failureFrames } from "../failure-chain.js";
 
 type ConversationServiceOptions = {
   decisionEngine: DecisionEngine;
   modelId: string;
   onDecisionFailure?: (event: DecisionFailureEvent) => void;
   onDecisionRetryRecovered?: (event: DecisionRetryRecoveredEvent) => void;
+  onEngineFailure?: (event: ConversationEngineFailureEvent) => void;
   ownerChatId?: number;
   prepareApproval?: (
     request: ConfirmationApprovalPreparation,
@@ -87,6 +89,17 @@ export type DecisionRetryRecoveredEvent = {
   attemptCount: 2;
   event: "decision_retry_recovered";
   reason: DecisionTelemetryReason;
+};
+
+/**
+ * Reports the concrete error behind a decision-engine throw. The outcome is
+ * still classified `http` to keep the fail-closed reply identical, so this event
+ * is the only way to tell a database outage from a provider outage.
+ */
+export type ConversationEngineFailureEvent = {
+  event: "conversation_engine_threw";
+  failureChain: readonly string[];
+  failureFrames: readonly string[];
 };
 
 type CompleteReply = {
@@ -347,6 +360,9 @@ export class ConversationService {
   readonly #onDecisionRetryRecovered:
     | ((event: DecisionRetryRecoveredEvent) => void)
     | undefined;
+  readonly #onEngineFailure:
+    | ((event: ConversationEngineFailureEvent) => void)
+    | undefined;
   readonly #ownerChatId: number | undefined;
   readonly #prepareApproval:
     | ConversationServiceOptions["prepareApproval"]
@@ -364,6 +380,7 @@ export class ConversationService {
     this.#modelId = options.modelId;
     this.#onDecisionFailure = options.onDecisionFailure;
     this.#onDecisionRetryRecovered = options.onDecisionRetryRecovered;
+    this.#onEngineFailure = options.onEngineFailure;
     this.#ownerChatId = options.ownerChatId;
     this.#prepareApproval = options.prepareApproval;
     this.#promptVersion = options.promptVersion;
@@ -414,7 +431,11 @@ export class ConversationService {
         decisionInput(ownerText, snapshot),
         { updateId },
       );
-    } catch {
+    } catch (error) {
+      // The synthesized class stays "http" so the fail-closed response is
+      // unchanged, but the real cause is reported: a Supabase outage, a session
+      // decryption failure, and a provider outage all arrive here.
+      this.#reportEngineFailure(error);
       outcome = {
         attemptCount: 0,
         failure: "http",
@@ -1017,6 +1038,18 @@ export class ConversationService {
         : collectedReply(phase, fields),
       initialPreparation,
     );
+  }
+
+  #reportEngineFailure(error: unknown): void {
+    try {
+      this.#onEngineFailure?.({
+        event: "conversation_engine_threw",
+        failureChain: failureChain(error),
+        failureFrames: failureFrames(error),
+      });
+    } catch {
+      // Operational logging must never change the fail-closed response.
+    }
   }
 
   async #preserveFailure(
