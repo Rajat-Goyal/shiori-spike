@@ -440,6 +440,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
         onDecisionRetryRecovered: (event) => {
           app.log.warn(event);
         },
+        onConversationFailure: (event) => {
+          app.log.warn(event);
+        },
         onEngineFailure: (event) => {
           app.log.error(event);
         },

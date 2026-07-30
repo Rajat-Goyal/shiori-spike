@@ -51,6 +51,7 @@ type ConversationServiceOptions = {
   modelId: string;
   onDecisionFailure?: (event: DecisionFailureEvent) => void;
   onDecisionRetryRecovered?: (event: DecisionRetryRecoveredEvent) => void;
+  onConversationFailure?: (event: ConversationFailureEvent) => void;
   onEngineFailure?: (event: ConversationEngineFailureEvent) => void;
   ownerChatId?: number;
   prepareApproval?: (
@@ -93,13 +94,53 @@ export type DecisionRetryRecoveredEvent = {
 
 /**
  * Reports the concrete error behind a decision-engine throw. The outcome is
- * still classified `http` to keep the fail-closed reply identical, so this event
- * is the only way to tell a database outage from a provider outage.
+ * still classified `http` to keep the fail-closed reply identical, so this
+ * event is the only way to tell a database outage from a provider outage.
  */
 export type ConversationEngineFailureEvent = {
   event: "conversation_engine_threw";
   failureChain: readonly string[];
   failureFrames: readonly string[];
+};
+
+/**
+ * Every application-side route to the fail-closed conversation copy.
+ *
+ * These fire when the decision engine returned `ok: true` and the application
+ * then rejected the decision, so `DecisionFailureEvent` never sees them. They
+ * were previously indistinguishable: one string, no telemetry, no audit row.
+ */
+export type ConversationFailureSite =
+  | "ambiguity_response_missing"
+  | "apply_stale"
+  | "clarification_against_complete_draft"
+  | "continuation_reply_missing"
+  | "continuation_route_unavailable"
+  | "draft_not_created"
+  | "draft_ordinary_response_missing"
+  | "draft_relation_unsupported"
+  | "draft_target_missing"
+  | "initial_preparation_incomplete"
+  | "no_state_draft_not_draftable"
+  | "no_state_relation_invalid"
+  | "patched_draft_not_draftable"
+  | "permission_candidate_mismatch"
+  | "permission_clarification_class_invalid"
+  | "permission_decline_class_invalid"
+  | "permission_draft_not_allowed"
+  | "permission_ordinary_response_missing"
+  | "permission_relation_unsupported"
+  | "separate_draft_not_draftable"
+  | "separate_request_authority_mismatch"
+  | "status_apply_not_applied"
+  | "work_session_authority_mismatch"
+  | "work_session_reply_missing";
+
+export type ConversationFailureEvent = {
+  event: "conversation_failure";
+  phase?: ConversationPhase;
+  site: ConversationFailureSite;
+  snapshotKind: ConversationSnapshot["kind"];
 };
 
 type CompleteReply = {
@@ -360,6 +401,9 @@ export class ConversationService {
   readonly #onDecisionRetryRecovered:
     | ((event: DecisionRetryRecoveredEvent) => void)
     | undefined;
+  readonly #onConversationFailure:
+    | ((event: ConversationFailureEvent) => void)
+    | undefined;
   readonly #onEngineFailure:
     | ((event: ConversationEngineFailureEvent) => void)
     | undefined;
@@ -380,6 +424,7 @@ export class ConversationService {
     this.#modelId = options.modelId;
     this.#onDecisionFailure = options.onDecisionFailure;
     this.#onDecisionRetryRecovered = options.onDecisionRetryRecovered;
+    this.#onConversationFailure = options.onConversationFailure;
     this.#onEngineFailure = options.onEngineFailure;
     this.#ownerChatId = options.ownerChatId;
     this.#prepareApproval = options.prepareApproval;
@@ -502,7 +547,7 @@ export class ConversationService {
           updateId,
         },
         snapshot,
-        responseText(outcome.decision) ?? safeFailure(snapshot),
+        this.#ambiguityCopy(outcome.decision, snapshot),
       );
     }
 
@@ -512,19 +557,31 @@ export class ConversationService {
         this.#ownerChatId === undefined ||
         snapshot.kind !== "none"
       ) {
-        return this.#preserveFailure(updateId, snapshot);
+        return this.#preserveFailure(
+          updateId,
+          snapshot,
+          "continuation_route_unavailable",
+        );
       }
       await this.#repository.recordDecision?.({
         audit: this.#audit(outcome.decision),
         draftReference: null,
         updateId,
       });
-      const reply =
+      const continuationReply =
         await this.#continuationConversation.handleDurationInput(
           updateId,
           this.#ownerChatId,
           outcome.continuationInput,
-        ) ?? { text: conversationCopy.failureNoDraft };
+        );
+      if (continuationReply === null) {
+        this.#reportConversationFailure(
+          "continuation_reply_missing",
+          snapshot,
+        );
+      }
+      const reply =
+        continuationReply ?? { text: conversationCopy.failureNoDraft };
       const expectsOwnerReply =
         (reply.actions?.length ?? 0) > 0 ||
         reply.text.trimEnd().endsWith("?");
@@ -549,6 +606,7 @@ export class ConversationService {
         return this.#preserveFailure(
           updateId,
           snapshot,
+          "work_session_authority_mismatch",
         );
       }
       await this.#repository.recordDecision?.({
@@ -559,12 +617,20 @@ export class ConversationService {
         },
         updateId,
       });
-      const reply =
+      const workSessionReply =
         await this.#workSessionConversation.handleConversationInput(
           updateId,
           this.#ownerChatId,
           outcome.workSessionInput,
-        ) ?? { text: safeFailure(snapshot) };
+        );
+      if (workSessionReply === null) {
+        this.#reportConversationFailure(
+          "work_session_reply_missing",
+          snapshot,
+        );
+      }
+      const reply =
+        workSessionReply ?? { text: safeFailure(snapshot) };
       const expectsOwnerReply =
         (reply.actions?.length ?? 0) > 0 ||
         reply.text.trimEnd().endsWith("?");
@@ -600,7 +666,11 @@ export class ConversationService {
         outcome.decision.targetAt === null
       )
     ) {
-      return this.#preserveFailure(updateId, snapshot);
+      return this.#preserveFailure(
+        updateId,
+        snapshot,
+        "initial_preparation_incomplete",
+      );
     }
     const effectiveDecision = withInitialPreparation(
       outcome.decision,
@@ -663,6 +733,10 @@ export class ConversationService {
       throw new Error("Conversation update was not completed");
     }
     if (result.status !== "applied") {
+      this.#reportConversationFailure(
+        "status_apply_not_applied",
+        snapshot,
+      );
       return [{ text: safeFailure(snapshot) }];
     }
     const activeDraftId =
@@ -709,7 +783,11 @@ export class ConversationService {
         decision.inputClass,
       )
     ) {
-      return this.#preserveFailure(updateId, snapshot);
+      return this.#preserveFailure(
+        updateId,
+        snapshot,
+        "no_state_relation_invalid",
+      );
     }
 
     const extractedFields = candidateFields(decision);
@@ -736,7 +814,12 @@ export class ConversationService {
         : extractedFields;
     const phase = phaseFor(fields);
     if (!draftable(fields) || phase === undefined) {
-      return this.#preserveRejected(updateId, snapshot, decision);
+      return this.#preserveRejected(
+          updateId,
+          snapshot,
+          decision,
+          "no_state_draft_not_draftable",
+        );
     }
     return this.#finish(
       {
@@ -767,7 +850,11 @@ export class ConversationService {
           decision.inputClass === "explicit_commitment" &&
           this.#sameCandidate(snapshot.fields, candidateFields(decision));
         if (!accepted) {
-          return this.#preserveFailure(updateId, snapshot);
+          return this.#preserveFailure(
+            updateId,
+            snapshot,
+            "permission_candidate_mismatch",
+          );
         }
         const phase = phaseFor(snapshot.fields);
         const fields =
@@ -779,6 +866,12 @@ export class ConversationService {
               : candidateFields(decision);
         const draftIsAllowed =
           draftable(fields) && phase !== undefined;
+        if (!draftIsAllowed) {
+          this.#reportConversationFailure(
+            "permission_draft_not_allowed",
+            snapshot,
+          );
+        }
         const command: ConversationCommand =
           fields.possibleWorkSession
             ? {
@@ -809,7 +902,11 @@ export class ConversationService {
       }
       case "permission_declined":
         if (decision.inputClass !== "ordinary_question") {
-          return this.#preserveFailure(updateId, snapshot);
+          return this.#preserveFailure(
+            updateId,
+            snapshot,
+            "permission_decline_class_invalid",
+          );
         }
         return this.#finish(
           {
@@ -824,7 +921,11 @@ export class ConversationService {
         );
       case "clarification_continuation":
         if (decision.inputClass !== "ordinary_question") {
-          return this.#preserveFailure(updateId, snapshot);
+          return this.#preserveFailure(
+            updateId,
+            snapshot,
+            "permission_clarification_class_invalid",
+          );
         }
         return this.#finish(
           {
@@ -842,7 +943,11 @@ export class ConversationService {
           decision.inputClass !== "ordinary_question" ||
           !responseText(decision)
         ) {
-          return this.#preserveFailure(updateId, snapshot);
+          return this.#preserveFailure(
+            updateId,
+            snapshot,
+            "permission_ordinary_response_missing",
+          );
         }
         return this.#finish(
           {
@@ -869,7 +974,11 @@ export class ConversationService {
         );
       case "correction":
       case "new_request":
-        return this.#preserveFailure(updateId, snapshot);
+        return this.#preserveFailure(
+          updateId,
+          snapshot,
+          "permission_relation_unsupported",
+        );
     }
   }
 
@@ -885,7 +994,11 @@ export class ConversationService {
         decision.inputClass !== "ordinary_question" ||
         !responseText(decision)
       ) {
-        return this.#preserveFailure(updateId, snapshot);
+        return this.#preserveFailure(
+          updateId,
+          snapshot,
+          "draft_ordinary_response_missing",
+        );
       }
       return this.#finish(
         {
@@ -909,7 +1022,11 @@ export class ConversationService {
         draftTarget.authority.id !== snapshot.id ||
         draftTarget.authority.expectedVersion !== snapshot.version
       ) {
-        return this.#preserveFailure(updateId, snapshot);
+        return this.#preserveFailure(
+          updateId,
+          snapshot,
+          "separate_request_authority_mismatch",
+        );
       }
       const extractedFields = candidateFields(decision);
       if (decision.inputClass === "implied_intention") {
@@ -934,7 +1051,12 @@ export class ConversationService {
           : extractedFields;
       const phase = phaseFor(fields);
       if (!draftable(fields) || phase === undefined) {
-        return this.#preserveRejected(updateId, snapshot, decision);
+        return this.#preserveRejected(
+          updateId,
+          snapshot,
+          decision,
+          "separate_draft_not_draftable",
+        );
       }
       return this.#finish(
         {
@@ -959,11 +1081,19 @@ export class ConversationService {
       ) ||
       decision.inputClass !== "explicit_commitment"
     ) {
-      return this.#preserveFailure(updateId, snapshot);
+      return this.#preserveFailure(
+        updateId,
+        snapshot,
+        "draft_relation_unsupported",
+      );
     }
 
     if (draftTarget === undefined) {
-      return this.#preserveFailure(updateId, snapshot);
+      return this.#preserveFailure(
+        updateId,
+        snapshot,
+        "draft_target_missing",
+      );
     }
     const selectedSnapshot: ActiveDraft = {
       expiresAt: snapshot.expiresAt,
@@ -977,7 +1107,11 @@ export class ConversationService {
       decision.turnRelation === "clarification_continuation" &&
       selectedSnapshot.phase === "complete"
     ) {
-      return this.#preserveFailure(updateId, snapshot);
+      return this.#preserveFailure(
+        updateId,
+        snapshot,
+        "clarification_against_complete_draft",
+      );
     }
     const extractedFields = candidateFields(decision);
     const extractedPhase = phaseFor(extractedFields);
@@ -1013,7 +1147,12 @@ export class ConversationService {
       );
     }
     if (!draftable(fields) || phase === undefined) {
-      return this.#preserveRejected(updateId, snapshot, decision);
+      return this.#preserveRejected(
+          updateId,
+          snapshot,
+          decision,
+          "patched_draft_not_draftable",
+        );
     }
 
     return this.#finishPatch(
@@ -1052,10 +1191,43 @@ export class ConversationService {
     }
   }
 
+  #ambiguityCopy(
+    decision: DecisionResult,
+    snapshot: ConversationSnapshot,
+  ): string {
+    const answer = responseText(decision);
+    if (answer !== undefined) {
+      return answer;
+    }
+    this.#reportConversationFailure(
+      "ambiguity_response_missing",
+      snapshot,
+    );
+    return safeFailure(snapshot);
+  }
+
+  #reportConversationFailure(
+    site: ConversationFailureSite,
+    snapshot: ConversationSnapshot,
+  ): void {
+    try {
+      this.#onConversationFailure?.({
+        event: "conversation_failure",
+        ...(snapshot.kind === "draft" ? { phase: snapshot.phase } : {}),
+        site,
+        snapshotKind: snapshot.kind,
+      });
+    } catch {
+      // Operational logging must never change the fail-closed response.
+    }
+  }
+
   async #preserveFailure(
     updateId: number,
     snapshot: ConversationSnapshot,
+    site: ConversationFailureSite,
   ): Promise<ConversationReply> {
+    this.#reportConversationFailure(site, snapshot);
     return this.#finish(
       {
         action: "preserve",
@@ -1072,7 +1244,9 @@ export class ConversationService {
     updateId: number,
     snapshot: ConversationSnapshot,
     decision: DecisionResult,
+    site: ConversationFailureSite,
   ): Promise<ConversationReply> {
+    this.#reportConversationFailure(site, snapshot);
     return this.#finish(
       {
         action: "preserve",
@@ -1344,9 +1518,11 @@ export class ConversationService {
       case "interrupted":
         return conversationCopy.interrupted;
       case "stale":
+        this.#reportConversationFailure("apply_stale", snapshot);
         return safeFailure(snapshot);
       case "applied": {
         if (expectDraft && !result.draftCreated) {
+          this.#reportConversationFailure("draft_not_created", snapshot);
           return conversationCopy.failureNoDraft;
         }
         if (isCompleteReply(copy)) {

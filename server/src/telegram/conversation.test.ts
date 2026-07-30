@@ -251,9 +251,11 @@ function controlled(
       return outcome;
     }),
   };
+  const conversationFailureEvents = vi.fn();
   const service = new ConversationService({
     decisionEngine,
     modelId: "gpt-test-model",
+    onConversationFailure: conversationFailureEvents,
     onDecisionFailure: decisionFailureEvents,
     onDecisionRetryRecovered: decisionRetryRecoveredEvents,
     promptVersion: "shiori-test-v1",
@@ -261,12 +263,21 @@ function controlled(
   });
   return {
     completeTurn,
+    conversationFailureEvents,
     decide: vi.mocked(decisionEngine.decide),
     decisionFailureEvents,
     decisionRetryRecoveredEvents,
     repository,
     service,
   };
+}
+
+function reportedFailureSites(
+  events: ReturnType<typeof vi.fn>,
+): readonly string[] {
+  return events.mock.calls.map(
+    ([event]) => (event as { site: string }).site,
+  );
 }
 
 function success(result: DecisionResult): DecisionOutcome {
@@ -2573,5 +2584,144 @@ describe("ConversationService", () => {
         text: "Cancel",
       },
     ]);
+  });
+});
+
+describe("ConversationService failure attribution", () => {
+  it("reports a distinct site for each application-side rejection", async () => {
+    // Every case below returns the same fail-closed copy. Before these events
+    // existed there was no way to tell them apart in production.
+    const cases = [
+      {
+        expectedSite: "no_state_relation_invalid",
+        outcome: success(ordinary("", "new_request")),
+        snapshot: { completed: true, kind: "none" } as const,
+        updateId: 8001,
+      },
+      {
+        expectedSite: "permission_candidate_mismatch",
+        outcome: success(
+          decision(incompleteFields, {
+            turnRelation: "permission_accepted",
+          }),
+        ),
+        snapshot: permissionCandidate(),
+        updateId: 8002,
+      },
+      {
+        expectedSite: "permission_decline_class_invalid",
+        outcome: success(
+          decision(completeFields, {
+            turnRelation: "permission_declined",
+          }),
+        ),
+        snapshot: permissionCandidate(),
+        updateId: 8003,
+      },
+      {
+        expectedSite: "draft_ordinary_response_missing",
+        outcome: success(ordinary("", "none")),
+        snapshot: activeDraft("awaiting_target", targetMissingFields),
+        updateId: 8004,
+      },
+      {
+        expectedSite: "clarification_against_complete_draft",
+        outcome: success(
+          decision(completeFields, {
+            turnRelation: "clarification_continuation",
+          }),
+        ),
+        snapshot: activeDraft("complete", completeFields),
+        updateId: 8005,
+      },
+    ] as const;
+
+    const observed: string[] = [];
+    for (const scenario of cases) {
+      const test = controlled(scenario.snapshot, scenario.outcome);
+      const reply = await test.service.handle(
+        scenario.updateId,
+        "owner input",
+      );
+
+      expect(reply).toBe(
+        scenario.snapshot.kind === "draft"
+          ? conversationCopy.failureWithDraft
+          : conversationCopy.failureNoDraft,
+      );
+      expect(reportedFailureSites(test.conversationFailureEvents)).toEqual([
+        scenario.expectedSite,
+      ]);
+      observed.push(scenario.expectedSite);
+    }
+
+    expect(new Set(observed).size).toBe(cases.length);
+  });
+
+  it("carries the snapshot kind and draft phase for triage", async () => {
+    const test = controlled(
+      activeDraft("awaiting_target", targetMissingFields),
+      success(ordinary("", "none")),
+    );
+
+    await test.service.handle(8006, "owner input");
+
+    expect(test.conversationFailureEvents).toHaveBeenCalledWith({
+      event: "conversation_failure",
+      phase: "awaiting_target",
+      site: "draft_ordinary_response_missing",
+      snapshotKind: "draft",
+    });
+  });
+
+  it("reports a stale compare-and-swap loss separately", async () => {
+    const test = controlled(
+      activeDraft("complete", completeFields),
+      success(ordinary("A bounded synthetic answer.")),
+    );
+    test.repository.applyResult.status = "stale";
+
+    await expect(test.service.handle(8007, "owner input")).resolves.toBe(
+      conversationCopy.failureWithDraft,
+    );
+    expect(reportedFailureSites(test.conversationFailureEvents)).toEqual([
+      "apply_stale",
+    ]);
+  });
+
+  it("keeps the fail-closed reply when the failure sink throws", async () => {
+    const repository = new ControlledRepository({
+      completed: true,
+      kind: "none",
+    });
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => success(ordinary("", "new_request"))),
+      },
+      modelId: "gpt-test-model",
+      onConversationFailure: () => {
+        throw new Error("logging sink unavailable");
+      },
+      promptVersion: "shiori-test-v1",
+      repository,
+    });
+
+    await expect(service.handle(8008, "owner input")).resolves.toBe(
+      conversationCopy.failureNoDraft,
+    );
+  });
+
+  it("never puts owner text in a failure event", async () => {
+    const sensitiveText = "private-owner-text-should-never-leak";
+    const test = controlled(
+      { completed: true, kind: "none" },
+      success(ordinary(sensitiveText, "new_request")),
+    );
+
+    await test.service.handle(8009, sensitiveText);
+
+    expect(
+      JSON.stringify(test.conversationFailureEvents.mock.calls),
+    ).not.toContain(sensitiveText);
   });
 });
