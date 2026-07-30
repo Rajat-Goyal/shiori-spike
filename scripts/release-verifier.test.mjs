@@ -12,6 +12,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   APPLICATION_RUNTIME_KEYS,
+  OPTIONAL_RUNTIME_KEYS,
   assertRedactedEvidence,
   BOUNDARY_IDS,
   canonicalJson,
@@ -333,6 +334,7 @@ test("Railway variable inventory is exact, value-bound, and one-way", () => {
   assert.deepEqual(result, {
     hostedSupabase: true,
     legacyServiceExcluded: true,
+    optionalKeys: [],
     poolerExcluded: true,
     runtimeConfigHash: result.runtimeConfigHash,
     runtimeKeysExact: true,
@@ -364,6 +366,43 @@ test("Railway variable inventory fails closed on malformed command output", () =
       (error) => error.code === "invalid_railway_variables",
     );
   }
+});
+
+test("Railway variable inventory allows optional runtime keys without changing release identity", () => {
+  const environment = releaseEnvironment();
+  const baseline = validateRailwayVariableInventory(
+    railwayVariableFixture(),
+    environment,
+  );
+
+  for (const key of OPTIONAL_RUNTIME_KEYS) {
+    const result = validateRailwayVariableInventory(
+      railwayVariableFixture({ [key]: "true" }),
+      environment,
+    );
+    assert.deepEqual(result.optionalKeys, [key]);
+    // An optional key must not move the pinned runtime configuration hash.
+    assert.equal(result.runtimeConfigHash, baseline.runtimeConfigHash);
+  }
+
+  const both = validateRailwayVariableInventory(
+    railwayVariableFixture(
+      Object.fromEntries(OPTIONAL_RUNTIME_KEYS.map((key) => [key, "1"])),
+    ),
+    environment,
+  );
+  assert.deepEqual(both.optionalKeys, [...OPTIONAL_RUNTIME_KEYS].sort());
+  assert.equal(both.runtimeConfigHash, baseline.runtimeConfigHash);
+
+  // An unlisted key is still refused.
+  assert.throws(
+    () =>
+      validateRailwayVariableInventory(
+        railwayVariableFixture({ SOME_OTHER_FLAG: "true" }),
+        environment,
+      ),
+    (error) => error.code === "railway_runtime_inventory_mismatch",
+  );
 });
 
 test("Railway variable inventory refuses missing, extra, pooler, and mismatched values", () => {

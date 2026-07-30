@@ -40,6 +40,19 @@ export const APPLICATION_RUNTIME_KEYS = Object.freeze([
   "TELEGRAM_WEBHOOK_SECRET",
 ]);
 
+/**
+ * Runtime keys the application reads but does not require.
+ *
+ * `APPLICATION_RUNTIME_KEYS` mirrors the `required()` calls in config.ts and is
+ * matched exactly, so without this allowance an optional key could not be set on
+ * Railway at all. Optional keys are deliberately excluded from
+ * `runtimeConfigHash`: they must not change the pinned release identity.
+ */
+export const OPTIONAL_RUNTIME_KEYS = Object.freeze([
+  "AGENT_SESSION_RETENTION_SECONDS",
+  "CONVERSATION_FAILURE_CODES",
+]);
+
 const RELEASE_ONLY_KEYS = Object.freeze([
   "RAILWAY_ENVIRONMENT_ID",
   "RAILWAY_PROJECT_ID",
@@ -456,9 +469,15 @@ export function validateRailwayVariableInventory(
   const deployedApplicationKeys = Object.keys(variables)
     .filter((key) => !key.startsWith("RAILWAY_"))
     .sort();
+  const deployedOptionalKeys = deployedApplicationKeys.filter((key) =>
+    OPTIONAL_RUNTIME_KEYS.includes(key),
+  );
   if (
-    canonicalJson(deployedApplicationKeys) !==
-    canonicalJson([...APPLICATION_RUNTIME_KEYS].sort())
+    canonicalJson(
+      deployedApplicationKeys.filter(
+        (key) => !OPTIONAL_RUNTIME_KEYS.includes(key),
+      ),
+    ) !== canonicalJson([...APPLICATION_RUNTIME_KEYS].sort())
   ) {
     throw new ReleaseVerificationError(
       "railway_runtime_inventory_mismatch",
@@ -507,6 +526,7 @@ export function validateRailwayVariableInventory(
   return {
     hostedSupabase: true,
     legacyServiceExcluded: true,
+    optionalKeys: deployedOptionalKeys,
     poolerExcluded: true,
     runtimeConfigHash: sha256(canonicalJson(runtimeConfiguration)),
     runtimeKeysExact: true,
