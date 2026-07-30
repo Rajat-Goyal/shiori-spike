@@ -68,7 +68,13 @@ export function startLangfuseTracing(
     ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
     ...(options.release ? { release: options.release } : {}),
   });
-  const sdk = new NodeSDK({ spanProcessors: [spanProcessor] });
+  // Without an explicit service name every observation carries
+  // "unknown_service:<node binary path>" plus the full process command line in
+  // its resource attributes, which is noise on every span.
+  const sdk = new NodeSDK({
+    serviceName: "shiori-server",
+    spanProcessors: [spanProcessor],
+  });
   sdk.start();
 
   const emit = (request: ObservationRequest): EmittedObservation => {

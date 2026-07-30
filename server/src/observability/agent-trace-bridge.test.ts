@@ -270,6 +270,53 @@ describe("createAgentTraceBridge", () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
+  it("collapses the SDK task span that duplicates the trace", async () => {
+    const bridge = recordingBridge();
+    await bridge.processor.onTraceStart(trace());
+    // The SDK emits a root task span named for the trace, and the bridge already
+    // emits a root for the trace itself. Keeping both double-represents one event.
+    await bridge.processor.onSpanEnd(
+      span({
+        parentId: null,
+        spanData: { name: "shiori-bounded-decision", type: "task" },
+        spanId: "task-root",
+      }),
+    );
+    await bridge.processor.onSpanEnd(
+      span({
+        parentId: "task-root",
+        spanData: { name: "Shiori", type: "agent" },
+        spanId: "agent-a",
+      }),
+    );
+    await bridge.processor.onTraceEnd(trace());
+
+    expect(bridge.requests.map((r) => r.name)).toEqual([
+      "shiori-bounded-decision",
+      "agent:Shiori",
+    ]);
+    // The child of the collapsed span is re-pointed at the root, not orphaned.
+    expect(bridge.requests[1]!.parentSpanContext).toBe("otel-1");
+  });
+
+  it("keeps a task span that is not the trace itself", async () => {
+    const bridge = recordingBridge();
+    await bridge.processor.onTraceStart(trace());
+    await bridge.processor.onSpanEnd(
+      span({
+        parentId: null,
+        spanData: { name: "some-other-task", type: "task" },
+        spanId: "task-x",
+      }),
+    );
+    await bridge.processor.onTraceEnd(trace());
+
+    expect(bridge.requests.map((r) => r.name)).toEqual([
+      "shiori-bounded-decision",
+      "task:some-other-task",
+    ]);
+  });
+
   it("does not leak buffered spans across traces", async () => {
     const bridge = recordingBridge();
     await bridge.processor.onTraceStart(trace());

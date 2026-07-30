@@ -11,7 +11,8 @@
     "smoke:openai": "tsx --env-file-if-exists=../.env.local test/openai-decision.smoke.ts",
     "start": "node --env-file-if-exists=../.env.local dist/index.js",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "smoke:langfuse": "tsx --env-file-if-exists=../.env.local test/langfuse-tracing.smoke.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.2",

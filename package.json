@@ -31,7 +31,8 @@
     "typecheck:web": "npm run typecheck --workspace @shiori/web",
     "check": "npm run typecheck && npm run tests",
     "ci": "npm run check",
-    "verify:release": "node scripts/verify-release.mjs"
+    "verify:release": "node scripts/verify-release.mjs",
+    "test:langfuse:smoke": "npm run smoke:langfuse --workspace @shiori/server"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.1",

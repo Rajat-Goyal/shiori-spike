@@ -225,6 +225,26 @@ function metadataOf(span: AgentSpanLike): Record<string, unknown> {
   return metadata;
 }
 
+/**
+ * True when a span merely re-states the trace itself.
+ *
+ * The SDK emits a root `task` span carrying the trace name, and the bridge
+ * already emits a root observation for the trace. Keeping both double-represents
+ * one event, which Langfuse guidance calls out explicitly: the duplicate node
+ * adds a hop to every tree and splits the Agent Graph. Children of a skipped
+ * span are re-attached to its parent.
+ */
+export function duplicatesTrace(
+  span: AgentSpanLike,
+  trace: AgentTraceLike,
+): boolean {
+  return (
+    span.spanData.type === "task" &&
+    span.parentId === null &&
+    span.spanData.name === trace.name
+  );
+}
+
 export function observationRequestFor(
   span: AgentSpanLike,
   parentSpanContext: unknown,
@@ -343,15 +363,20 @@ export function createAgentTraceBridge(
             span.parentId !== null && contexts.has(span.parentId)
               ? contexts.get(span.parentId)
               : root.spanContext();
+          const endedAt = timeOf(span.endedAt);
+          if (endedAt && (latest === undefined || endedAt > latest)) {
+            latest = endedAt;
+          }
+          if (duplicatesTrace(span, trace)) {
+            // Re-point children at the root so the subtree is preserved.
+            contexts.set(span.spanId, parentContext);
+            continue;
+          }
           const emitted = options.emit(
             observationRequestFor(span, parentContext),
           );
           contexts.set(span.spanId, emitted.spanContext());
-          const endedAt = timeOf(span.endedAt);
           emitted.end(endedAt);
-          if (endedAt && (latest === undefined || endedAt > latest)) {
-            latest = endedAt;
-          }
         }
         root.end(latest);
       },
