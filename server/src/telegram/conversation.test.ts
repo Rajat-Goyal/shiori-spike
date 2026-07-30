@@ -331,12 +331,21 @@ function providerResponse(value: unknown): Response {
           ),
         )
       : value;
+  // The provider contract now carries an explicit clear list; fixtures written as
+  // DecisionResult shapes do not have one.
+  const withClears =
+    providerValue !== null &&
+    typeof providerValue === "object" &&
+    !Array.isArray(providerValue) &&
+    !("clearFields" in providerValue)
+      ? { clearFields: [], ...providerValue }
+      : providerValue;
   return Response.json({
     output: [
       {
         content: [
           {
-            text: JSON.stringify(providerValue),
+            text: JSON.stringify(withClears),
             type: "output_text",
           },
         ],

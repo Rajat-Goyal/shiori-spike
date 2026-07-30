@@ -207,6 +207,26 @@ const providerCandidateFieldSpecs = {
 export const providerDecisionSpec = {
   fields: {
     ...providerCandidateFieldSpecs,
+    /**
+     * Fields the owner explicitly cleared this turn.
+     *
+     * The application merges a proposal onto authoritative draft state, so a null
+     * candidate field means "unchanged", not "erase". Without an explicit clear
+     * list there would be no way to express "actually, no fixed deadline".
+     */
+    clearFields: {
+      items: {
+        enum: [
+          "definitionOfDone",
+          "durationMinutes",
+          "targetAt",
+          "timingConstraints",
+        ],
+        kind: "string",
+      },
+      kind: "array",
+      maxItems: 4,
+    },
     inputClass: decisionSpec.fields.inputClass,
     response: {
       kind: "string",

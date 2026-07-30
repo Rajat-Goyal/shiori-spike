@@ -127,6 +127,46 @@ function canonicalNextAction(
   }
 }
 
+/**
+ * Derives the turn relation from what actually changed.
+ *
+ * Previously the model chose the relation and a per-phase legality table rejected
+ * the turn when its choice did not fit the wizard. The application can see what
+ * the merge did, so it decides: filling a blank is a clarification, changing a
+ * populated field is a correction. The model still owns the two judgements only it
+ * can make — whether a permission answer was yes or no, and whether the owner
+ * started a separate promise.
+ */
+function derivedTurnRelation(
+  decision: DecisionResult,
+  input: DecisionInput,
+): DecisionResult["turnRelation"] {
+  if (decision.inputClass === "ordinary_question") {
+    // Preserve a declined permission: only the model can read "no".
+    return input.context.phase === "awaiting_permission" &&
+      decision.turnRelation === "permission_declined"
+      ? "permission_declined"
+      : input.context.phase === "awaiting_permission"
+        ? decision.turnRelation
+        : "none";
+  }
+  const context = input.context.fields;
+  if (input.context.phase === "none" || context === null) {
+    return "new_request";
+  }
+  // Only the model can tell a follow-up from a genuinely separate promise, and
+  // only it can read a permission acceptance.
+  if (
+    decision.turnRelation === "separate_request" ||
+    decision.turnRelation === "permission_accepted"
+  ) {
+    return decision.turnRelation;
+  }
+  return changesPopulatedField(context, candidateFields(decision))
+    ? "correction"
+    : "clarification_continuation";
+}
+
 export function canonicalizeDecision(
   decision: DecisionResult,
   input: DecisionInput,
@@ -135,12 +175,7 @@ export function canonicalizeDecision(
     decision.targetAt !== null && TARGET_PATTERN.test(decision.targetAt)
       ? "Asia/Singapore"
       : decision.targetTimeZone;
-  const turnRelation =
-    input.context.phase === "none"
-      ? decision.inputClass === "ordinary_question"
-        ? "none"
-        : "new_request"
-      : decision.turnRelation;
+  const turnRelation = derivedTurnRelation(decision, input);
   const projected = {
     ...decision,
     offerWorkWindowHelp: false,
@@ -154,10 +189,92 @@ export function canonicalizeDecision(
   };
 }
 
+const MERGEABLE_FIELDS = [
+  "definitionOfDone",
+  "durationMinutes",
+  "targetAt",
+  "timingConstraints",
+] as const;
+
+type MergeableField = (typeof MERGEABLE_FIELDS)[number];
+
+function isEmptyValue(value: unknown): boolean {
+  return value === null || (Array.isArray(value) && value.length === 0);
+}
+
+/**
+ * Merges a proposal onto authoritative draft state.
+ *
+ * This is the delta contract. Previously the model had to re-emit every existing
+ * field byte-for-byte to prove it changed nothing, and any deviation — a
+ * different capitalization, a reordered constraint — failed the whole turn. The
+ * application already owns the draft, so a proposal now only needs to carry what
+ * changed: an empty field means "unchanged", and an explicit `clearFields` entry
+ * means "erase".
+ *
+ * The practical effect is that the owner can supply the definition and the target
+ * in either order, across any number of turns, and mid-conversation questions no
+ * longer risk dropping the draft.
+ */
+export function mergeProposalOntoContext(
+  decision: ProviderDecisionResult,
+  context: DecisionCandidateFields | null,
+): {
+  definitionOfDone: string | null;
+  durationMinutes: number | null;
+  targetAt: string | null;
+  timingConstraints: string[];
+} {
+  const cleared = new Set<string>(decision.clearFields);
+  const merged = {
+    definitionOfDone: decision.definitionOfDone,
+    durationMinutes: decision.durationMinutes,
+    targetAt: decision.targetAt,
+    timingConstraints: [...decision.timingConstraints],
+  };
+  // A separate request starts a new promise. Merging the focused draft into it
+  // would silently graft the old target and definition onto the new one.
+  if (
+    context === null ||
+    decision.turnRelation === "separate_request" ||
+    decision.turnRelation === "new_request"
+  ) {
+    return merged;
+  }
+  for (const field of MERGEABLE_FIELDS) {
+    if (cleared.has(field)) {
+      continue;
+    }
+    if (isEmptyValue(merged[field]) && !isEmptyValue(context[field])) {
+      // Carry the authoritative value forward rather than treating the model's
+      // silence as an erase.
+      (merged as Record<MergeableField, unknown>)[field] =
+        Array.isArray(context[field])
+          ? [...(context[field] as readonly string[])]
+          : context[field];
+    }
+  }
+  return merged;
+}
+
 export function materializeProviderDecision(
   decision: ProviderDecisionResult,
   input: DecisionInput,
 ): DecisionResult {
+  // An ordinary question must not inherit draft fields; it changes nothing.
+  const mergedFields =
+    decision.inputClass === "ordinary_question"
+      ? {
+          definitionOfDone: null,
+          durationMinutes: null,
+          targetAt: null,
+          timingConstraints: [] as string[],
+        }
+      : mergeProposalOntoContext(decision, input.context.fields);
+  // clearFields is a wire-level instruction, not part of the materialized
+  // decision, and must not leak into persisted state.
+  const { clearFields: _clearFields, ...proposal } = decision;
+  decision = { ...proposal, ...mergedFields } as ProviderDecisionResult;
   const complete =
     decision.definitionOfDone !== null && decision.targetAt !== null;
   const existingMode =
@@ -390,81 +507,55 @@ function changesPopulatedField(
   );
 }
 
+/**
+ * Guards only the relations the application cannot derive.
+ *
+ * The per-phase legality table is gone. Clarification and correction are now
+ * derived from what the merge actually changed, so the model can no longer pick
+ * an "illegal" relation. What remains genuinely phase-bound is permission: an
+ * acceptance or a decline is only meaningful while a permission request is open.
+ */
 function allowedRelationTuple(
   input: DecisionInput,
   decision: DecisionResult,
 ): boolean {
-  const tuple = `${decision.turnRelation}:${decision.inputClass}`;
-  switch (input.context.phase) {
-    case "none":
-      return [
-        "new_request:explicit_commitment",
-        "new_request:implied_intention",
-        "none:ordinary_question",
-      ].includes(tuple);
-    case "awaiting_permission":
-      return [
-        "permission_accepted:explicit_commitment",
-        "permission_declined:ordinary_question",
-        "clarification_continuation:ordinary_question",
-        "separate_request:explicit_commitment",
-        "separate_request:implied_intention",
-        "none:ordinary_question",
-      ].includes(tuple);
-    case "awaiting_definition":
-    case "awaiting_target":
-      return [
-        "clarification_continuation:explicit_commitment",
-        "correction:explicit_commitment",
-        "separate_request:explicit_commitment",
-        "separate_request:implied_intention",
-        "none:ordinary_question",
-      ].includes(tuple);
-    case "complete":
-      return [
-        "correction:explicit_commitment",
-        "separate_request:explicit_commitment",
-        "separate_request:implied_intention",
-        "none:ordinary_question",
-      ].includes(tuple);
+  const awaitingPermission =
+    input.context.phase === "awaiting_permission";
+  if (decision.turnRelation === "permission_accepted") {
+    return awaitingPermission &&
+      decision.inputClass === "explicit_commitment";
   }
+  if (decision.turnRelation === "permission_declined") {
+    return awaitingPermission &&
+      decision.inputClass === "ordinary_question";
+  }
+  return true;
 }
 
+/**
+ * Only the permission copy is still checked field-by-field.
+ *
+ * `clarification_context_mutation`, `clarification_filled_nothing` and
+ * `correction_changed_nothing` are dropped: the application merges the proposal
+ * onto authoritative state, so populated fields are preserved by construction and
+ * the relation is derived from the merge rather than claimed by the model.
+ * Validating the model's echo against state the application already owns was the
+ * single largest source of fail-closed turns.
+ */
 function relationFailureReason(
   input: DecisionInput,
   decision: DecisionResult,
 ): DecisionSemanticFailureReason | undefined {
   const contextFields = input.context.fields;
-  if (contextFields === null) {
+  if (
+    contextFields === null ||
+    decision.turnRelation !== "permission_accepted"
+  ) {
     return undefined;
   }
-  const outputFields = candidateFields(decision);
-  switch (decision.turnRelation) {
-    case "permission_accepted":
-      return sameCandidateFields(contextFields, outputFields)
-        ? undefined
-        : "permission_candidate_mismatch";
-    case "clarification_continuation":
-      if (input.context.phase === "awaiting_permission") {
-        return undefined;
-      }
-      if (!preservesPopulatedFields(contextFields, outputFields)) {
-        return "clarification_context_mutation";
-      }
-      if (!fillsNullField(contextFields, outputFields)) {
-        return "clarification_filled_nothing";
-      }
-      return undefined;
-    case "correction":
-      return changesPopulatedField(contextFields, outputFields)
-        ? undefined
-        : "correction_changed_nothing";
-    case "none":
-    case "new_request":
-    case "permission_declined":
-    case "separate_request":
-      return undefined;
-  }
+  return sameCandidateFields(contextFields, candidateFields(decision))
+    ? undefined
+    : "permission_candidate_mismatch";
 }
 
 function failed(

@@ -317,6 +317,17 @@ type PendingApprovalEnvelope = Readonly<{
 
 const proposalSchema = z
   .object({
+    /** Fields the owner explicitly cleared; empty means "leave state alone". */
+    clearFields: z
+      .array(
+        z.enum([
+          "definitionOfDone",
+          "durationMinutes",
+          "targetAt",
+          "timingConstraints",
+        ]),
+      )
+      .max(4),
     commitmentMode: z.enum([
       "unresolved",
       "simple_action",

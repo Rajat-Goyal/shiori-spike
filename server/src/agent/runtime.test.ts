@@ -146,9 +146,18 @@ async function invoke(
   name: string,
   value: unknown,
 ): Promise<unknown> {
+  // propose_draft_update now takes an explicit clear list; fixtures omit it.
+  const payload =
+    name === "propose_draft_update" &&
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    !("clearFields" in value)
+      ? { clearFields: [], ...value }
+      : value;
   return functionTool(request, name).invoke(
     new RunContext(request.context),
-    JSON.stringify(value),
+    JSON.stringify(payload),
   );
 }
 

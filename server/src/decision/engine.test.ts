@@ -22,6 +22,7 @@ import {
   evaluateDecisionSemantics,
   validateDecisionInputSemantics,
   validateDecisionSemantics,
+  mergeProposalOntoContext,
 } from "./semantic.js";
 import { isExpectedSmokeDecision } from "./smoke-shape.js";
 
@@ -131,12 +132,21 @@ function providerResponse(value: unknown): Response {
           ),
         )
       : value;
+  // The provider contract now carries an explicit clear list; fixtures written as
+  // DecisionResult shapes do not have one.
+  const withClears =
+    providerValue !== null &&
+    typeof providerValue === "object" &&
+    !Array.isArray(providerValue) &&
+    !("clearFields" in providerValue)
+      ? { clearFields: [], ...providerValue }
+      : providerValue;
   return Response.json({
     output: [
       {
         content: [
           {
-            text: JSON.stringify(providerValue),
+            text: JSON.stringify(withClears),
             type: "output_text",
           },
         ],
@@ -275,6 +285,7 @@ describe("DecisionEngine contract", () => {
     expect(parseProviderDecisionStructure(explicitDecision)).toBeNull();
     expect(
       parseProviderDecisionStructure({
+        clearFields: [],
         commitmentMode: explicitDecision.commitmentMode,
         definitionOfDone: explicitDecision.definitionOfDone,
         durationMinutes: explicitDecision.durationMinutes,
@@ -287,6 +298,7 @@ describe("DecisionEngine contract", () => {
     ).not.toBeNull();
     expect(
       parseProviderDecisionStructure({
+        clearFields: [],
         commitmentMode: "simple_action",
         definitionOfDone: "Submit the expense report",
         durationMinutes: null,
@@ -327,6 +339,7 @@ describe("DecisionEngine contract", () => {
       }),
     ).toBeNull();
     expect(Object.keys(providerDecisionSpec.fields).sort()).toEqual([
+      "clearFields",
       "commitmentMode",
       "definitionOfDone",
       "durationMinutes",
@@ -1362,160 +1375,155 @@ describe("DecisionEngine contract", () => {
       expect(validateDecisionSemantics(decision, input, now)).toBe(true);
     });
 
-    it("rejects every relation/class/phase tuple outside the allowlist", () => {
-      const relations: DecisionResult["turnRelation"][] = [
-        "none",
-        "new_request",
-        "clarification_continuation",
-        "correction",
-        "separate_request",
-        "permission_accepted",
-        "permission_declined",
-      ];
-      const classes: DecisionResult["inputClass"][] = [
-        "explicit_commitment",
-        "implied_intention",
-        "ordinary_question",
-      ];
-      const allowed = new Set(
-        allowedCases.map(
-          ({ decision, input }) =>
-            `${input.context.phase}:${decision.turnRelation}:${decision.inputClass}`,
-        ),
-      );
-      const baseByClass = {
-        explicit_commitment: explicitDecision,
-        implied_intention: impliedDecision,
-        ordinary_question: ordinaryDecision,
-      } as const;
-
-      for (const [phase, input] of Object.entries(phaseInputs)) {
-        if (phase === "none") {
-          continue;
-        }
-        for (const relation of relations) {
-          for (const inputClass of classes) {
-            const key = `${phase}:${relation}:${inputClass}`;
-            if (allowed.has(key)) {
-              continue;
-            }
-            expect(
-              validateDecisionSemantics(
-                {
-                  ...baseByClass[inputClass],
-                  turnRelation: relation,
-                },
-                input,
-                now,
-              ),
-              key,
-            ).toBe(false);
-          }
-        }
-      }
-    });
-
-    it("distinguishes clarification from correction using populated fields", () => {
-      const fillOnly = {
+    it("derives the turn relation from what changed, not from the model's claim", () => {
+      // The application owns the draft, so it can see what the merge did. A model
+      // that mislabels its own turn no longer fails it.
+      const fillsABlank = {
         ...explicitDecision,
         turnRelation: "correction",
       } satisfies DecisionResult;
+      expect(
+        validateDecisionSemantics(
+          fillsABlank,
+          phaseInputs.awaiting_definition,
+          now,
+        ),
+      ).toBe(true);
+
       const changesPopulated = {
         ...explicitDecision,
         targetAt: "2026-07-26T10:00:00+08:00",
         turnRelation: "clarification_continuation",
       } satisfies DecisionResult;
-
-      expect(
-        validateDecisionSemantics(
-          fillOnly,
-          phaseInputs.awaiting_definition,
-          now,
-        ),
-      ).toBe(false);
       expect(
         validateDecisionSemantics(
           changesPopulated,
           phaseInputs.awaiting_definition,
           now,
         ),
-      ).toBe(false);
-
+      ).toBe(true);
     });
 
-    it("rejects clarification mutation of every populated candidate field", () => {
-      const workFields: DecisionCandidateFields = {
-        ...completeFields,
-        definitionOfDone: null,
-        commitmentMode: "unresolved",
-        timingConstraints: ["first", "second"],
-      };
-      const input = contextInput(
-        "awaiting_definition",
-        workFields,
-      );
-      const clarification: DecisionResult = {
-        ...explicitDecision,
-        commitmentMode: "possible_work_session",
-        nextAction: "offer_work_window",
-        timingConstraints: ["first", "second"],
-        turnRelation: "clarification_continuation",
-      };
-      expect(
-        validateDecisionSemantics(clarification, input, now),
-      ).toBe(true);
-
-      const mutations: Array<{
-        decision: DecisionResult;
-        label: string;
-      }> = [
-        {
-          decision: {
-            ...clarification,
-            offerWorkWindowHelp: true,
-          },
-          label: "offerWorkWindowHelp",
-        },
-        {
-          decision: {
-            ...clarification,
-            targetAt: "2026-07-26T10:00:00+08:00",
-          },
-          label: "targetAt",
-        },
-        {
-          decision: {
-            ...clarification,
-            targetTimeZone: "UTC",
-          },
-          label: "targetTimeZone",
-        },
-        {
-          decision: {
-            ...clarification,
-            timingConstraints: ["second", "first"],
-          },
-          label: "timingConstraints order",
-        },
+    it("accepts every relation the model might claim for a draft phase", () => {
+      // The per-phase legality table is gone: mislabelling is corrected, not
+      // punished. Only genuinely unsafe payloads still fail.
+      const relations: DecisionResult["turnRelation"][] = [
+        "none",
+        "new_request",
+        "clarification_continuation",
+        "correction",
+        "separate_request",
       ];
-      for (const mutation of mutations) {
-        expect(
-          validateDecisionSemantics(mutation.decision, input, now),
-          mutation.label,
-        ).toBe(false);
+      for (const phase of ["awaiting_definition", "awaiting_target"] as const) {
+        for (const relation of relations) {
+          expect(
+            validateDecisionSemantics(
+              { ...explicitDecision, turnRelation: relation },
+              phaseInputs[phase],
+              now,
+            ),
+            `${phase}:${relation}`,
+          ).toBe(true);
+        }
       }
+    });
 
+    it("still refuses an unsafe payload regardless of claimed relation", () => {
+      // A past target is a real safety failure and is unaffected by the relaxation.
       expect(
         validateDecisionSemantics(
           {
             ...explicitDecision,
-            definitionOfDone: "Changed populated definition",
-            turnRelation: "clarification_continuation",
+            targetAt: "2020-01-01T09:00:00+08:00",
+            turnRelation: "correction",
           },
-          phaseInputs.awaiting_target,
+          phaseInputs.awaiting_definition,
           now,
         ),
       ).toBe(false);
+    });
+
+    it("merges a sparse proposal onto authoritative draft state", () => {
+      // The model no longer re-emits the draft; the application carries populated
+      // fields forward, so a normalized or omitted echo cannot fail the turn.
+      const context: DecisionCandidateFields = {
+        ...completeFields,
+        commitmentMode: "unresolved",
+        targetAt: null,
+        targetTimeZone: null,
+        timingConstraints: ["Before lunch"],
+      };
+      const merged = mergeProposalOntoContext(
+        {
+          clearFields: [],
+          commitmentMode: "unresolved",
+          definitionOfDone: null,
+          durationMinutes: null,
+          inputClass: "explicit_commitment",
+          response: null,
+          targetAt: "2026-07-27T15:00:00+08:00",
+          timingConstraints: [],
+          turnRelation: "clarification_continuation",
+        },
+        context,
+      );
+
+      expect(merged.definitionOfDone).toBe(context.definitionOfDone);
+      expect(merged.timingConstraints).toEqual(["Before lunch"]);
+      expect(merged.targetAt).toBe("2026-07-27T15:00:00+08:00");
+    });
+
+    it("erases only the fields the owner explicitly cleared", () => {
+      const context: DecisionCandidateFields = {
+        ...completeFields,
+        commitmentMode: "unresolved",
+        timingConstraints: ["Before lunch"],
+      };
+      const merged = mergeProposalOntoContext(
+        {
+          clearFields: ["targetAt", "timingConstraints"],
+          commitmentMode: "unresolved",
+          definitionOfDone: null,
+          durationMinutes: null,
+          inputClass: "explicit_commitment",
+          response: null,
+          targetAt: null,
+          timingConstraints: [],
+          turnRelation: "correction",
+        },
+        context,
+      );
+
+      // Without an explicit clear list a null field would be indistinguishable
+      // from "unchanged", so "actually, no fixed deadline" could not be expressed.
+      expect(merged.targetAt).toBeNull();
+      expect(merged.timingConstraints).toEqual([]);
+      expect(merged.definitionOfDone).toBe(context.definitionOfDone);
+    });
+
+    it("does not graft the focused draft onto a separate request", () => {
+      const context: DecisionCandidateFields = {
+        ...completeFields,
+        commitmentMode: "simple_action",
+      };
+      const merged = mergeProposalOntoContext(
+        {
+          clearFields: [],
+          commitmentMode: "unresolved",
+          definitionOfDone: "Finish the prototype",
+          durationMinutes: null,
+          inputClass: "implied_intention",
+          response: null,
+          targetAt: null,
+          timingConstraints: [],
+          turnRelation: "separate_request",
+        },
+        context,
+      );
+
+      expect(merged.definitionOfDone).toBe("Finish the prototype");
+      expect(merged.targetAt).toBeNull();
+      expect(merged.timingConstraints).toEqual([]);
     });
 
     it("requires exact option-A candidate equality for permission acceptance", () => {
