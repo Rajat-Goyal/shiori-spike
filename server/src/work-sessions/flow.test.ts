@@ -546,7 +546,7 @@ describe("WorkSessionFlow", () => {
       }),
     ).resolves.toEqual({
       text:
-        "I couldn’t safely prepare confirmation. Nothing was saved. Send another message to continue this draft.",
+        "I couldn’t safely prepare this preparation step. Nothing was saved. Send another message to continue this draft.",
     });
     expect(repository.finalizations).toEqual([
       expect.objectContaining({ result: "domain_error", updateId: 7998 }),
@@ -688,7 +688,7 @@ describe("WorkSessionFlow", () => {
       ),
     ).resolves.toEqual({
       text:
-        "I couldn’t safely prepare confirmation. Nothing was saved. Send another message to continue this draft.",
+        "I couldn’t safely prepare this preparation step. Nothing was saved. Send another message to continue this draft.",
     });
   });
 

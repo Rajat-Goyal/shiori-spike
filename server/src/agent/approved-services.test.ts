@@ -166,7 +166,7 @@ describe("agent-approved callback services", () => {
       blockedWrapper.handle(301, 42, `w:${ID}:7:save_unverified`),
     ).resolves.toEqual({
       text:
-        "I couldn’t safely prepare confirmation. Nothing was saved. Send another message to continue this draft.",
+        "I couldn’t safely prepare this preparation step. Nothing was saved. Send another message to continue this draft.",
     });
     expect(blocked.service.handle).not.toHaveBeenCalled();
 

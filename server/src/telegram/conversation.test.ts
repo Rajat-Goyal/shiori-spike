@@ -2801,6 +2801,52 @@ describe("ConversationService failure attribution", () => {
     ]);
   });
 
+  it("omits the owner-visible reason code unless it is enabled", async () => {
+    const test = controlled(
+      { completed: true, kind: "none" },
+      success(ordinary("", "new_request")),
+    );
+
+    await expect(test.service.handle(8012, "owner input")).resolves.toBe(
+      conversationCopy.failureNoDraft,
+    );
+  });
+
+  it("tags the failure reply with its reason code when enabled", async () => {
+    for (const scenario of [
+      {
+        expected: `${conversationCopy.failureNoDraft} [no_state_relation_invalid]`,
+        outcome: success(ordinary("", "new_request")),
+        snapshot: { completed: true, kind: "none" } as const,
+        updateId: 8013,
+      },
+      {
+        expected: `${conversationCopy.failureWithDraft} [decision_clarification_context_mutation]`,
+        outcome: {
+          attemptCount: 2 as const,
+          failure: "semantic" as const,
+          ok: false as const,
+          reason: "clarification_context_mutation" as const,
+          stage: "semantic" as const,
+        },
+        snapshot: activeDraft("awaiting_definition", incompleteFields),
+        updateId: 8014,
+      },
+    ]) {
+      const service = new ConversationService({
+        decisionEngine: { decide: vi.fn(async () => scenario.outcome) },
+        failureCodes: true,
+        modelId: "gpt-test-model",
+        promptVersion: "shiori-test-v1",
+        repository: new ControlledRepository(scenario.snapshot),
+      });
+
+      await expect(
+        service.handle(scenario.updateId, "owner input"),
+      ).resolves.toBe(scenario.expected);
+    }
+  });
+
   it("never puts owner text in a failure event", async () => {
     const sensitiveText = "private-owner-text-should-never-leak";
     const test = controlled(

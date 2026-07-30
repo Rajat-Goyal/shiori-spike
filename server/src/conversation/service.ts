@@ -52,6 +52,7 @@ type ConversationServiceOptions = {
   modelId: string;
   onDecisionFailure?: (event: DecisionFailureEvent) => void;
   onDecisionRetryRecovered?: (event: DecisionRetryRecoveredEvent) => void;
+  failureCodes?: boolean;
   onConversationFailure?: (event: ConversationFailureEvent) => void;
   onEngineFailure?: (event: ConversationEngineFailureEvent) => void;
   ownerChatId?: number;
@@ -415,6 +416,7 @@ export class ConversationService {
   readonly #promptVersion: string;
   readonly #repository: ConversationServiceOptions["repository"];
   readonly #statusService: ConversationServiceOptions["statusService"];
+  readonly #failureCodes: boolean;
   #pendingFailureRecords: Promise<void>[] = [];
   #turnUpdateId = 0;
   readonly #workSessionConversation:
@@ -427,6 +429,7 @@ export class ConversationService {
     this.#modelId = options.modelId;
     this.#onDecisionFailure = options.onDecisionFailure;
     this.#onDecisionRetryRecovered = options.onDecisionRetryRecovered;
+    this.#failureCodes = options.failureCodes ?? false;
     this.#onConversationFailure = options.onConversationFailure;
     this.#onEngineFailure = options.onEngineFailure;
     this.#ownerChatId = options.ownerChatId;
@@ -551,7 +554,7 @@ export class ConversationService {
           updateId,
         },
         snapshot,
-        safeFailure(snapshot),
+        this.#failureCopy(snapshot, `decision_${outcome.reason}`),
       );
     }
 
@@ -611,7 +614,9 @@ export class ConversationService {
         );
       }
       const reply =
-        continuationReply ?? { text: conversationCopy.failureNoDraft };
+        continuationReply ?? {
+          text: this.#failureCopy(snapshot, "continuation_reply_missing"),
+        };
       const expectsOwnerReply =
         (reply.actions?.length ?? 0) > 0 ||
         reply.text.trimEnd().endsWith("?");
@@ -660,7 +665,9 @@ export class ConversationService {
         );
       }
       const reply =
-        workSessionReply ?? { text: safeFailure(snapshot) };
+        workSessionReply ?? {
+          text: this.#failureCopy(snapshot, "work_session_reply_missing"),
+        };
       const expectsOwnerReply =
         (reply.actions?.length ?? 0) > 0 ||
         reply.text.trimEnd().endsWith("?");
@@ -767,7 +774,11 @@ export class ConversationService {
         "status_apply_not_applied",
         snapshot,
       );
-      return [{ text: safeFailure(snapshot) }];
+      return [
+        {
+          text: this.#failureCopy(snapshot, "status_apply_not_applied"),
+        },
+      ];
     }
     const activeDraftId =
       result.draftReference?.id ??
@@ -925,7 +936,7 @@ export class ConversationService {
           snapshot,
           draftIsAllowed
             ? collectedReply(phase, fields)
-            : conversationCopy.failureNoDraft,
+            : this.#failureCopy(snapshot, "permission_draft_not_allowed"),
           draftIsAllowed,
           initialPreparation,
         );
@@ -1233,7 +1244,7 @@ export class ConversationService {
       "ambiguity_response_missing",
       snapshot,
     );
-    return safeFailure(snapshot);
+    return this.#failureCopy(snapshot, "ambiguity_response_missing");
   }
 
   #reportConversationFailure(
@@ -1260,6 +1271,18 @@ export class ConversationService {
     });
   }
 
+  /**
+   * Owner-facing failure copy, optionally tagged with its reason code.
+   *
+   * Ten near-identical failure strings across five subsystems are otherwise
+   * indistinguishable in a screenshot. Off by default and temporary: it goes
+   * away once failures continue the conversation instead of apologizing.
+   */
+  #failureCopy(snapshot: ConversationSnapshot, code: string): string {
+    const base = safeFailure(snapshot);
+    return this.#failureCodes ? `${base} [${code}]` : base;
+  }
+
   #recordTurnFailure(record: ConversationTurnFailureRecord): void {
     const write = this.#repository.recordTurnFailure?.(record);
     if (write !== undefined) {
@@ -1281,7 +1304,7 @@ export class ConversationService {
         updateId,
       },
       snapshot,
-      safeFailure(snapshot),
+      this.#failureCopy(snapshot, site),
     );
   }
 
@@ -1301,7 +1324,7 @@ export class ConversationService {
         updateId,
       },
       snapshot,
-      safeFailure(snapshot),
+      this.#failureCopy(snapshot, site),
     );
   }
 
@@ -1564,11 +1587,11 @@ export class ConversationService {
         return conversationCopy.interrupted;
       case "stale":
         this.#reportConversationFailure("apply_stale", snapshot);
-        return safeFailure(snapshot);
+        return this.#failureCopy(snapshot, "apply_stale");
       case "applied": {
         if (expectDraft && !result.draftCreated) {
           this.#reportConversationFailure("draft_not_created", snapshot);
-          return conversationCopy.failureNoDraft;
+          return this.#failureCopy(snapshot, "draft_not_created");
         }
         if (isCompleteReply(copy)) {
           if (!result.draftReference) {

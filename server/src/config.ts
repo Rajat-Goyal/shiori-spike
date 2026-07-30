@@ -5,6 +5,7 @@ import {
 
 export type ServerConfig = Readonly<{
   agentSessionRetentionSeconds: number;
+  conversationFailureCodes: boolean;
   dashboardPasswordHash: string;
   dashboardSessionSecret: string;
   googleOAuthClientId: string;
@@ -53,6 +54,30 @@ function optionalBoundedInteger(
   }
 
   return parsed;
+}
+
+/**
+ * Owner-facing diagnostic switch, default off.
+ *
+ * When on, a failure reply carries its reason code so a Telegram screenshot
+ * identifies the failing path without correlating timestamps against
+ * `conversation_turn_failures`. Temporary: it exists only until failure replies
+ * are replaced by continuing the conversation.
+ */
+function optionalFlag(
+  environment: NodeJS.ProcessEnv,
+  key: string,
+): boolean {
+  const value = environment[key]?.trim().toLowerCase();
+  if (!value || PLACEHOLDER.test(value)) {
+    return false;
+  }
+  if (!["false", "true"].includes(value)) {
+    throw new Error(
+      `Invalid server configuration: ${key} must be true or false`,
+    );
+  }
+  return value === "true";
 }
 
 function required(environment: NodeJS.ProcessEnv, key: string): string {
@@ -256,6 +281,10 @@ export function readServerConfig(
 
   return {
     agentSessionRetentionSeconds,
+    conversationFailureCodes: optionalFlag(
+      environment,
+      "CONVERSATION_FAILURE_CODES",
+    ),
     dashboardPasswordHash,
     dashboardSessionSecret: sessionSecret(dashboardSessionSecret),
     googleOAuthClientId: boundedIdentifier(

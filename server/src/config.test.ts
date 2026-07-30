@@ -56,6 +56,45 @@ describe("readServerConfig", () => {
     }
   });
 
+  it("keeps owner-visible failure codes off unless explicitly enabled", () => {
+    expect(
+      readServerConfig(validEnvironment).conversationFailureCodes,
+    ).toBe(false);
+    for (const value of ["", "   ", "<unset>"]) {
+      expect(
+        readServerConfig({
+          ...validEnvironment,
+          CONVERSATION_FAILURE_CODES: value,
+        }).conversationFailureCodes,
+      ).toBe(false);
+    }
+    for (const value of ["true", "TRUE", " True "]) {
+      expect(
+        readServerConfig({
+          ...validEnvironment,
+          CONVERSATION_FAILURE_CODES: value,
+        }).conversationFailureCodes,
+      ).toBe(true);
+    }
+    expect(
+      readServerConfig({
+        ...validEnvironment,
+        CONVERSATION_FAILURE_CODES: "false",
+      }).conversationFailureCodes,
+    ).toBe(false);
+  });
+
+  it("rejects a non-boolean failure code flag", () => {
+    for (const value of ["1", "yes", "on"]) {
+      expect(() =>
+        readServerConfig({
+          ...validEnvironment,
+          CONVERSATION_FAILURE_CODES: value,
+        }),
+      ).toThrow(/CONVERSATION_FAILURE_CODES/);
+    }
+  });
+
   it("allows HTTP only for a loopback Supabase URL", () => {
     expect(readServerConfig(validEnvironment).supabaseUrl).toBe(
       "http://127.0.0.1:54321",

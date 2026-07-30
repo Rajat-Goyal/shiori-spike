@@ -237,8 +237,11 @@ export const workSessionFlowCopy = {
     "I couldn’t find a fitting window without relaxing your constraints. Choose an exact time or change the constraints.",
   offer:
     "Do you need preparation time for this promise? Nothing has been saved yet.",
+  // Deliberately worded differently from confirmationCopy.approvalUnavailable.
+  // The two were byte-identical, so an owner screenshot could not tell the
+  // work-session flow apart from draft confirmation.
   approvalUnavailable:
-    "I couldn’t safely prepare confirmation. Nothing was saved. Send another message to continue this draft.",
+    "I couldn’t safely prepare this preparation step. Nothing was saved. Send another message to continue this draft.",
   reconnect:
     "Reconnect Google Calendar from the protected dashboard, then press Check again.",
   replay: "",
