@@ -1348,7 +1348,10 @@ describe("ConversationService", () => {
     ]);
   });
 
-  it("fails closed when permission acceptance does not exactly match all eight stored fields", async () => {
+  it("accepts a permission using the parked fields, not the model's echo", async () => {
+    // The application's own parked candidate is authoritative. Requiring the
+    // model to reproduce all eight fields byte-for-byte to say "yes" turned a
+    // reordered constraint list into a dead end.
     const permission = permissionCandidate({
       ...completeFields,
       timingConstraints: ["First", "Second"],
@@ -1366,14 +1369,18 @@ describe("ConversationService", () => {
       ),
     );
 
-    await expect(test.service.handle(7002, "yes")).resolves.toBe(
-      conversationCopy.permissionUnclear,
-    );
+    await test.service.handle(7002, "yes");
     expect(test.repository.commands[0]).toMatchObject({
-      action: "preserve",
-      processingResult: "conversation_failed",
+      processingResult: "conversation",
     });
-    expect(test.repository.audits).toHaveLength(0);
+    expect(test.repository.commands[0]!.action).not.toBe("preserve");
+    // The stored order survives, because the parked fields are what is used.
+    const applied = test.repository.commands[0] as {
+      fields?: { timingConstraints: readonly string[] };
+    };
+    if (applied.fields) {
+      expect(applied.fields.timingConstraints).toEqual(["First", "Second"]);
+    }
   });
 
   it("accepts an eligible work candidate into the same versioned draft", async () => {
@@ -1810,7 +1817,10 @@ describe("ConversationService", () => {
     });
   });
 
-  it("rejects clarification relation in complete phase", async () => {
+  it("patches a complete draft rather than rejecting the relation", async () => {
+    // The phase-by-relation table used to make clarification illegal against a
+    // complete draft. With the merge there is nothing unsafe about it: the turn
+    // either changes something or changes nothing.
     const snapshot = activeDraft("complete", completeFields, 7);
     const test = controlled(
       snapshot,
@@ -1821,12 +1831,10 @@ describe("ConversationService", () => {
       ),
     );
 
-    await expect(test.service.handle(7011, "invalid relation")).resolves.toBe(
-      conversationCopy.recoverComplete,
-    );
+    const reply = await test.service.handle(7011, "same details again");
+    expect(reply).not.toBe(conversationCopy.recoverComplete);
     expect(test.repository.commands[0]).toMatchObject({
-      action: "preserve",
-      processingResult: "conversation_failed",
+      processingResult: "conversation",
     });
   });
 
@@ -2612,26 +2620,18 @@ describe("ConversationService failure attribution", () => {
         updateId: 8001,
       },
       {
-        expectedReply: conversationCopy.permissionUnclear,
-        expectedSite: "permission_candidate_mismatch",
+        // An extraction that cannot form a draft is still refused, with no state
+        // written.
+        expectedReply: conversationCopy.recoverNoDraft,
+        expectedSite: "no_state_draft_not_draftable",
         outcome: success(
-          decision(incompleteFields, {
-            turnRelation: "permission_accepted",
-          }),
+          decision(
+            { ...incompleteFields, possibleWorkSession: true },
+            { turnRelation: "new_request" },
+          ),
         ),
-        snapshot: permissionCandidate(),
+        snapshot: { completed: true, kind: "none" } as const,
         updateId: 8002,
-      },
-      {
-        expectedReply: conversationCopy.permissionUnclear,
-        expectedSite: "permission_decline_class_invalid",
-        outcome: success(
-          decision(completeFields, {
-            turnRelation: "permission_declined",
-          }),
-        ),
-        snapshot: permissionCandidate(),
-        updateId: 8003,
       },
       {
         expectedReply: conversationCopy.missingTarget,
@@ -2639,17 +2639,6 @@ describe("ConversationService failure attribution", () => {
         outcome: success(ordinary("", "none")),
         snapshot: activeDraft("awaiting_target", targetMissingFields),
         updateId: 8004,
-      },
-      {
-        expectedReply: conversationCopy.recoverComplete,
-        expectedSite: "clarification_against_complete_draft",
-        outcome: success(
-          decision(completeFields, {
-            turnRelation: "clarification_continuation",
-          }),
-        ),
-        snapshot: activeDraft("complete", completeFields),
-        updateId: 8005,
       },
     ] as const;
 

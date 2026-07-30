@@ -106,34 +106,26 @@ export type ConversationEngineFailureEvent = {
 };
 
 /**
- * Every application-side route to the fail-closed conversation copy.
+ * Every application-side route where the application cannot act on a successful
+ * decision.
  *
- * These fire when the decision engine returned `ok: true` and the application
- * then rejected the decision, so `DecisionFailureEvent` never sees them. They
- * were previously indistinguishable: one string, no telemetry, no audit row.
+ * Nine routes were removed when the phase-by-relation dispatch collapsed into a
+ * single handler: they existed only to reject decisions that did not fit a cell
+ * of the matrix, and there is no matrix left to miss.
  */
 export type ConversationFailureSite =
   | "ambiguity_response_missing"
   | "apply_stale"
-  | "clarification_against_complete_draft"
   | "continuation_reply_missing"
   | "continuation_route_unavailable"
   | "draft_not_created"
   | "draft_ordinary_response_missing"
-  | "draft_relation_unsupported"
-  | "draft_target_missing"
   | "initial_preparation_incomplete"
   | "no_state_draft_not_draftable"
   | "no_state_relation_invalid"
   | "patched_draft_not_draftable"
-  | "permission_candidate_mismatch"
-  | "permission_clarification_class_invalid"
-  | "permission_decline_class_invalid"
   | "permission_draft_not_allowed"
-  | "permission_ordinary_response_missing"
-  | "permission_relation_unsupported"
   | "separate_draft_not_draftable"
-  | "separate_request_authority_mismatch"
   | "status_apply_not_applied"
   | "work_session_authority_mismatch"
   | "work_session_reply_missing";
@@ -733,30 +725,13 @@ export class ConversationService {
       outcome.decision,
       outcome.initialWorkSessionInput,
     );
-    switch (snapshot.kind) {
-      case "none":
-        return this.#withoutState(
-          updateId,
-          snapshot,
-          effectiveDecision,
-          outcome.initialWorkSessionInput,
-        );
-      case "permission":
-        return this.#withPermission(
-          updateId,
-          snapshot,
-          effectiveDecision,
-          outcome.initialWorkSessionInput,
-        );
-      case "draft":
-        return this.#withDraft(
-          updateId,
-          snapshot,
-          effectiveDecision,
-          outcome.draftTarget,
-          outcome.initialWorkSessionInput,
-        );
-    }
+    return this.#applyTurn(
+      updateId,
+      snapshot,
+      effectiveDecision,
+      outcome.draftTarget,
+      outcome.initialWorkSessionInput,
+    );
   }
 
   async #status(
@@ -814,79 +789,284 @@ export class ConversationService {
     return replies;
   }
 
-  async #withoutState(
+  /**
+   * One handler for every owner turn.
+   *
+   * This replaces the phase-by-relation dispatch (`#withoutState`,
+   * `#withPermission`, `#withDraft` and their `turnRelation` switches). That
+   * shape required the model to land in a legal cell of a five-phase by
+   * seven-relation matrix, and anything outside it failed the turn.
+   *
+   * The application owns the state, so it decides directly. Only two judgements
+   * still come from the model, because only it can make them: whether a
+   * permission answer was yes or no, and whether the owner started a genuinely
+   * separate promise. Everything else follows from what the merge produced.
+   */
+  async #applyTurn(
     updateId: number,
-    snapshot: Extract<ConversationSnapshot, { kind: "none" }>,
+    snapshot: ConversationSnapshot,
     decision: DecisionResult,
+    draftTarget?: DecisionDraftTarget,
     initialPreparation?: InitialWorkSessionConversationInput,
   ): Promise<ConversationReply> {
+    const expected = expectedSnapshot(snapshot);
+    const audit = this.#audit(decision);
+    const answer = responseText(decision);
+
+    // A question changes nothing, whatever else is open.
+    if (decision.inputClass === "ordinary_question") {
+      return this.#answerQuestion(updateId, snapshot, decision, answer);
+    }
+
+    // An implied intention is never stored without agreement.
     if (
-      decision.turnRelation === "none" &&
-      decision.inputClass === "ordinary_question" &&
-      responseText(decision)
+      decision.inputClass === "implied_intention" &&
+      snapshot.kind !== "draft"
+    ) {
+      return snapshot.kind === "permission"
+        ? this.#finish(
+            {
+              action: "rearm_permission",
+              audit,
+              expected,
+              processingResult: "conversation",
+              updateId,
+            },
+            snapshot,
+            conversationCopy.permissionCollision,
+          )
+        : this.#finish(
+            {
+              action: "create_permission",
+              audit,
+              expected,
+              fields: candidateFields(decision),
+              processingResult: "conversation",
+              updateId,
+            },
+            snapshot,
+            conversationCopy.impliedPermission,
+          );
+    }
+
+    // A separate promise while a permission is armed is a collision: the
+    // application will not silently answer one request with another.
+    if (
+      snapshot.kind === "permission" &&
+      decision.turnRelation === "separate_request"
     ) {
       return this.#finish(
         {
-          action: "preserve",
-          audit: this.#audit(decision),
-          expected: snapshot,
+          action: "rearm_permission",
+          audit,
+          expected,
           processingResult: "conversation",
           updateId,
         },
         snapshot,
-        responseText(decision)!,
+        conversationCopy.permissionCollision,
       );
     }
 
+    if (snapshot.kind === "permission") {
+      return this.#acceptPermission(
+        updateId,
+        snapshot,
+        decision,
+        initialPreparation,
+      );
+    }
+
+    // A separate promise starts its own draft rather than overwriting the
+    // focused one. This is the model's judgement; the application only acts on it.
     if (
-      decision.turnRelation !== "new_request" ||
-      !["explicit_commitment", "implied_intention"].includes(
-        decision.inputClass,
-      )
+      snapshot.kind === "draft" &&
+      decision.turnRelation === "separate_request"
     ) {
+      return decision.inputClass === "implied_intention"
+        ? this.#finish(
+            {
+              action: "create_permission",
+              audit,
+              expected,
+              fields: candidateFields(decision),
+              processingResult: "conversation",
+              updateId,
+            },
+            snapshot,
+            conversationCopy.impliedPermission,
+          )
+        : this.#createDraft(
+            updateId,
+            snapshot,
+            decision,
+            "create_separate_draft",
+            "separate_draft_not_draftable",
+            initialPreparation,
+          );
+    }
+
+    if (snapshot.kind === "none") {
+      return this.#createDraft(
+        updateId,
+        snapshot,
+        decision,
+        "create_draft",
+        "no_state_draft_not_draftable",
+        initialPreparation,
+      );
+    }
+
+    return this.#patchDraft(
+      updateId,
+      snapshot,
+      decision,
+      draftTarget,
+      initialPreparation,
+    );
+  }
+
+  /** Answers without touching state, and keeps any pending question alive. */
+  async #answerQuestion(
+    updateId: number,
+    snapshot: ConversationSnapshot,
+    decision: DecisionResult,
+    answer: string | undefined,
+  ): Promise<ConversationReply> {
+    const audit = this.#audit(decision);
+    const expected = expectedSnapshot(snapshot);
+
+    if (snapshot.kind === "permission") {
+      if (decision.turnRelation === "permission_declined") {
+        return this.#finish(
+          {
+            action: "terminate_permission",
+            audit,
+            expected,
+            processingResult: "conversation",
+            updateId,
+          },
+          snapshot,
+          conversationCopy.decline,
+        );
+      }
+      // Only the model can tell an unclear on-topic reply from an unrelated
+      // question, so that judgement is kept. Either way the request stays armed.
+      const unclear =
+        answer === undefined ||
+        decision.turnRelation === "clarification_continuation";
+      return this.#finish(
+        {
+          action: unclear ? "rearm_permission" : "preserve",
+          audit,
+          expected,
+          processingResult: "conversation",
+          updateId,
+        },
+        snapshot,
+        unclear ? conversationCopy.permissionUnclear : answer,
+      );
+    }
+
+    if (answer === undefined) {
       return this.#preserveFailure(
         updateId,
         snapshot,
-        "no_state_relation_invalid",
+        snapshot.kind === "draft"
+          ? "draft_ordinary_response_missing"
+          : "no_state_relation_invalid",
       );
-    }
-
-    const extractedFields = candidateFields(decision);
-    if (decision.inputClass === "implied_intention") {
-      return this.#finish(
-        {
-          action: "create_permission",
-          audit: this.#audit(decision),
-          expected: snapshot,
-          fields: extractedFields,
-          processingResult: "conversation",
-          updateId,
-        },
-        snapshot,
-        conversationCopy.impliedPermission,
-      );
-    }
-
-    const extractedPhase = phaseFor(extractedFields);
-    const fields =
-      extractedPhase === "complete" &&
-        initialPreparation === undefined
-        ? preparationFields(extractedFields)
-        : extractedFields;
-    const phase = phaseFor(fields);
-    if (!draftable(fields) || phase === undefined) {
-      return this.#preserveRejected(
-          updateId,
-          snapshot,
-          decision,
-          "no_state_draft_not_draftable",
-        );
     }
     return this.#finish(
       {
-        action: "create_draft",
+        action: "preserve",
+        audit,
+        expected,
+        processingResult: "conversation",
+        updateId,
+      },
+      snapshot,
+      snapshot.kind === "draft"
+        ? ordinaryWithDraftCopy(answer)
+        : answer,
+    );
+  }
+
+  /**
+   * Promotes an agreed permission candidate into a draft.
+   *
+   * The application's own parked fields are authoritative, so the model's echo of
+   * them is not compared: it merely signalled agreement.
+   */
+  async #acceptPermission(
+    updateId: number,
+    snapshot: PermissionCandidate,
+    decision: DecisionResult,
+    initialPreparation?: InitialWorkSessionConversationInput,
+  ): Promise<ConversationReply> {
+    const phase = phaseFor(snapshot.fields);
+    const fields =
+      phase === "complete" && initialPreparation === undefined
+        ? preparationFields(snapshot.fields)
+        : initialPreparation === undefined
+          ? snapshot.fields
+          : candidateFields(decision);
+    const draftIsAllowed = draftable(fields) && phase !== undefined;
+    if (!draftIsAllowed) {
+      this.#reportConversationFailure(
+        "permission_draft_not_allowed",
+        snapshot,
+      );
+    }
+    return this.#finish(
+      fields.possibleWorkSession
+        ? {
+            action: "accept_work_permission",
+            audit: this.#audit(decision),
+            expected: expectedSnapshot(snapshot),
+            fields,
+            phase: "complete",
+            processingResult: "conversation",
+            updateId,
+          }
+        : {
+            action: "accept_permission",
+            audit: this.#audit(decision),
+            expected: expectedSnapshot(snapshot),
+            processingResult: "conversation",
+            updateId,
+          },
+      snapshot,
+      draftIsAllowed
+        ? collectedReply(phase, fields)
+        : this.#failureCopy(snapshot, "permission_draft_not_allowed"),
+      draftIsAllowed,
+      initialPreparation,
+    );
+  }
+
+  async #createDraft(
+    updateId: number,
+    snapshot: ConversationSnapshot,
+    decision: DecisionResult,
+    action: "create_draft" | "create_separate_draft",
+    site: ConversationFailureSite,
+    initialPreparation?: InitialWorkSessionConversationInput,
+  ): Promise<ConversationReply> {
+    const extracted = candidateFields(decision);
+    const fields =
+      phaseFor(extracted) === "complete" && initialPreparation === undefined
+        ? preparationFields(extracted)
+        : extracted;
+    const phase = phaseFor(fields);
+    if (!draftable(fields) || phase === undefined) {
+      return this.#preserveRejected(updateId, snapshot, decision, site);
+    }
+    return this.#finish(
+      {
+        action,
         audit: this.#audit(decision),
-        expected: snapshot,
+        expected: expectedSnapshot(snapshot),
         fields,
         phase,
         processingResult: "conversation",
@@ -899,304 +1079,44 @@ export class ConversationService {
     );
   }
 
-  async #withPermission(
-    updateId: number,
-    snapshot: PermissionCandidate,
-    decision: DecisionResult,
-    initialPreparation?: InitialWorkSessionConversationInput,
-  ): Promise<ConversationReply> {
-    switch (decision.turnRelation) {
-      case "permission_accepted": {
-        const accepted =
-          decision.inputClass === "explicit_commitment" &&
-          this.#sameCandidate(snapshot.fields, candidateFields(decision));
-        if (!accepted) {
-          return this.#preserveFailure(
-            updateId,
-            snapshot,
-            "permission_candidate_mismatch",
-          );
-        }
-        const phase = phaseFor(snapshot.fields);
-        const fields =
-          phase === "complete" &&
-            initialPreparation === undefined
-            ? preparationFields(snapshot.fields)
-            : initialPreparation === undefined
-              ? snapshot.fields
-              : candidateFields(decision);
-        const draftIsAllowed =
-          draftable(fields) && phase !== undefined;
-        if (!draftIsAllowed) {
-          this.#reportConversationFailure(
-            "permission_draft_not_allowed",
-            snapshot,
-          );
-        }
-        const command: ConversationCommand =
-          fields.possibleWorkSession
-            ? {
-                action: "accept_work_permission",
-                audit: this.#audit(decision),
-                expected: expectedSnapshot(snapshot),
-                fields,
-                phase: "complete",
-                processingResult: "conversation",
-                updateId,
-              }
-            : {
-                action: "accept_permission",
-                audit: this.#audit(decision),
-                expected: expectedSnapshot(snapshot),
-                processingResult: "conversation",
-                updateId,
-              };
-        return this.#finish(
-          command,
-          snapshot,
-          draftIsAllowed
-            ? collectedReply(phase, fields)
-            : this.#failureCopy(snapshot, "permission_draft_not_allowed"),
-          draftIsAllowed,
-          initialPreparation,
-        );
-      }
-      case "permission_declined":
-        if (decision.inputClass !== "ordinary_question") {
-          return this.#preserveFailure(
-            updateId,
-            snapshot,
-            "permission_decline_class_invalid",
-          );
-        }
-        return this.#finish(
-          {
-            action: "terminate_permission",
-            audit: this.#audit(decision),
-            expected: expectedSnapshot(snapshot),
-            processingResult: "conversation",
-            updateId,
-          },
-          snapshot,
-          conversationCopy.decline,
-        );
-      case "clarification_continuation":
-        if (decision.inputClass !== "ordinary_question") {
-          return this.#preserveFailure(
-            updateId,
-            snapshot,
-            "permission_clarification_class_invalid",
-          );
-        }
-        return this.#finish(
-          {
-            action: "rearm_permission",
-            audit: this.#audit(decision),
-            expected: expectedSnapshot(snapshot),
-            processingResult: "conversation",
-            updateId,
-          },
-          snapshot,
-          conversationCopy.permissionUnclear,
-        );
-      case "none":
-        if (
-          decision.inputClass !== "ordinary_question" ||
-          !responseText(decision)
-        ) {
-          return this.#preserveFailure(
-            updateId,
-            snapshot,
-            "permission_ordinary_response_missing",
-          );
-        }
-        return this.#finish(
-          {
-            action: "preserve",
-            audit: this.#audit(decision),
-            expected: expectedSnapshot(snapshot),
-            processingResult: "conversation",
-            updateId,
-          },
-          snapshot,
-          responseText(decision)!,
-        );
-      case "separate_request":
-        return this.#finish(
-          {
-            action: "rearm_permission",
-            audit: this.#audit(decision),
-            expected: expectedSnapshot(snapshot),
-            processingResult: "conversation",
-            updateId,
-          },
-          snapshot,
-          conversationCopy.permissionCollision,
-        );
-      case "correction":
-      case "new_request":
-        return this.#preserveFailure(
-          updateId,
-          snapshot,
-          "permission_relation_unsupported",
-        );
-    }
-  }
-
-  async #withDraft(
+  async #patchDraft(
     updateId: number,
     snapshot: ActiveDraft,
     decision: DecisionResult,
-    draftTarget?: DecisionDraftTarget,
+    draftTarget: DecisionDraftTarget | undefined,
     initialPreparation?: InitialWorkSessionConversationInput,
   ): Promise<ConversationReply> {
-    if (decision.turnRelation === "none") {
-      if (
-        decision.inputClass !== "ordinary_question" ||
-        !responseText(decision)
-      ) {
-        return this.#preserveFailure(
-          updateId,
-          snapshot,
-          "draft_ordinary_response_missing",
-        );
-      }
-      return this.#finish(
-        {
-          action: "preserve",
-          audit: this.#audit(decision),
-          expected: expectedSnapshot(snapshot),
-          processingResult: "conversation",
-          updateId,
-        },
-        snapshot,
-        ordinaryWithDraftCopy(responseText(decision)!),
-      );
-    }
-
-    if (decision.turnRelation === "separate_request") {
-      if (
-        !["explicit_commitment", "implied_intention"].includes(
-          decision.inputClass,
-        ) ||
-        draftTarget === undefined ||
-        draftTarget.authority.id !== snapshot.id ||
-        draftTarget.authority.expectedVersion !== snapshot.version
-      ) {
-        return this.#preserveFailure(
-          updateId,
-          snapshot,
-          "separate_request_authority_mismatch",
-        );
-      }
-      const extractedFields = candidateFields(decision);
-      if (decision.inputClass === "implied_intention") {
-        return this.#finish(
-          {
-            action: "create_permission",
-            audit: this.#audit(decision),
-            expected: expectedSnapshot(snapshot),
-            fields: extractedFields,
-            processingResult: "conversation",
-            updateId,
-          },
-          snapshot,
-          conversationCopy.impliedPermission,
-        );
-      }
-      const extractedPhase = phaseFor(extractedFields);
-      const fields =
-        extractedPhase === "complete" &&
-          initialPreparation === undefined
-          ? preparationFields(extractedFields)
-          : extractedFields;
-      const phase = phaseFor(fields);
-      if (!draftable(fields) || phase === undefined) {
-        return this.#preserveRejected(
-          updateId,
-          snapshot,
-          decision,
-          "separate_draft_not_draftable",
-        );
-      }
-      return this.#finish(
-        {
-          action: "create_separate_draft",
-          audit: this.#audit(decision),
-          expected: expectedSnapshot(snapshot),
-          fields,
-          phase,
-          processingResult: "conversation",
-          updateId,
-        },
-        snapshot,
-        collectedReply(phase, fields),
-        false,
-        initialPreparation,
-      );
-    }
-
-    // `implied_intention` is accepted here alongside `explicit_commitment`. The
-    // owner is answering a question the application asked about an open draft, so
-    // how firmly they phrased it is not a safety property: the relation is derived
-    // from what the merge changed, and nothing is saved without confirmation.
-    // Rejecting a bare "tomorrow at 3pm" because the model read it as an
-    // intention rather than a commitment lost the answer entirely.
-    if (
-      !["clarification_continuation", "correction"].includes(
-        decision.turnRelation,
-      ) ||
-      decision.inputClass === "ordinary_question"
-    ) {
-      return this.#preserveFailure(
-        updateId,
-        snapshot,
-        "draft_relation_unsupported",
-      );
-    }
-
-    if (draftTarget === undefined) {
-      return this.#preserveFailure(
-        updateId,
-        snapshot,
-        "draft_target_missing",
-      );
-    }
-    const selectedSnapshot: ActiveDraft = {
-      expiresAt: snapshot.expiresAt,
-      fields: draftTarget.fields,
-      id: draftTarget.authority.id,
-      kind: "draft",
-      phase: draftTarget.phase,
-      version: draftTarget.authority.expectedVersion,
+    // Without an explicit target the focused draft is the target. Failing the
+    // turn for a missing target used to discard an answer the application could
+    // place perfectly well.
+    const target = draftTarget?.authority ?? {
+      expectedVersion: snapshot.version,
+      id: snapshot.id,
+      kind: "draft" as const,
     };
-    if (
-      decision.turnRelation === "clarification_continuation" &&
-      selectedSnapshot.phase === "complete"
-    ) {
-      return this.#preserveFailure(
-        updateId,
-        snapshot,
-        "clarification_against_complete_draft",
-      );
-    }
-    const extractedFields = candidateFields(decision);
-    const extractedPhase = phaseFor(extractedFields);
+    const selected: ActiveDraft = {
+      expiresAt: snapshot.expiresAt,
+      fields: draftTarget?.fields ?? snapshot.fields,
+      id: target.id,
+      kind: "draft",
+      phase: draftTarget?.phase ?? snapshot.phase,
+      version: target.expectedVersion,
+    };
+
+    const extracted = candidateFields(decision);
+    const extractedPhase = phaseFor(extracted);
     const fields =
-      selectedSnapshot.phase === "complete" &&
-        extractedPhase === "complete"
-        ? retainCommitmentMode(extractedFields, selectedSnapshot.fields)
-        : selectedSnapshot.phase !== "complete" &&
+      selected.phase === "complete" && extractedPhase === "complete"
+        ? retainCommitmentMode(extracted, selected.fields)
+        : selected.phase !== "complete" &&
             extractedPhase === "complete" &&
             initialPreparation === undefined
-        ? preparationFields(extractedFields)
-        : extractedFields;
+          ? preparationFields(extracted)
+          : extracted;
     const phase = phaseFor(fields);
-    if (
-      selectedSnapshot.phase === "complete" &&
-      decision.turnRelation === "correction" &&
-      phase !== "complete"
-    ) {
+
+    // A correction that empties a core field leaves the promise as it was.
+    if (selected.phase === "complete" && phase !== "complete") {
       return this.#finish(
         {
           action: "preserve",
@@ -1207,21 +1127,20 @@ export class ConversationService {
         },
         snapshot,
         confirmationSummary(
-          selectedSnapshot.fields,
-          selectedSnapshot,
+          selected.fields,
+          selected,
           confirmationCopy.correctionIncomplete,
         ),
       );
     }
     if (!draftable(fields) || phase === undefined) {
       return this.#preserveRejected(
-          updateId,
-          snapshot,
-          decision,
-          "patched_draft_not_draftable",
-        );
+        updateId,
+        snapshot,
+        decision,
+        "patched_draft_not_draftable",
+      );
     }
-
     return this.#finishPatch(
       {
         audit: this.#audit(decision),
@@ -1233,10 +1152,10 @@ export class ConversationService {
         fields,
         phase,
         processingResult: "conversation",
-        target: draftTarget.authority,
+        target,
         updateId,
       },
-      selectedSnapshot,
+      selected,
       decision.turnRelation === "correction"
         ? phase === "complete"
           ? collectedReply(phase, fields, confirmationCopy.updated)
@@ -1245,6 +1164,7 @@ export class ConversationService {
       initialPreparation,
     );
   }
+
 
   #reportEngineFailure(error: unknown): void {
     try {
