@@ -266,6 +266,8 @@ export type AgentRuntimeOptions = Readonly<{
     request: SanitizedAvailabilityRequest,
   ) => Promise<readonly SanitizedAvailabilitySlot[]>;
   onRuntimeFailure?: (event: AgentRuntimeFailureEvent) => void;
+  /** Reasoning effort for the agent model. Defaults to the provider default. */
+  reasoningEffort?: "high" | "low" | "medium" | "minimal" | "none";
   /**
    * Instruction templates resolved at boot. Defaults to the in-code
    * fallbacks so the runtime works with Langfuse absent.
@@ -1816,6 +1818,13 @@ export function createAgentRuntime(
       ),
       model: options.model,
       modelSettings: {
+        // Shiori's turn is Singapore-timezone date arithmetic, a three-way
+        // classification, and deciding which draft fields changed. Deliberation
+        // measurably helps, and leaving it at the provider default made the
+        // amount of thinking invisible and untunable.
+        ...(options.reasoningEffort === undefined
+          ? {}
+          : { reasoning: { effort: options.reasoningEffort } }),
         store: false,
       },
       name: "Shiori bounded decision",

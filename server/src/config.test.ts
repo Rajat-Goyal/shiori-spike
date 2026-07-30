@@ -139,6 +139,26 @@ describe("readServerConfig", () => {
     }
   });
 
+  it("defaults reasoning effort to medium and validates an override", () => {
+    expect(
+      readServerConfig(validEnvironment).openaiReasoningEffort,
+    ).toBe("medium");
+    for (const effort of ["low", "HIGH", " minimal "]) {
+      expect(
+        readServerConfig({
+          ...validEnvironment,
+          OPENAI_REASONING_EFFORT: effort,
+        }).openaiReasoningEffort,
+      ).toBe(effort.trim().toLowerCase());
+    }
+    expect(() =>
+      readServerConfig({
+        ...validEnvironment,
+        OPENAI_REASONING_EFFORT: "extreme",
+      }),
+    ).toThrow(/OPENAI_REASONING_EFFORT/);
+  });
+
   it("allows HTTP only for a loopback Supabase URL", () => {
     expect(readServerConfig(validEnvironment).supabaseUrl).toBe(
       "http://127.0.0.1:54321",

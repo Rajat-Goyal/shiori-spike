@@ -214,6 +214,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     onRuntimeFailure: (event) => {
       app.log.error(event);
     },
+    reasoningEffort: options.config.openaiReasoningEffort,
     tracingEnabled: options.tracingEnabled === true,
     ...(options.prompts === undefined ? {} : { prompts: options.prompts }),
     executeCommitment: async (authority, proposal) =>

@@ -24,6 +24,12 @@ export type ServerConfig = Readonly<{
   googleTokenKeyVersion: number;
   openaiApiKey: string;
   openaiModel: string;
+  /**
+   * Reasoning effort for the conversation agent. Shiori's work is date
+   * arithmetic in a fixed timezone, three-way classification, and deciding which
+   * fields changed, all of which benefit from deliberation.
+   */
+  openaiReasoningEffort: "high" | "low" | "medium" | "minimal" | "none";
   openaiPromptVersion: string;
   ownerTimeZone: "Asia/Singapore";
   publicAppBaseUrl: string;
@@ -137,6 +143,32 @@ function optionalLangfuse(
     secretKey,
     ...(baseUrl === undefined ? {} : { baseUrl }),
   };
+}
+
+const REASONING_EFFORTS = [
+  "high",
+  "low",
+  "medium",
+  "minimal",
+  "none",
+] as const;
+
+function optionalReasoningEffort(
+  environment: NodeJS.ProcessEnv,
+): ServerConfig["openaiReasoningEffort"] {
+  const value = optionalValue(environment, "OPENAI_REASONING_EFFORT");
+  if (value === undefined) {
+    return "medium";
+  }
+  const normalized = value.toLowerCase();
+  if (
+    !(REASONING_EFFORTS as readonly string[]).includes(normalized)
+  ) {
+    throw new Error(
+      `Invalid server configuration: OPENAI_REASONING_EFFORT must be one of ${REASONING_EFFORTS.join(", ")}`,
+    );
+  }
+  return normalized as ServerConfig["openaiReasoningEffort"];
 }
 
 function required(environment: NodeJS.ProcessEnv, key: string): string {
@@ -346,6 +378,7 @@ export function readServerConfig(
       "CONVERSATION_FAILURE_CODES",
     ),
     dashboardPasswordHash,
+    openaiReasoningEffort: optionalReasoningEffort(environment),
     ...(langfuse === undefined ? {} : { langfuse }),
     dashboardSessionSecret: sessionSecret(dashboardSessionSecret),
     googleOAuthClientId: boundedIdentifier(
