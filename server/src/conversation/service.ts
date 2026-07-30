@@ -31,6 +31,7 @@ import {
   type ConversationPhase,
   type ConversationRepository,
   type ConversationSnapshot,
+  type ConversationTurnFailureRecord,
   type DecisionAudit,
   type PermissionCandidate,
   type PatchFocusedDraftCommand,
@@ -414,6 +415,8 @@ export class ConversationService {
   readonly #promptVersion: string;
   readonly #repository: ConversationServiceOptions["repository"];
   readonly #statusService: ConversationServiceOptions["statusService"];
+  #pendingFailureRecords: Promise<void>[] = [];
+  #turnUpdateId = 0;
   readonly #workSessionConversation:
     | ConversationServiceOptions["workSessionConversation"]
     | undefined;
@@ -435,6 +438,24 @@ export class ConversationService {
   }
 
   async handle(
+    updateId: number,
+    ownerText: string,
+  ): Promise<ConversationHandleReply> {
+    this.#turnUpdateId = updateId;
+    this.#pendingFailureRecords = [];
+    try {
+      return await this.#handleTurn(updateId, ownerText);
+    } finally {
+      // Diagnostic writes are started as each failure is reported and settled
+      // here, so a turn never returns before its own trace is durable. Each
+      // write already swallows its own errors.
+      const pending = this.#pendingFailureRecords;
+      this.#pendingFailureRecords = [];
+      await Promise.all(pending);
+    }
+  }
+
+  async #handleTurn(
     updateId: number,
     ownerText: string,
   ): Promise<ConversationHandleReply> {
@@ -500,6 +521,15 @@ export class ConversationService {
       } catch {
         // Operational logging must never change the fail-closed response.
       }
+      this.#recordTurnFailure({
+        attemptCount: outcome.attemptCount,
+        ...(snapshot.kind === "draft" ? { phase: snapshot.phase } : {}),
+        reason: outcome.reason,
+        site: "decision_failure",
+        snapshotKind: snapshot.kind,
+        source: "decision",
+        updateId,
+      });
       const targetedCopy = targetFailureCopy(snapshot, outcome);
       if (targetedCopy) {
         return this.#finish(
@@ -1210,15 +1240,30 @@ export class ConversationService {
     site: ConversationFailureSite,
     snapshot: ConversationSnapshot,
   ): void {
+    const phase = snapshot.kind === "draft" ? snapshot.phase : undefined;
     try {
       this.#onConversationFailure?.({
         event: "conversation_failure",
-        ...(snapshot.kind === "draft" ? { phase: snapshot.phase } : {}),
+        ...(phase ? { phase } : {}),
         site,
         snapshotKind: snapshot.kind,
       });
     } catch {
       // Operational logging must never change the fail-closed response.
+    }
+    this.#recordTurnFailure({
+      ...(phase ? { phase } : {}),
+      site,
+      snapshotKind: snapshot.kind,
+      source: "application",
+      updateId: this.#turnUpdateId,
+    });
+  }
+
+  #recordTurnFailure(record: ConversationTurnFailureRecord): void {
+    const write = this.#repository.recordTurnFailure?.(record);
+    if (write !== undefined) {
+      this.#pendingFailureRecords.push(write);
     }
   }
 

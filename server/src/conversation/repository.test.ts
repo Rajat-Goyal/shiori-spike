@@ -624,6 +624,82 @@ describe("SupabaseConversationRepository", () => {
     });
   });
 
+  it("records a turn failure as reason codes and turn shape only", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({ recorded: true })
+    );
+
+    await expect(
+      repositoryWith(fetchFromSupabase as typeof fetch).recordTurnFailure({
+        phase: "awaiting_target",
+        site: "draft_ordinary_response_missing",
+        snapshotKind: "draft",
+        source: "application",
+        updateId: 9020,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(fetchFromSupabase.mock.calls[0][0]).toBe(
+      "http://127.0.0.1:54321/rest/v1/rpc/record_conversation_turn_failure",
+    );
+    const body = JSON.parse(
+      String(fetchFromSupabase.mock.calls[0][1]?.body),
+    );
+    expect(body).toEqual({
+      p_attempt_count: null,
+      p_phase: "awaiting_target",
+      p_reason: null,
+      p_site: "draft_ordinary_response_missing",
+      p_snapshot_kind: "draft",
+      p_source: "application",
+      p_update_id: 9020,
+    });
+  });
+
+  it("carries the decision reason and attempt count when present", async () => {
+    const fetchFromSupabase = vi.fn(async () =>
+      Response.json({ recorded: true })
+    );
+
+    await repositoryWith(fetchFromSupabase as typeof fetch)
+      .recordTurnFailure({
+        attemptCount: 2,
+        reason: "clarification_context_mutation",
+        site: "decision_failure",
+        snapshotKind: "none",
+        source: "decision",
+        updateId: 9021,
+      });
+
+    expect(
+      JSON.parse(String(fetchFromSupabase.mock.calls[0][1]?.body)),
+    ).toMatchObject({
+      p_attempt_count: 2,
+      p_phase: null,
+      p_reason: "clarification_context_mutation",
+      p_source: "decision",
+    });
+  });
+
+  it("swallows a rejected turn-failure recording", async () => {
+    // A diagnostic write must never be able to fail an owner turn.
+    for (const fetchFromSupabase of [
+      vi.fn(async () => new Response("nope", { status: 500 })),
+      vi.fn(async () => {
+        throw new Error("network unavailable");
+      }),
+    ]) {
+      await expect(
+        repositoryWith(fetchFromSupabase as typeof fetch).recordTurnFailure({
+          site: "apply_stale",
+          snapshotKind: "none",
+          source: "application",
+          updateId: 9022,
+        }),
+      ).resolves.toBeUndefined();
+    }
+  });
+
   it("lists bounded drafts with an opaque, nonduplicating cursor", async () => {
     const fetchFromSupabase = vi
       .fn()

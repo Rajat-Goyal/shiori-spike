@@ -197,8 +197,26 @@ export interface ConversationRepository {
     draftReference: Readonly<{ id: string; version: number }> | null;
     updateId: number;
   }>): Promise<void>;
+  recordTurnFailure?(
+    command: ConversationTurnFailureRecord,
+  ): Promise<void>;
   readTurn(updateId: number): Promise<ConversationReadResult>;
 }
+
+/**
+ * A durable diagnostic row explaining why a turn returned the fail-closed copy.
+ * Reason codes and turn shape only: never owner text, draft fields, or model
+ * output.
+ */
+export type ConversationTurnFailureRecord = Readonly<{
+  attemptCount?: number;
+  phase?: ConversationPhase;
+  reason?: string;
+  site: string;
+  snapshotKind: ConversationSnapshot["kind"];
+  source: "application" | "decision";
+  updateId: number;
+}>;
 
 export interface ConversationDraftRepository
   extends ConversationRepository {
@@ -737,6 +755,29 @@ export class SupabaseConversationRepository
       !["applied", "replay"].includes(String(result.kind))
     ) {
       throw new Error("Conversation decision record failed");
+    }
+  }
+
+  /**
+   * Best effort by contract. A diagnostic write must never fail, delay, or roll
+   * back an owner turn, so a rejected recording is swallowed here and the
+   * operational log line remains the fallback signal.
+   */
+  async recordTurnFailure(
+    command: ConversationTurnFailureRecord,
+  ): Promise<void> {
+    try {
+      await this.#rpc("record_conversation_turn_failure", {
+        p_attempt_count: command.attemptCount ?? null,
+        p_phase: command.phase ?? null,
+        p_reason: command.reason ?? null,
+        p_site: command.site,
+        p_snapshot_kind: command.snapshotKind,
+        p_source: command.source,
+        p_update_id: command.updateId,
+      });
+    } catch {
+      // Intentionally swallowed: see the contract note above.
     }
   }
 

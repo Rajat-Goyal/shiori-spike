@@ -2711,6 +2711,96 @@ describe("ConversationService failure attribution", () => {
     );
   });
 
+  it("settles the durable failure record before the reply returns", async () => {
+    const records: unknown[] = [];
+    let releaseWrite = () => {};
+    const pendingWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    const repository = new ControlledRepository({
+      completed: true,
+      kind: "none",
+    });
+    const recordTurnFailure = vi.fn(async (record: unknown) => {
+      records.push(record);
+      await pendingWrite;
+    });
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => success(ordinary("", "new_request"))),
+      },
+      modelId: "gpt-test-model",
+      promptVersion: "shiori-test-v1",
+      repository: Object.assign(repository, { recordTurnFailure }),
+    });
+
+    let settled = false;
+    const handled = service
+      .handle(8010, "owner input")
+      .then((reply) => {
+        settled = true;
+        return reply;
+      });
+    // Drain every pending microtask and I/O callback. Without the flush in
+    // handle() the reply would already be settled here, with the diagnostic
+    // write still in flight and free to be lost on shutdown.
+    for (let tick = 0; tick < 5; tick += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(records).toHaveLength(1);
+    expect(settled).toBe(false);
+
+    releaseWrite();
+    await expect(handled).resolves.toBe(conversationCopy.failureNoDraft);
+    expect(records).toEqual([
+      {
+        site: "no_state_relation_invalid",
+        snapshotKind: "none",
+        source: "application",
+        updateId: 8010,
+      },
+    ]);
+  });
+
+  it("records the decision reason for a bounded engine failure", async () => {
+    const records: Array<Record<string, unknown>> = [];
+    const repository = new ControlledRepository(
+      activeDraft("awaiting_target", targetMissingFields),
+    );
+    const service = new ConversationService({
+      decisionEngine: {
+        decide: vi.fn(async () => ({
+          attemptCount: 2 as const,
+          failure: "semantic" as const,
+          ok: false as const,
+          reason: "clarification_context_mutation" as const,
+          stage: "semantic" as const,
+        })),
+      },
+      modelId: "gpt-test-model",
+      promptVersion: "shiori-test-v1",
+      repository: Object.assign(repository, {
+        recordTurnFailure: vi.fn(async (record: Record<string, unknown>) => {
+          records.push(record);
+        }),
+      }),
+    });
+
+    await service.handle(8011, "owner input");
+
+    expect(records).toEqual([
+      {
+        attemptCount: 2,
+        phase: "awaiting_target",
+        reason: "clarification_context_mutation",
+        site: "decision_failure",
+        snapshotKind: "draft",
+        source: "decision",
+        updateId: 8011,
+      },
+    ]);
+  });
+
   it("never puts owner text in a failure event", async () => {
     const sensitiveText = "private-owner-text-should-never-leak";
     const test = controlled(
