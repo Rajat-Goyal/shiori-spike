@@ -1135,11 +1135,17 @@ export class ConversationService {
       );
     }
 
+    // `implied_intention` is accepted here alongside `explicit_commitment`. The
+    // owner is answering a question the application asked about an open draft, so
+    // how firmly they phrased it is not a safety property: the relation is derived
+    // from what the merge changed, and nothing is saved without confirmation.
+    // Rejecting a bare "tomorrow at 3pm" because the model read it as an
+    // intention rather than a commitment lost the answer entirely.
     if (
       !["clarification_continuation", "correction"].includes(
         decision.turnRelation,
       ) ||
-      decision.inputClass !== "explicit_commitment"
+      decision.inputClass === "ordinary_question"
     ) {
       return this.#preserveFailure(
         updateId,

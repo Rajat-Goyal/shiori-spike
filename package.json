@@ -34,7 +34,8 @@
     "verify:release": "node scripts/verify-release.mjs",
     "test:langfuse:smoke": "npm run smoke:langfuse --workspace @shiori/server",
     "seed:langfuse:prompts": "tsx --env-file-if-exists=.env.local scripts/seed-langfuse-prompts.mjs",
-    "check:langfuse:prompts": "tsx --env-file-if-exists=.env.local scripts/seed-langfuse-prompts.mjs --check"
+    "check:langfuse:prompts": "tsx --env-file-if-exists=.env.local scripts/seed-langfuse-prompts.mjs --check",
+    "test:conformance": "npm run smoke:conformance --workspace @shiori/server"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.1",

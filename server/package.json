@@ -12,7 +12,8 @@
     "start": "node --env-file-if-exists=../.env.local dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "smoke:langfuse": "tsx --env-file-if-exists=../.env.local test/langfuse-tracing.smoke.ts"
+    "smoke:langfuse": "tsx --env-file-if-exists=../.env.local test/langfuse-tracing.smoke.ts",
+    "smoke:conformance": "tsx --env-file-if-exists=../.env.local test/conversation-conformance.smoke.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.2",

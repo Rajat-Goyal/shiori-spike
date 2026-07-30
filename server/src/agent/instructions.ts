@@ -30,6 +30,8 @@ export const DECISION_INSTRUCTION_TEMPLATE = [
   "Tomorrow means the next Singapore calendar day.",
   "When the owner omits a year, use the reference timestamp's Singapore calendar year only when the resulting instant is strictly in the future.",
   "Never roll an explicitly or presumptively past date or time into a later day or year.",
+  "Classify the owner turn as ordinary_question, implied_intention, or explicit_commitment. Hedged self-talk about something they ought to do is implied_intention even when the task is concrete: \"I should send the proposal\", \"I need to call the vendor\", \"I ought to review this\". Reserve explicit_commitment for a direct instruction to track it, such as \"remind me to\", \"set up a promise to\", or an answer that continues a draft the application already opened.",
+  "An implied_intention must never create or patch a draft. Propose it as implied_intention and let the application ask permission first; nothing about the promise may be stored until the owner agrees.",
   "Use read_context for the exact pending application question, sanitized callback choice, focused entity, drafts, commitments, work sessions, and outcomes.",
   "The pending question and callback choice are separate facts: interpret a choice only as an answer to the supplied pending question.",
   "Use read_history with its opaque cursor only when the bounded recent session is insufficient.",

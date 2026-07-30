@@ -686,6 +686,44 @@ function expectedDraftAuthority(
     : null;
 }
 
+/**
+ * Decision for a preparation answer that arrived on its own.
+ *
+ * `propose_initial_preparation` used to be valid only alongside a
+ * `propose_draft_update` in the same run. When the model answered the
+ * application's own preparation question with just the preparation tool, the run
+ * ended with no proposal and the turn was reported as missing_output — the
+ * owner's answer was simply dropped. The draft is already complete and
+ * authoritative, so the decision is derived from it.
+ */
+function initialPreparationDecision(
+  input: DecisionInput | null,
+): DecisionResult | null {
+  const fields = input?.context.fields;
+  if (
+    input?.context.phase !== "complete" ||
+    fields == null ||
+    fields.definitionOfDone === null ||
+    fields.targetAt === null
+  ) {
+    return null;
+  }
+  return {
+    commitmentMode: "possible_work_session",
+    definitionOfDone: fields.definitionOfDone,
+    durationMinutes: fields.durationMinutes,
+    inputClass: "explicit_commitment",
+    missingFields: [],
+    nextAction: "offer_work_window",
+    offerWorkWindowHelp: false,
+    response: "",
+    targetAt: fields.targetAt,
+    targetTimeZone: "Asia/Singapore",
+    timingConstraints: fields.timingConstraints,
+    turnRelation: "correction",
+  };
+}
+
 function workSessionDecision(
   input: DecisionInput | null,
 ): DecisionResult | null {
@@ -731,6 +769,16 @@ function continuationDecision(): DecisionResult {
     turnRelation: "none",
   };
 }
+
+/**
+ * Application-owned question for a preparation window the owner phrased
+ * naturally. Model prose never owns a workflow question.
+ */
+const preparationDurationQuestion =
+  "How long do you need for that preparation? Anything from 15 minutes to a few hours works.";
+
+const preparationWindowQuestion =
+  "When would you like to do that preparation? A day and a time range works best.";
 
 function explicitlySupportsInitialPreparation(
   ownerText: string | undefined,
@@ -1164,69 +1212,93 @@ function buildTools(
           draft.preparation === null ||
           draft.preparation === undefined,
       ),
-    execute: (value) => {
-      const normalizedTiming =
-        value.timingConstraints === null
-          ? null
-          : normalizeTimingConstraints(value.timingConstraints, []);
-      const startMillis =
-        value.startAt === null ? null : Date.parse(value.startAt);
-      const exactStart =
-        value.startAt === null ||
-        (
-          /^\d{4}-\d{2}-\d{2}T\d{2}:(?:00|30):00\+08:00$/.test(
-            value.startAt,
-          ) &&
-          Number.isFinite(startMillis) &&
-          startMillis! > now.getTime()
-        );
-      const followUpMatches =
-        value.nextInput === null
-          ? value.followUpQuestion === null
-          : value.followUpQuestion !== null &&
-            value.followUpQuestion.endsWith("?");
-      const noPreparation =
-        !value.preparationRequired &&
-        value.durationMinutes === null &&
-        value.startAt === null &&
-        value.timingConstraints === null &&
-        value.nextInput === null;
-      const preparation =
-        value.preparationRequired &&
-        exactStart &&
-        followUpMatches &&
-        !(value.startAt !== null && value.timingConstraints !== null) &&
-        (
-          normalizedTiming === null ||
-          normalizedTiming.status === "ok"
-        ) &&
-        (
-          value.durationMinutes === null
-            ? value.startAt === null &&
-              value.nextInput === "duration"
-            : value.startAt !== null ||
-                value.timingConstraints !== null
-              ? value.nextInput === null
-              : value.nextInput === "owner_time" ||
-                value.nextInput === "timing_constraints"
-        );
+    execute: (rawValue) => {
+      // Coerce rather than reject.
+      //
+      // This tool previously required the whole proposal to satisfy a multi-part
+      // shape rule — an exact 30-minute future start, a canonical day/window
+      // constraint, and a nextInput/followUpQuestion pair consistent with both —
+      // and any mismatch discarded the owner's preparation answer entirely. The
+      // application owns the availability search and the follow-up copy, so
+      // anything it cannot use is dropped and asked for instead.
+      //
+      // The one judgement still enforced is that preparation is never invented:
+      // the owner's own words must support it.
       if (
-        (!noPreparation && !preparation) ||
-        normalizedTiming?.status === "invalid" ||
         !explicitlySupportsInitialPreparation(
           context.input?.ownerText,
-          value,
+          rawValue,
         )
       ) {
         context.lastSemanticFailure = "input_invalid";
         return rejected("input_invalid");
       }
+
+      if (!rawValue.preparationRequired) {
+        context.initialWorkSessionInput = {
+          durationMinutes: null,
+          followUpQuestion: null,
+          nextInput: null,
+          preparationRequired: false,
+          startAt: null,
+          timingConstraints: null,
+        };
+        context.lastSemanticFailure = undefined;
+        return { accepted: true };
+      }
+
+      const durationMinutes =
+        rawValue.durationMinutes !== null &&
+        Number.isSafeInteger(rawValue.durationMinutes) &&
+        rawValue.durationMinutes >= MIN_WORK_SESSION_DURATION_MINUTES &&
+        rawValue.durationMinutes <= MAX_WORK_SESSION_DURATION_MINUTES
+          ? rawValue.durationMinutes
+          : null;
+
+      const startMillis =
+        rawValue.startAt === null ? null : Date.parse(rawValue.startAt);
+      const startAt =
+        rawValue.startAt !== null &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:(?:00|30):00\+08:00$/.test(
+          rawValue.startAt,
+        ) &&
+        Number.isFinite(startMillis) &&
+        startMillis! > now.getTime()
+          ? rawValue.startAt
+          : null;
+
+      const normalizedTiming =
+        rawValue.timingConstraints === null
+          ? null
+          : normalizeTimingConstraints(rawValue.timingConstraints, []);
+      // An owner's natural window ("before lunch") does not parse into the
+      // canonical day/window format; ask for it rather than losing the turn.
+      const timingConstraints =
+        normalizedTiming?.status === "ok"
+          ? normalizedTiming.canonical
+          : null;
+
+      const nextInput =
+        durationMinutes === null
+          ? "duration"
+          : startAt === null && timingConstraints === null
+            ? "timing_constraints"
+            : null;
+
       context.initialWorkSessionInput = {
-        ...value,
-        timingConstraints:
-          normalizedTiming?.status === "ok"
-            ? normalizedTiming.canonical
-            : null,
+        durationMinutes,
+        followUpQuestion:
+          nextInput === null
+            ? null
+            : nextInput === "duration"
+              ? preparationDurationQuestion
+              : preparationWindowQuestion,
+        nextInput,
+        preparationRequired: true,
+        // A start and a constraint are mutually exclusive downstream: an exact
+        // owner-chosen time supersedes a window.
+        startAt,
+        timingConstraints: startAt === null ? timingConstraints : null,
       };
       context.lastSemanticFailure = undefined;
       return { accepted: true };
@@ -1616,6 +1688,21 @@ function resultFromRunner(
         ok: true,
       },
     };
+  }
+  if (
+    context.initialWorkSessionInput !== undefined &&
+    context.proposal === undefined
+  ) {
+    const decision = initialPreparationDecision(context.input);
+    return decision === null
+      ? { outcome: fail("semantic", "input_invalid") }
+      : {
+          outcome: {
+            decision,
+            initialWorkSessionInput: context.initialWorkSessionInput,
+            ok: true,
+          },
+        };
   }
   if (context.proposal !== undefined) {
     return {
