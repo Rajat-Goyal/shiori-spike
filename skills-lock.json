@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "langfuse": {
+      "source": "langfuse/skills",
+      "sourceType": "github",
+      "skillPath": "skills/langfuse/SKILL.md",
+      "computedHash": "cc4e1ca6858c43b46e13b67aacf919db854db5e71260e509557609a6308af902"
+    },
     "use-railway": {
       "source": "railwayapp/railway-skills",
       "sourceType": "github",
