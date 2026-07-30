@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { readServerConfig } from "../src/config.js";
@@ -42,6 +43,27 @@ function futureTarget(hours = 48): string {
     Date.now() + hours * 60 * 60 * 1_000 + 8 * 60 * 60 * 1_000,
   );
   return `${singapore.toISOString().slice(0, 19)}+08:00`;
+}
+
+function localSql(statement: string): void {
+  execFileSync(
+    "docker",
+    [
+      "exec",
+      process.env.SHIORI_TEST_SUPABASE_DB_CONTAINER ??
+        "supabase_db_shiori-spike",
+      "psql",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-U",
+      "supabase_admin",
+      "-d",
+      "postgres",
+      "-c",
+      statement,
+    ],
+    { stdio: "pipe" },
+  );
 }
 
 function audit(
@@ -353,5 +375,331 @@ describe("local Supabase conversation controls", () => {
         "commitments",
       ),
     ).toHaveLength(confirmedBefore.length);
+  });
+
+  it("restores linked focus when permission expires during read or resolution", async () => {
+    const config = localConfig();
+    const conversation = new SupabaseConversationRepository({
+      supabaseSecretKey: config.supabaseSecretKey,
+      supabaseUrl: config.supabaseUrl,
+    });
+    const telegram = new SupabaseTelegramRepository({
+      supabaseSecretKey: config.supabaseSecretKey,
+      supabaseUrl: config.supabaseUrl,
+    });
+    let updateId = 9_800_000_000 + randomInt(100_000_000);
+    const oldFields: DecisionContextFields = {
+      definitionOfDone: "Preserve the prior expiry-race draft",
+      durationMinutes: null,
+      offerWorkWindowHelp: false,
+      possibleWorkSession: false,
+      simpleAction: true,
+      targetAt: futureTarget(72),
+      targetTimeZone: "Asia/Singapore",
+      timingConstraints: [],
+    };
+    const impliedFields: DecisionContextFields = {
+      definitionOfDone: "Start the separate expiry-race request",
+      durationMinutes: null,
+      offerWorkWindowHelp: false,
+      possibleWorkSession: false,
+      simpleAction: false,
+      targetAt: null,
+      targetTimeZone: null,
+      timingConstraints: [],
+    };
+
+    const reset = async () => {
+      updateId += 1;
+      await telegram.claimUpdate(updateId, config.telegramOwnerUserId);
+      await conversation.resetUnconfirmed(
+        updateId,
+        config.telegramOwnerUserId,
+      );
+    };
+    const createLinkedPermission = async () => {
+      updateId += 1;
+      await telegram.claimUpdate(updateId, config.telegramOwnerUserId);
+      const empty = await conversation.readTurn(updateId);
+      expect(empty).toEqual({ kind: "none" });
+      const oldCreated = await conversation.applyTurn({
+        action: "create_draft",
+        audit: audit(
+          oldFields,
+          "explicit_commitment",
+          "new_request",
+          "ready",
+        ),
+        expected: empty,
+        fields: oldFields,
+        phase: "complete",
+        processingResult: "conversation",
+        updateId,
+      });
+
+      updateId += 1;
+      await telegram.claimUpdate(updateId, config.telegramOwnerUserId);
+      const oldSnapshot = await conversation.readTurn(updateId);
+      if (oldSnapshot.kind !== "draft") {
+        throw new Error("expected focused prior draft");
+      }
+      await conversation.applyTurn({
+        action: "create_permission",
+        audit: audit(
+          impliedFields,
+          "implied_intention",
+          "separate_request",
+          "ask_permission",
+        ),
+        expected: oldSnapshot,
+        fields: impliedFields,
+        processingResult: "conversation",
+        updateId,
+      });
+      return oldCreated.draftReference!;
+    };
+
+    await reset();
+    const resolutionPrior = await createLinkedPermission();
+    updateId += 1;
+    await telegram.claimUpdate(updateId, config.telegramOwnerUserId);
+    const permission = await conversation.readTurn(updateId);
+    if (permission.kind !== "permission") {
+      throw new Error("expected permission before expiry race");
+    }
+
+    const invalidAuthority = await fetch(
+      `${config.supabaseUrl}/rest/v1/rpc/resolve_separate_conversation_permission`,
+      {
+        body: JSON.stringify({
+          p_action: "accept_permission",
+          p_audit_input_class: "explicit_commitment",
+          p_audit_payload: audit(
+            impliedFields,
+            "explicit_commitment",
+            "permission_accepted",
+            "ask_target",
+          ).payload,
+          p_expected_correlated_update_id:
+            permission.correlatedUpdateId,
+          p_expected_id: null,
+          p_expected_source_update_id: permission.sourceUpdateId,
+          p_model_id: "gpt-test-model",
+          p_processing_result: "conversation",
+          p_prompt_version: "shiori-test-v1",
+          p_update_id: updateId,
+        }),
+        headers: supabaseHeaders(
+          config.supabaseSecretKey,
+          "application/json",
+        ),
+        method: "POST",
+      },
+    );
+    expect(invalidAuthority.ok).toBe(false);
+
+    localSql(
+      "update public.conversation_permission_candidates set expires_at = now() - interval '1 second' where singleton",
+    );
+    const acceptCommand = {
+      action: "accept_permission" as const,
+      audit: audit(
+        impliedFields,
+        "explicit_commitment",
+        "permission_accepted",
+        "ask_target",
+      ),
+      expected: permission,
+      processingResult: "conversation" as const,
+      updateId,
+    };
+    const interrupted = await conversation.applyTurn(acceptCommand);
+    expect(interrupted).toMatchObject({
+      completed: true,
+      draftCreated: false,
+      draftReference: resolutionPrior,
+      status: "interrupted",
+    });
+    await expect(conversation.applyTurn(acceptCommand)).resolves.toEqual(
+      interrupted,
+    );
+    await expect(
+      conversation.applyTurn({
+        ...acceptCommand,
+        audit: audit(
+          impliedFields,
+          "implied_intention",
+          "permission_accepted",
+          "ask_target",
+        ),
+      }),
+    ).rejects.toThrow();
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "conversation_drafts",
+        `&id=eq.${resolutionPrior.id}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        state: "active",
+        version: resolutionPrior.version,
+      }),
+    ]);
+
+    await reset();
+    const readPrior = await createLinkedPermission();
+    localSql(
+      "update public.conversation_permission_candidates set expires_at = now() - interval '1 second' where singleton",
+    );
+    updateId += 1;
+    await telegram.claimUpdate(updateId, config.telegramOwnerUserId);
+    await expect(conversation.readTurn(updateId)).resolves.toEqual({
+      completed: true,
+      kind: "interrupted",
+    });
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "conversation_drafts",
+        `&id=eq.${readPrior.id}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        state: "active",
+        version: readPrior.version,
+      }),
+    ]);
+
+    await reset();
+    const expiredPrior = await createLinkedPermission();
+    localSql(
+      `update public.conversation_drafts set expires_at = now() - interval '1 second' where id = '${expiredPrior.id}'; update public.conversation_permission_candidates set expires_at = now() - interval '1 second' where singleton`,
+    );
+    updateId += 1;
+    await telegram.claimUpdate(updateId, config.telegramOwnerUserId);
+    await expect(conversation.readTurn(updateId)).resolves.toEqual({
+      completed: true,
+      kind: "interrupted",
+    });
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "conversation_drafts",
+        `&id=eq.${expiredPrior.id}`,
+      ),
+    ).toEqual([expect.objectContaining({ state: "expired" })]);
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "conversation_drafts",
+        "&state=in.(active,parked)",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("fences an older claimed model turn after owner reset", async () => {
+    const config = localConfig();
+    const conversation = new SupabaseConversationRepository({
+      supabaseSecretKey: config.supabaseSecretKey,
+      supabaseUrl: config.supabaseUrl,
+    });
+    const telegram = new SupabaseTelegramRepository({
+      supabaseSecretKey: config.supabaseSecretKey,
+      supabaseUrl: config.supabaseUrl,
+    });
+    const base = 9_900_000_000 + randomInt(90_000_000);
+
+    await telegram.claimUpdate(base, config.telegramOwnerUserId);
+    await conversation.resetUnconfirmed(
+      base,
+      config.telegramOwnerUserId,
+    );
+
+    const slowUpdate = base + 1;
+    await telegram.claimUpdate(slowUpdate, config.telegramOwnerUserId);
+    const preResetSnapshot = await conversation.readTurn(slowUpdate);
+    expect(preResetSnapshot).toEqual({ kind: "none" });
+
+    const resetUpdate = base + 2;
+    await telegram.claimUpdate(resetUpdate, config.telegramOwnerUserId);
+    const resetResult = await conversation.resetUnconfirmed(
+      resetUpdate,
+      config.telegramOwnerUserId,
+    );
+    await expect(
+      conversation.resetUnconfirmed(
+        resetUpdate,
+        config.telegramOwnerUserId,
+      ),
+    ).resolves.toEqual(resetResult);
+
+    const proposedFields: DecisionContextFields = {
+      definitionOfDone: "This slow pre-reset result must not be saved",
+      durationMinutes: null,
+      offerWorkWindowHelp: false,
+      possibleWorkSession: false,
+      simpleAction: true,
+      targetAt: futureTarget(48),
+      targetTimeZone: "Asia/Singapore",
+      timingConstraints: [],
+    };
+    const staleCommand = {
+      action: "create_draft" as const,
+      audit: audit(
+        proposedFields,
+        "explicit_commitment",
+        "new_request",
+        "ready",
+      ),
+      expected: preResetSnapshot,
+      fields: proposedFields,
+      phase: "complete" as const,
+      processingResult: "conversation" as const,
+      updateId: slowUpdate,
+    };
+    const stale = await conversation.applyTurn(staleCommand);
+    expect(stale).toEqual({
+      completed: true,
+      draftCreated: false,
+      status: "stale",
+    });
+    await expect(conversation.applyTurn(staleCommand)).resolves.toEqual(
+      stale,
+    );
+    await expect(
+      conversation.applyTurn({
+        ...staleCommand,
+        fields: {
+          ...proposedFields,
+          definitionOfDone: "A changed stale replay also cannot save",
+        },
+      }),
+    ).resolves.toEqual(stale);
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "conversation_drafts",
+        "&state=in.(active,parked)",
+      ),
+    ).toHaveLength(0);
+    expect(
+      await rows(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        "telegram_updates",
+        `&update_id=eq.${slowUpdate}`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        processing_result: "conversation_interrupted",
+        processing_status: "processed",
+      }),
+    ]);
   });
 });
