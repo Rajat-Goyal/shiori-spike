@@ -368,12 +368,8 @@ describe("bounded Agents SDK runtime", () => {
     };
     const runner = new ScriptedRunner(async (request) => {
       await expect(
-        invoke(request, "propose_work_session_input", {
-          draftId: authority.draftId,
-          draftVersion: authority.draftVersion,
+        invoke(request, "propose_preparation", {
           durationMinutes: 45,
-          followUpQuestion: null,
-          nextInput: null,
           preparationRequired: true,
           startAt: null,
           timingConstraints: "mon,wed 08:00-12:00",
@@ -420,10 +416,11 @@ describe("bounded Agents SDK runtime", () => {
       "99999999-9999-4999-8999-999999999999";
     const runner = new ScriptedRunner(async (request) => {
       await expect(
-        invoke(request, "propose_continuation_duration", {
+        invoke(request, "propose_preparation", {
           durationMinutes: 45,
-          intentId: continuationId,
-          intentVersion: 2,
+          preparationRequired: null,
+          startAt: null,
+          timingConstraints: null,
         }),
       ).resolves.toEqual({ accepted: true });
       return emptyResult();
@@ -475,9 +472,7 @@ describe("bounded Agents SDK runtime", () => {
     const runner = new ScriptedRunner(async (request) => {
       const runContext = new RunContext(request.context);
       for (const name of [
-        "propose_work_session_input",
-        "propose_continuation_duration",
-        "propose_initial_preparation",
+        "propose_preparation",
         "request_sanitized_availability",
         "execute_commitment",
       ]) {
@@ -571,10 +566,8 @@ describe("bounded Agents SDK runtime", () => {
         commitmentMode: "possible_work_session",
       });
       await expect(
-        invoke(request, "propose_initial_preparation", {
+        invoke(request, "propose_preparation", {
           durationMinutes: 45,
-          followUpQuestion: null,
-          nextInput: null,
           preparationRequired: true,
           startAt: null,
           timingConstraints: "mon 08:00-12:00",
@@ -605,10 +598,8 @@ describe("bounded Agents SDK runtime", () => {
     const targetRunner = new ScriptedRunner(async (request) => {
       await invoke(request, "propose_draft_update", proposalInput);
       await expect(
-        invoke(request, "propose_initial_preparation", {
+        invoke(request, "propose_preparation", {
           durationMinutes: null,
-          followUpQuestion: "How long do you need?",
-          nextInput: "duration",
           preparationRequired: true,
           startAt: null,
           timingConstraints: null,
@@ -650,10 +641,8 @@ describe("bounded Agents SDK runtime", () => {
     const relativeRunner = new ScriptedRunner(async (request) => {
       await invoke(request, "propose_draft_update", proposalInput);
       await expect(
-        invoke(request, "propose_initial_preparation", {
+        invoke(request, "propose_preparation", {
           durationMinutes: 45,
-          followUpQuestion: "When would you like to prepare?",
-          nextInput: "owner_time",
           preparationRequired: true,
           startAt: null,
           timingConstraints: null,
@@ -682,10 +671,8 @@ describe("bounded Agents SDK runtime", () => {
     const explicitRunner = new ScriptedRunner(async (request) => {
       await invoke(request, "propose_draft_update", proposalInput);
       await expect(
-        invoke(request, "propose_initial_preparation", {
+        invoke(request, "propose_preparation", {
           durationMinutes: 45,
-          followUpQuestion: "When would you like to prepare?",
-          nextInput: "owner_time",
           preparationRequired: true,
           startAt: null,
           timingConstraints: null,
@@ -695,10 +682,8 @@ describe("bounded Agents SDK runtime", () => {
         reason: "input_invalid",
       });
       await expect(
-        invoke(request, "propose_initial_preparation", {
+        invoke(request, "propose_preparation", {
           durationMinutes: 15,
-          followUpQuestion: "When would you like to prepare?",
-          nextInput: "owner_time",
           preparationRequired: true,
           startAt: null,
           timingConstraints: null,
@@ -728,10 +713,8 @@ describe("bounded Agents SDK runtime", () => {
     const prepOnlyRunner = new ScriptedRunner(async (request) => {
       await invoke(request, "propose_draft_update", proposalInput);
       await expect(
-        invoke(request, "propose_initial_preparation", {
+        invoke(request, "propose_preparation", {
           durationMinutes: 45,
-          followUpQuestion: "When would you like to prepare?",
-          nextInput: "owner_time",
           preparationRequired: true,
           startAt: null,
           timingConstraints: null,
@@ -776,10 +759,8 @@ describe("bounded Agents SDK runtime", () => {
     const runner = new ScriptedRunner(async (request) => {
       await invoke(request, "propose_draft_update", proposalInput);
       await expect(
-        invoke(request, "propose_initial_preparation", {
+        invoke(request, "propose_preparation", {
           durationMinutes: 45,
-          followUpQuestion: "When would you like to prepare?",
-          nextInput: "owner_time",
           preparationRequired: true,
           startAt: null,
           timingConstraints: null,
@@ -789,10 +770,8 @@ describe("bounded Agents SDK runtime", () => {
         reason: "input_invalid",
       });
       await expect(
-        invoke(request, "propose_initial_preparation", {
+        invoke(request, "propose_preparation", {
           durationMinutes: null,
-          followUpQuestion: "How long do you need to prepare?",
-          nextInput: "duration",
           preparationRequired: true,
           startAt: null,
           timingConstraints: null,
@@ -1218,10 +1197,8 @@ describe("bounded Agents SDK runtime", () => {
         },
       });
       await expect(
-        invoke(request, "propose_initial_preparation", {
+        invoke(request, "propose_preparation", {
           durationMinutes: 45,
-          followUpQuestion: null,
-          nextInput: null,
           preparationRequired: true,
           startAt: null,
           timingConstraints: "fri 08:00-12:00",

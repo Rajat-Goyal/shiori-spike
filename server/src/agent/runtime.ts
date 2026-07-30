@@ -69,9 +69,7 @@ export const AGENT_RUNTIME_TOOL_NAMES = [
   "read_history",
   "list_commitments",
   "propose_draft_update",
-  "propose_work_session_input",
-  "propose_continuation_duration",
-  "propose_initial_preparation",
+  "propose_preparation",
   "request_sanitized_availability",
   "execute_commitment",
   "update_commitment",
@@ -403,6 +401,25 @@ const continuationDurationSchema = z
       .max(MAX_WORK_SESSION_DURATION_MINUTES),
     intentId: z.string().uuid(),
     intentVersion: z.number().int().positive(),
+  })
+  .strict();
+
+/**
+ * The owner's preparation answer, and nothing else.
+ *
+ * No draft id, draft version, intent id or intent version: the application knows
+ * what is in focus. No nextInput or followUpQuestion: workflow questions are
+ * application-owned.
+ */
+const preparationAnswerSchema = z
+  .object({
+    durationMinutes: z.number().int()
+      .min(MIN_WORK_SESSION_DURATION_MINUTES)
+      .max(MAX_WORK_SESSION_DURATION_MINUTES)
+      .nullable(),
+    preparationRequired: z.boolean().nullable(),
+    startAt: z.string().min(1).max(64).nullable(),
+    timingConstraints: z.string().trim().min(1).max(500).nullable(),
   })
   .strict();
 
@@ -832,6 +849,58 @@ function explicitlySupportsInitialPreparation(
   return false;
 }
 
+/**
+ * Where a preparation answer belongs, decided from authoritative state.
+ *
+ * The model used to infer this from durable preparation state it could not see,
+ * choosing between three near-identical tools. The application can see it.
+ */
+type PreparationRoute =
+  | Readonly<{ intentId: string; intentVersion: number; kind: "continuation" }>
+  | Readonly<{ kind: "initial" }>
+  | Readonly<{ draftId: string; draftVersion: number; kind: "work_session" }>;
+
+function preparationRoute(
+  context: RuntimeContext,
+): PreparationRoute | null {
+  const product = context.conversation?.product;
+  if (product === undefined) {
+    return null;
+  }
+  const authority = expectedDraftAuthority(context);
+  if (authority === null) {
+    // A lone continuation awaiting a duration is unambiguous; otherwise this is
+    // the same-message case where the promise is only now being completed and the
+    // draft does not exist yet.
+    const awaiting =
+      product.continuations?.filter(
+        (continuation) => continuation.stage === "awaiting_duration",
+      ) ?? [];
+    return awaiting.length === 1
+      ? {
+          intentId: awaiting[0]!.id,
+          intentVersion: awaiting[0]!.version,
+          kind: "continuation",
+        }
+      : { kind: "initial" };
+  }
+  const focused = product.drafts.find(
+    (draft) =>
+      draft.id === authority.id && draft.version === authority.expectedVersion,
+  );
+  // Durable preparation state means the application already asked; without it
+  // this is still the first answer about preparation.
+  return focused !== undefined &&
+    focused.preparation !== null &&
+    focused.preparation !== undefined
+    ? {
+        draftId: authority.id,
+        draftVersion: authority.expectedVersion,
+        kind: "work_session",
+      }
+    : { kind: "initial" };
+}
+
 function hasAmbiguousDraftResolution(context: RuntimeContext): boolean {
   return context.conversation?.draftResolution.kind === "ambiguous";
 }
@@ -1020,285 +1089,140 @@ function buildTools(
       return { accepted: true, decision: proposal };
     },
   });
-  const proposeWorkSessionInput = tool({
+  /**
+   * One preparation tool, routed by the application.
+   *
+   * This replaces propose_work_session_input, propose_continuation_duration and
+   * propose_initial_preparation. Their payloads were nearly identical; they
+   * differed only in which authoritative record they targeted, and the model had
+   * to infer that from durable state it could not see. Picking wrong produced
+   * input_invalid, and answering with the preparation tool alone produced
+   * missing_output — the owner's answer was simply dropped either way.
+   *
+   * The application knows the focus, so the model supplies only the answer. No
+   * draft id, draft version, intent id or intent version, which removes every
+   * identifier-echo failure. nextInput and followUpQuestion are omitted too:
+   * workflow questions are application-owned.
+   */
+  const proposePreparation = tool({
     description:
-      "Submit the current owner's natural preparation answer for the exact focused draft. This validates interpretation only; deterministic application code owns all state and Calendar decisions.",
-    name: "propose_work_session_input",
-    parameters: workSessionInputSchema,
+      "Submit the owner's answer about preparation time for the promise currently in focus. The application decides which record it applies to and owns every follow-up question.",
+    name: "propose_preparation",
+    parameters: preparationAnswerSchema,
     strict: true,
     isEnabled:
       !hasAmbiguousDraftResolution(context) &&
-      context.conversation?.product.drafts.some(
-        (draft) =>
-          draft.id === context.authority.draftId &&
-          draft.version === context.authority.draftVersion &&
-          draft.preparation !== null &&
-          draft.preparation !== undefined,
-      ) === true,
+      preparationRoute(context) !== null,
     execute: (value) => {
-      const expected = expectedDraftAuthority(context);
-      const draft = context.conversation?.product.drafts.find(
-        (candidate) =>
-          candidate.id === value.draftId &&
-          candidate.version === value.draftVersion,
-      );
-      const stage = draft?.preparation?.stage;
-      const decision = workSessionDecision(context.input);
-      const normalizedTiming =
-        value.timingConstraints === null
-          ? null
-          : normalizeTimingConstraints(value.timingConstraints, []);
-      const startMillis =
-        value.startAt === null ? null : Date.parse(value.startAt);
-      const exactStart =
-        value.startAt === null ||
-        (
-          /^\d{4}-\d{2}-\d{2}T\d{2}:(?:00|30):00\+08:00$/.test(
-            value.startAt,
-          ) &&
-          Number.isFinite(startMillis) &&
-          startMillis! > now.getTime()
-        );
-      const followUpMatches =
-        value.nextInput === null
-          ? value.followUpQuestion === null
-          : value.followUpQuestion !== null &&
-            value.followUpQuestion.endsWith("?");
-      const commonValid =
-        expected !== null &&
-        expected.id === value.draftId &&
-        expected.expectedVersion === value.draftVersion &&
-        draft?.focused === true &&
-        stage !== undefined &&
-        decision !== null &&
-        exactStart &&
-        followUpMatches &&
-        !(
-          value.startAt !== null &&
-          value.timingConstraints !== null
-        ) &&
-        (
-          normalizedTiming === null ||
-          normalizedTiming.status === "ok"
-        );
-      let stageValid = false;
-      if (commonValid && stage === "offer_help") {
-        stageValid =
-          value.preparationRequired === false
-            ? value.durationMinutes === null &&
-              value.startAt === null &&
-              value.timingConstraints === null &&
-              value.nextInput === null
-            : value.preparationRequired === true &&
-              (
-                value.durationMinutes === null
-                  ? value.startAt === null &&
-                    value.timingConstraints === null &&
-                    value.nextInput === "duration"
-                  : value.startAt !== null ||
-                      value.timingConstraints !== null
-                    ? value.nextInput === null
-                    : value.nextInput === "owner_time" ||
-                      value.nextInput === "timing_constraints"
-              );
-      } else if (
-        commonValid &&
-        stage === "awaiting_duration_help"
-      ) {
-        stageValid =
-          value.preparationRequired === null &&
-          value.durationMinutes !== null &&
-          (
-            value.startAt !== null ||
-              value.timingConstraints !== null
-              ? value.nextInput === null
-            : draft.preparation?.timingConstraints !== null
-              ? value.nextInput === null
-              : value.nextInput === "timing_constraints"
-          );
-      } else if (
-        commonValid &&
-        stage === "awaiting_duration_owner"
-      ) {
-        stageValid =
-          value.preparationRequired === null &&
-          value.durationMinutes !== null &&
-          value.timingConstraints === null &&
-          (
-            value.startAt !== null
-              ? value.nextInput === null
-              : value.nextInput === "owner_time"
-          );
-      } else if (
-        commonValid &&
-        stage === "awaiting_constraints"
-      ) {
-        stageValid =
-          value.preparationRequired === null &&
-          value.durationMinutes === null &&
-          value.startAt === null &&
-          value.timingConstraints !== null &&
-          value.nextInput === null;
-      } else if (
-        commonValid &&
-        stage === "awaiting_owner_time"
-      ) {
-        stageValid =
-          value.preparationRequired === null &&
-          value.durationMinutes === null &&
-          value.startAt !== null &&
-          value.timingConstraints === null &&
-          value.nextInput === null;
-      }
-      if (!stageValid || normalizedTiming?.status === "invalid") {
-        context.lastSemanticFailure = "input_invalid";
-        return rejected("input_invalid");
-      }
-      context.workSessionInput = {
-        ...value,
-        timingConstraints:
-          normalizedTiming?.status === "ok"
-            ? normalizedTiming.canonical
-            : null,
-      };
-      context.lastSemanticFailure = undefined;
-      return { accepted: true };
-    },
-  });
-  const proposeContinuationDuration = tool({
-    description:
-      "Submit a natural remaining-work duration for the one exact application-owned continuation awaiting duration.",
-    name: "propose_continuation_duration",
-    parameters: continuationDurationSchema,
-    strict: true,
-    isEnabled:
-      !hasAmbiguousDraftResolution(context) &&
-      expectedDraftAuthority(context) === null &&
-      (
-        context.conversation?.product.continuations?.filter(
-          (continuation) =>
-            continuation.stage === "awaiting_duration",
-        ).length ?? 0
-      ) === 1,
-    execute: (value) => {
-      const awaiting =
-        context.conversation?.product.continuations?.filter(
-          (continuation) =>
-            continuation.stage === "awaiting_duration",
-        ) ?? [];
-      if (
-        awaiting.length !== 1 ||
-        awaiting[0]!.id !== value.intentId ||
-        awaiting[0]!.version !== value.intentVersion
-      ) {
-        context.lastSemanticFailure = "input_invalid";
-        return rejected("input_invalid");
-      }
-      context.continuationInput = value;
-      context.lastSemanticFailure = undefined;
-      return { accepted: true };
-    },
-  });
-  const proposeInitialPreparation = tool({
-    description:
-      "Submit an explicit preparation decision and any preparation duration, natural timing constraints, or exact owner start supplied while this message completes a promise.",
-    name: "propose_initial_preparation",
-    parameters: initialPreparationSchema,
-    strict: true,
-    isEnabled:
-      !hasAmbiguousDraftResolution(context) &&
-      context.conversation !== null &&
-      context.conversation.product.drafts.every(
-        (draft) =>
-          draft.id !== context.authority.draftId ||
-          draft.preparation === null ||
-          draft.preparation === undefined,
-      ),
-    execute: (rawValue) => {
-      // Coerce rather than reject.
-      //
-      // This tool previously required the whole proposal to satisfy a multi-part
-      // shape rule — an exact 30-minute future start, a canonical day/window
-      // constraint, and a nextInput/followUpQuestion pair consistent with both —
-      // and any mismatch discarded the owner's preparation answer entirely. The
-      // application owns the availability search and the follow-up copy, so
-      // anything it cannot use is dropped and asked for instead.
-      //
-      // The one judgement still enforced is that preparation is never invented:
-      // the owner's own words must support it.
-      if (
-        !explicitlySupportsInitialPreparation(
-          context.input?.ownerText,
-          rawValue,
-        )
-      ) {
+      const route = preparationRoute(context);
+      if (route === null) {
         context.lastSemanticFailure = "input_invalid";
         return rejected("input_invalid");
       }
 
-      if (!rawValue.preparationRequired) {
-        context.initialWorkSessionInput = {
-          durationMinutes: null,
-          followUpQuestion: null,
-          nextInput: null,
-          preparationRequired: false,
-          startAt: null,
-          timingConstraints: null,
+      const durationMinutes =
+        value.durationMinutes !== null &&
+        Number.isSafeInteger(value.durationMinutes) &&
+        value.durationMinutes >= MIN_WORK_SESSION_DURATION_MINUTES &&
+        value.durationMinutes <= MAX_WORK_SESSION_DURATION_MINUTES
+          ? value.durationMinutes
+          : null;
+
+      if (route.kind === "continuation") {
+        // A continuation only ever needs the duration; the intent identity comes
+        // from the single authoritative record awaiting one.
+        if (durationMinutes === null) {
+          context.lastSemanticFailure = "input_invalid";
+          return rejected("input_invalid");
+        }
+        context.continuationInput = {
+          durationMinutes,
+          intentId: route.intentId,
+          intentVersion: route.intentVersion,
         };
         context.lastSemanticFailure = undefined;
         return { accepted: true };
       }
 
-      const durationMinutes =
-        rawValue.durationMinutes !== null &&
-        Number.isSafeInteger(rawValue.durationMinutes) &&
-        rawValue.durationMinutes >= MIN_WORK_SESSION_DURATION_MINUTES &&
-        rawValue.durationMinutes <= MAX_WORK_SESSION_DURATION_MINUTES
-          ? rawValue.durationMinutes
-          : null;
-
       const startMillis =
-        rawValue.startAt === null ? null : Date.parse(rawValue.startAt);
+        value.startAt === null ? null : Date.parse(value.startAt);
       const startAt =
-        rawValue.startAt !== null &&
+        value.startAt !== null &&
         /^\d{4}-\d{2}-\d{2}T\d{2}:(?:00|30):00\+08:00$/.test(
-          rawValue.startAt,
+          value.startAt,
         ) &&
         Number.isFinite(startMillis) &&
         startMillis! > now.getTime()
-          ? rawValue.startAt
+          ? value.startAt
           : null;
 
       const normalizedTiming =
-        rawValue.timingConstraints === null
+        value.timingConstraints === null
           ? null
-          : normalizeTimingConstraints(rawValue.timingConstraints, []);
+          : normalizeTimingConstraints(value.timingConstraints, []);
       // An owner's natural window ("before lunch") does not parse into the
-      // canonical day/window format; ask for it rather than losing the turn.
+      // canonical day/window format; ask for it rather than losing the answer.
       const timingConstraints =
-        normalizedTiming?.status === "ok"
-          ? normalizedTiming.canonical
-          : null;
+        normalizedTiming?.status === "ok" ? normalizedTiming.canonical : null;
 
-      const nextInput =
-        durationMinutes === null
+      const preparationRequired = value.preparationRequired === true;
+      const nextInput = !preparationRequired
+        ? null
+        : durationMinutes === null
           ? "duration"
           : startAt === null && timingConstraints === null
             ? "timing_constraints"
             : null;
+      const followUpQuestion =
+        nextInput === "duration"
+          ? preparationDurationQuestion
+          : nextInput === "timing_constraints"
+            ? preparationWindowQuestion
+            : null;
 
-      context.initialWorkSessionInput = {
+      if (route.kind === "initial") {
+        // Preparation is never invented: the owner's own words must support it.
+        if (
+          !explicitlySupportsInitialPreparation(context.input?.ownerText, {
+            durationMinutes,
+            followUpQuestion,
+            nextInput,
+            preparationRequired,
+            startAt,
+            timingConstraints,
+          })
+        ) {
+          context.lastSemanticFailure = "input_invalid";
+          return rejected("input_invalid");
+        }
+        context.initialWorkSessionInput = preparationRequired
+          ? {
+              durationMinutes,
+              followUpQuestion,
+              nextInput,
+              preparationRequired: true,
+              startAt,
+              timingConstraints: startAt === null ? timingConstraints : null,
+            }
+          : {
+              durationMinutes: null,
+              followUpQuestion: null,
+              nextInput: null,
+              preparationRequired: false,
+              startAt: null,
+              timingConstraints: null,
+            };
+        context.lastSemanticFailure = undefined;
+        return { accepted: true };
+      }
+
+      context.workSessionInput = {
+        draftId: route.draftId,
+        draftVersion: route.draftVersion,
         durationMinutes,
-        followUpQuestion:
-          nextInput === null
-            ? null
-            : nextInput === "duration"
-              ? preparationDurationQuestion
-              : preparationWindowQuestion,
+        followUpQuestion,
         nextInput,
-        preparationRequired: true,
-        // A start and a constraint are mutually exclusive downstream: an exact
-        // owner-chosen time supersedes a window.
+        preparationRequired: value.preparationRequired,
         startAt,
         timingConstraints: startAt === null ? timingConstraints : null,
       };
@@ -1412,9 +1336,7 @@ function buildTools(
     readHistory,
     listCommitments,
     proposeDraftUpdate,
-    proposeWorkSessionInput,
-    proposeContinuationDuration,
-    proposeInitialPreparation,
+    proposePreparation,
     requestAvailability,
     executeCommitment,
     updateCommitment,
