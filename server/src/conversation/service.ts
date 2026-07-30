@@ -380,17 +380,41 @@ function responseText(decision: DecisionResult): string | undefined {
   return decision.response.trim() ? decision.response : undefined;
 }
 
+/**
+ * The agent's follow-up, accepted only when it is actually a question.
+ *
+ * Letting the agent word its own question is what stops the conversation reading
+ * like a form. Requiring a question mark is the guard: prose that asserts
+ * something — "Saved!" — cannot reach the owner through this path, so the
+ * application keeps its monopoly on claims about state.
+ */
+function agentQuestion(decision: DecisionResult): string | undefined {
+  const response = responseText(decision);
+  return response !== undefined && response.trimEnd().endsWith("?")
+    ? response
+    : undefined;
+}
+
+/**
+ * The reply for a draft that was just written.
+ *
+ * A complete promise still gets the application's confirmation summary and
+ * buttons, because that is a consequential surface. An incomplete one gets the
+ * agent's own question, which can acknowledge what the owner just said instead
+ * of repeating a fixed prompt.
+ */
 function collectedReply(
   phase: ConversationPhase,
   fields: DecisionContextFields,
   prefix?: string,
+  question?: string,
 ): string | CompleteReply {
   return phase === "complete"
     ? {
         completeFields: fields,
         ...(prefix ? { prefix } : {}),
       }
-    : collectedDraftCopy(phase);
+    : (question ?? collectedDraftCopy(phase));
 }
 
 function isCompleteReply(
@@ -802,6 +826,16 @@ export class ConversationService {
    * permission answer was yes or no, and whether the owner started a genuinely
    * separate promise. Everything else follows from what the merge produced.
    */
+  /**
+   * One handler for every owner turn.
+   *
+   * The application owns the state, so it decides directly. There is no phase
+   * machine and no permission machine: the agent keeps asking until a promise is
+   * complete, and nothing is written outside a draft until the owner confirms.
+   *
+   * Only one judgement still comes from the model, because only it can make it:
+   * whether the owner started a genuinely separate promise.
+   */
   async #applyTurn(
     updateId: number,
     snapshot: ConversationSnapshot,
@@ -809,101 +843,41 @@ export class ConversationService {
     draftTarget?: DecisionDraftTarget,
     initialPreparation?: InitialWorkSessionConversationInput,
   ): Promise<ConversationReply> {
-    const expected = expectedSnapshot(snapshot);
-    const audit = this.#audit(decision);
-    const answer = responseText(decision);
-
-    // A question changes nothing, whatever else is open.
-    if (decision.inputClass === "ordinary_question") {
-      return this.#answerQuestion(updateId, snapshot, decision, answer);
-    }
-
-    // An implied intention is never stored without agreement.
-    if (
-      decision.inputClass === "implied_intention" &&
-      snapshot.kind !== "draft"
-    ) {
-      return snapshot.kind === "permission"
-        ? this.#finish(
-            {
-              action: "rearm_permission",
-              audit,
-              expected,
-              processingResult: "conversation",
-              updateId,
-            },
-            snapshot,
-            conversationCopy.permissionCollision,
-          )
-        : this.#finish(
-            {
-              action: "create_permission",
-              audit,
-              expected,
-              fields: candidateFields(decision),
-              processingResult: "conversation",
-              updateId,
-            },
-            snapshot,
-            conversationCopy.impliedPermission,
-          );
-    }
-
-    // A separate promise while a permission is armed is a collision: the
-    // application will not silently answer one request with another.
-    if (
-      snapshot.kind === "permission" &&
-      decision.turnRelation === "separate_request"
-    ) {
+    // A permission candidate can only exist from before permissions were
+    // removed. Retire it and treat the turn as if none were parked.
+    if (snapshot.kind === "permission") {
       return this.#finish(
         {
-          action: "rearm_permission",
-          audit,
-          expected,
+          action: "terminate_permission",
+          audit: this.#audit(decision),
+          expected: expectedSnapshot(snapshot),
           processingResult: "conversation",
           updateId,
         },
         snapshot,
-        conversationCopy.permissionCollision,
+        this.#nextQuestion(decision, conversationCopy.recoverNoDraft),
       );
     }
 
-    if (snapshot.kind === "permission") {
-      return this.#acceptPermission(
-        updateId,
-        snapshot,
-        decision,
-        initialPreparation,
-      );
+    // A question changes nothing.
+    if (decision.inputClass === "ordinary_question") {
+      return this.#answerQuestion(updateId, snapshot, decision);
     }
 
     // A separate promise starts its own draft rather than overwriting the
-    // focused one. This is the model's judgement; the application only acts on it.
+    // focused one. This is the model's judgement; the application acts on it.
     if (
       snapshot.kind === "draft" &&
       decision.turnRelation === "separate_request"
     ) {
-      return decision.inputClass === "implied_intention"
-        ? this.#finish(
-            {
-              action: "create_permission",
-              audit,
-              expected,
-              fields: candidateFields(decision),
-              processingResult: "conversation",
-              updateId,
-            },
-            snapshot,
-            conversationCopy.impliedPermission,
-          )
-        : this.#createDraft(
-            updateId,
-            snapshot,
-            decision,
-            "create_separate_draft",
-            "separate_draft_not_draftable",
-            initialPreparation,
-          );
+      return this.#createDraft(
+        updateId,
+        snapshot,
+        decision,
+        "create_separate_draft",
+        "separate_draft_not_draftable",
+        initialPreparation,
+      );
     }
 
     if (snapshot.kind === "none") {
@@ -926,48 +900,25 @@ export class ConversationService {
     );
   }
 
+  /**
+   * The agent's own follow-up question, falling back to application copy.
+   *
+   * Asking for a missing field is not a safety boundary, and a fixed
+   * "What will count as done?" cannot acknowledge what the owner just said.
+   * Application-owned copy still governs confirmation summaries, mutation
+   * results and warnings.
+   */
+  #nextQuestion(decision: DecisionResult, fallback: string): string {
+    return agentQuestion(decision) ?? fallback;
+  }
+
   /** Answers without touching state, and keeps any pending question alive. */
   async #answerQuestion(
     updateId: number,
     snapshot: ConversationSnapshot,
     decision: DecisionResult,
-    answer: string | undefined,
   ): Promise<ConversationReply> {
-    const audit = this.#audit(decision);
-    const expected = expectedSnapshot(snapshot);
-
-    if (snapshot.kind === "permission") {
-      if (decision.turnRelation === "permission_declined") {
-        return this.#finish(
-          {
-            action: "terminate_permission",
-            audit,
-            expected,
-            processingResult: "conversation",
-            updateId,
-          },
-          snapshot,
-          conversationCopy.decline,
-        );
-      }
-      // Only the model can tell an unclear on-topic reply from an unrelated
-      // question, so that judgement is kept. Either way the request stays armed.
-      const unclear =
-        answer === undefined ||
-        decision.turnRelation === "clarification_continuation";
-      return this.#finish(
-        {
-          action: unclear ? "rearm_permission" : "preserve",
-          audit,
-          expected,
-          processingResult: "conversation",
-          updateId,
-        },
-        snapshot,
-        unclear ? conversationCopy.permissionUnclear : answer,
-      );
-    }
-
+    const answer = responseText(decision);
     if (answer === undefined) {
       return this.#preserveFailure(
         updateId,
@@ -980,68 +931,13 @@ export class ConversationService {
     return this.#finish(
       {
         action: "preserve",
-        audit,
-        expected,
+        audit: this.#audit(decision),
+        expected: expectedSnapshot(snapshot),
         processingResult: "conversation",
         updateId,
       },
       snapshot,
-      snapshot.kind === "draft"
-        ? ordinaryWithDraftCopy(answer)
-        : answer,
-    );
-  }
-
-  /**
-   * Promotes an agreed permission candidate into a draft.
-   *
-   * The application's own parked fields are authoritative, so the model's echo of
-   * them is not compared: it merely signalled agreement.
-   */
-  async #acceptPermission(
-    updateId: number,
-    snapshot: PermissionCandidate,
-    decision: DecisionResult,
-    initialPreparation?: InitialWorkSessionConversationInput,
-  ): Promise<ConversationReply> {
-    const phase = phaseFor(snapshot.fields);
-    const fields =
-      phase === "complete" && initialPreparation === undefined
-        ? preparationFields(snapshot.fields)
-        : initialPreparation === undefined
-          ? snapshot.fields
-          : candidateFields(decision);
-    const draftIsAllowed = draftable(fields) && phase !== undefined;
-    if (!draftIsAllowed) {
-      this.#reportConversationFailure(
-        "permission_draft_not_allowed",
-        snapshot,
-      );
-    }
-    return this.#finish(
-      fields.possibleWorkSession
-        ? {
-            action: "accept_work_permission",
-            audit: this.#audit(decision),
-            expected: expectedSnapshot(snapshot),
-            fields,
-            phase: "complete",
-            processingResult: "conversation",
-            updateId,
-          }
-        : {
-            action: "accept_permission",
-            audit: this.#audit(decision),
-            expected: expectedSnapshot(snapshot),
-            processingResult: "conversation",
-            updateId,
-          },
-      snapshot,
-      draftIsAllowed
-        ? collectedReply(phase, fields)
-        : this.#failureCopy(snapshot, "permission_draft_not_allowed"),
-      draftIsAllowed,
-      initialPreparation,
+      snapshot.kind === "draft" ? ordinaryWithDraftCopy(answer) : answer,
     );
   }
 
@@ -1073,7 +969,7 @@ export class ConversationService {
         updateId,
       },
       snapshot,
-      collectedReply(phase, fields),
+      collectedReply(phase, fields, undefined, agentQuestion(decision)),
       false,
       initialPreparation,
     );
@@ -1159,8 +1055,8 @@ export class ConversationService {
       decision.turnRelation === "correction"
         ? phase === "complete"
           ? collectedReply(phase, fields, confirmationCopy.updated)
-          : correctionCopy(phase)
-        : collectedReply(phase, fields),
+          : (agentQuestion(decision) ?? correctionCopy(phase))
+        : collectedReply(phase, fields, undefined, agentQuestion(decision)),
       initialPreparation,
     );
   }

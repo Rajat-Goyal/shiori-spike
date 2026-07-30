@@ -84,15 +84,11 @@ const WALK: readonly Step[] = [
   },
   {
     send: "I should send the Q3 proposal to Amara",
-    what: "implied intention asks permission and saves nothing",
+    what: "an intention starts a draft and the agent asks for what is missing",
     expectReply: (reply) =>
-      /yes|no/i.test(reply) ? undefined : "expected a yes/no permission question",
-    expectState: (s) =>
-      s.permission === null ? "no permission was parked" : undefined,
-  },
-  {
-    send: "yes",
-    what: "permission accepted starts a draft",
+      reply.trimEnd().endsWith("?")
+        ? undefined
+        : "the agent did not ask a question",
     expectState: (s) => (s.draft === null ? "no draft was created" : undefined),
   },
   {
@@ -165,8 +161,23 @@ const service = new ConversationService({
     turnFailures.push(`decision:${event.reason}`);
   },
   ownerChatId: chatId,
+  // Production stages an approval before showing Confirm buttons; without it the
+  // complete-draft path degrades to approvalUnavailable.
+  prepareApproval: async () => true,
   promptVersion: config.openaiPromptVersion,
   repository: store as never,
+  // Production routes a preparation answer into the work-session flow. Without a
+  // stand-in the complete-draft path degrades to approvalUnavailable, which is a
+  // gap in the harness rather than in the application.
+  workSessionConversation: {
+    handleConversationInput: async (_updateId, _chatId, input) => ({
+      text:
+        input.nextInput === null
+          ? "Preparation noted. Nothing has been saved yet."
+          : (input.followUpQuestion ??
+            "When would you like to do that preparation?"),
+    }),
+  },
 });
 
 let updateId = 900_000;
@@ -189,7 +200,9 @@ for (const step of WALK) {
   const problem =
     turnFailures.length > 0
       ? `application could not act: ${turnFailures.join(", ")}`
-      : (step.expectReply?.(text) ?? step.expectState?.(store));
+      : /couldn.t safely|couldn.t confirm/.test(text)
+        ? `fell back to a safety apology: ${text.slice(0, 60)}`
+        : (step.expectReply?.(text) ?? step.expectState?.(store));
 
   console.log(`${problem ? "✗" : "✓"} ${step.what}`);
   console.log(`      → ${JSON.stringify(step.send)}`);
