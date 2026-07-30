@@ -357,11 +357,12 @@ function targetFailureCopy(
   if (outcome.failure !== "semantic") {
     return undefined;
   }
+  // `target_pair_invalid` and `target_timezone_invalid` are omitted:
+  // materializeProviderDecision derives targetTimeZone from targetAt, so neither
+  // can fire on a materialized decision.
   const targetReason = [
     "target_format_invalid",
     "target_not_future",
-    "target_pair_invalid",
-    "target_timezone_invalid",
   ].includes(outcome.reason);
   if (
     snapshot.kind === "draft" &&
@@ -376,7 +377,7 @@ function targetFailureCopy(
   if (
     snapshot.kind === "draft" &&
     snapshot.phase === "awaiting_target" &&
-    (targetReason || outcome.reason === "clarification_filled_nothing")
+    targetReason
   ) {
     return conversationCopy.targetFailureWithDraft;
   }

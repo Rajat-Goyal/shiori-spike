@@ -8,11 +8,16 @@ import type {
 const TARGET_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\+08:00$/;
 
+/**
+ * Reasons a materialized decision can still be refused.
+ *
+ * `clarification_context_mutation`, `clarification_filled_nothing` and
+ * `correction_changed_nothing` are deliberately absent: the application merges
+ * proposals onto authoritative state and derives the relation from what changed,
+ * so all three became unreachable rather than merely rare.
+ */
 export type DecisionSemanticFailureReason =
-  | "clarification_context_mutation"
-  | "clarification_filled_nothing"
   | "complete_mode_unresolved"
-  | "correction_changed_nothing"
   | "definition_blank"
   | "draft_target_invalid"
   | "implied_payload_conflict"
@@ -458,35 +463,7 @@ function sameCandidateFields(
   );
 }
 
-function preservesPopulatedFields(
-  context: DecisionCandidateFields,
-  decision: DecisionCandidateFields,
-): boolean {
-  const unresolvedContextMode = context.commitmentMode === "unresolved";
-  const resolvedDecisionMode = decision.commitmentMode !== "unresolved";
-  return Object.entries(context).every(
-    ([key, value]) =>
-      value === null ||
-      (unresolvedContextMode &&
-        resolvedDecisionMode &&
-        key === "commitmentMode") ||
-      sameCandidateValue(
-        value,
-        decision[key as keyof DecisionCandidateFields],
-      ),
-  );
-}
 
-function fillsNullField(
-  context: DecisionCandidateFields,
-  decision: DecisionCandidateFields,
-): boolean {
-  return Object.entries(context).some(
-    ([key, value]) =>
-      value === null &&
-      decision[key as keyof DecisionCandidateFields] !== null,
-  );
-}
 
 function changesPopulatedField(
   context: DecisionCandidateFields,
@@ -572,14 +549,8 @@ function failed(
  * retry almost useless.
  */
 export const correctiveInstructions = {
-  clarification_context_mutation:
-    "Preserve every populated context candidate field exactly.",
-  clarification_filled_nothing:
-    "A clarification must fill at least one null context candidate field.",
   complete_mode_unresolved:
     "Resolve a complete candidate to simple_action or possible_work_session.",
-  correction_changed_nothing:
-    "Use correction only when a populated context candidate field changes.",
   definition_blank:
     "Use a non-blank definitionOfDone or null.",
   draft_target_invalid:

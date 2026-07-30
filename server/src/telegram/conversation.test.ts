@@ -1447,7 +1447,9 @@ describe("ConversationService", () => {
       copy: conversationCopy.targetFailureNoDraft,
       expected: { kind: "none" } as const,
       read: { kind: "none" } as const,
-      reason: "target_timezone_invalid",
+      // target_timezone_invalid and target_pair_invalid can no longer fire:
+      // materializeProviderDecision derives targetTimeZone from targetAt.
+      reason: "target_format_invalid",
       text:
         "I have to create a video for telegram setup by tomorrow 9am",
     },
@@ -1483,7 +1485,10 @@ describe("ConversationService", () => {
     },
   );
 
-  it("uses targeted date guidance when an awaiting-target clarification extracts nothing", async () => {
+  it("uses targeted date guidance when an awaiting-target target is unusable", async () => {
+    // clarification_filled_nothing is gone: the delta merge means a proposal that
+    // adds nothing simply changes nothing, so an unusable target is the reachable
+    // reason in this position.
     const snapshot = activeDraft(
       "awaiting_target",
       targetMissingFields,
@@ -1491,15 +1496,11 @@ describe("ConversationService", () => {
     );
     const test = controlled(
       snapshot,
-      failureOutcome(
-        "semantic",
-        2,
-        "clarification_filled_nothing",
-      ),
+      failureOutcome("semantic", 2, "target_format_invalid"),
     );
 
     await expect(
-      test.service.handle(7015, "29 July 9am"),
+      test.service.handle(7015, "29 Ju1y 9am"),
     ).resolves.toBe(conversationCopy.targetFailureWithDraft);
     expect(test.repository.commands).toEqual([
       {
