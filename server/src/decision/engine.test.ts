@@ -141,12 +141,19 @@ function providerResponse(value: unknown): Response {
     !("clearFields" in providerValue)
       ? { clearFields: [], ...providerValue }
       : providerValue;
+  // commitmentMode left the provider contract: the application derives it.
+  const { commitmentMode: _mode, ...onWire } =
+    withClears !== null &&
+    typeof withClears === "object" &&
+    !Array.isArray(withClears)
+      ? (withClears as Record<string, unknown>)
+      : { commitmentMode: undefined };
   return Response.json({
     output: [
       {
         content: [
           {
-            text: JSON.stringify(withClears),
+            text: JSON.stringify(onWire),
             type: "output_text",
           },
         ],
@@ -286,7 +293,6 @@ describe("DecisionEngine contract", () => {
     expect(
       parseProviderDecisionStructure({
         clearFields: [],
-        commitmentMode: explicitDecision.commitmentMode,
         definitionOfDone: explicitDecision.definitionOfDone,
         durationMinutes: explicitDecision.durationMinutes,
         inputClass: explicitDecision.inputClass,
@@ -299,7 +305,6 @@ describe("DecisionEngine contract", () => {
     expect(
       parseProviderDecisionStructure({
         clearFields: [],
-        commitmentMode: "simple_action",
         definitionOfDone: "Submit the expense report",
         durationMinutes: null,
         inputClass: "explicit_commitment",
@@ -340,7 +345,6 @@ describe("DecisionEngine contract", () => {
     ).toBeNull();
     expect(Object.keys(providerDecisionSpec.fields).sort()).toEqual([
       "clearFields",
-      "commitmentMode",
       "definitionOfDone",
       "durationMinutes",
       "inputClass",

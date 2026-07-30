@@ -328,11 +328,6 @@ const proposalSchema = z
         ]),
       )
       .max(4),
-    commitmentMode: z.enum([
-      "unresolved",
-      "simple_action",
-      "possible_work_session",
-    ]),
     definitionOfDone: z.string().min(1).max(500).nullable(),
     durationMinutes: z.number().int()
       .min(MIN_WORK_SESSION_DURATION_MINUTES)

@@ -153,7 +153,12 @@ async function invoke(
     typeof value === "object" &&
     !Array.isArray(value) &&
     !("clearFields" in value)
-      ? { clearFields: [], ...value }
+      ? (() => {
+          // commitmentMode left the provider contract.
+          const { commitmentMode: _mode, ...rest } =
+            value as Record<string, unknown>;
+          return { clearFields: [], ...rest };
+        })()
       : value;
   return functionTool(request, name).invoke(
     new RunContext(request.context),

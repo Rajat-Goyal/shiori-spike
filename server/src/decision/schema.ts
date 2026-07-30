@@ -191,10 +191,16 @@ export const decisionSpec = {
   kind: "object",
 } as const satisfies Spec;
 
+/**
+ * What the model actually reports.
+ *
+ * `commitmentMode` is absent on purpose: materializeProviderDecision derives it
+ * from completeness and the existing draft, so a reported value was read by
+ * nothing and discarded on every turn.
+ */
 const providerCandidateFieldSpecs = {
   definitionOfDone: candidateFieldSpecs.definitionOfDone,
   durationMinutes: candidateFieldSpecs.durationMinutes,
-  commitmentMode: candidateFieldSpecs.commitmentMode,
   targetAt: {
     kind: "string",
     maxLength: 64,
