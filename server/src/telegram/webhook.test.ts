@@ -340,6 +340,33 @@ describe("POST /api/telegram/webhook", () => {
     expect(controlled.repository.completions).toHaveLength(0);
   });
 
+  it("completes the no-op reset command without replaying or mutating conversation state", async () => {
+    const controlled = serviceWith();
+    controlled.conversation.response = conversationCopy.reset;
+    const app = await appWith(controlled.service);
+    const request = {
+      headers: validHeaders,
+      method: "POST" as const,
+      payload: textUpdate({ text: "/reset", updateId: 5002 }),
+      url: "/api/telegram/webhook",
+    };
+
+    const first = await app.inject(request);
+    const replay = await app.inject(request);
+
+    expect(first.statusCode).toBe(200);
+    expect(replay.statusCode).toBe(200);
+    expect(controlled.client.sends).toEqual([
+      { chatId: ownerUserId, text: conversationCopy.reset },
+    ]);
+    expect(controlled.conversation.turns).toEqual([
+      { ownerText: "/reset", updateId: 5002 },
+    ]);
+    expect(controlled.repository.completions).toEqual([
+      { result: "ignored", updateId: 5002 },
+    ]);
+  });
+
   it("records terminal failure and suppresses replay when a typed finalizer rejects", async () => {
     const repository = new ControlledRepository();
     const client = new ControlledClient();

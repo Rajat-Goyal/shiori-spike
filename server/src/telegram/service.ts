@@ -308,6 +308,9 @@ export class TelegramService {
             reply.actions,
           );
         }
+        if (update.text === "/reset") {
+          await this.#repository.completeUpdate(update.updateId, "ignored");
+        }
         return;
       }
 

@@ -66,6 +66,12 @@ function localSql(statement: string): void {
   );
 }
 
+function clearConversationState(): void {
+  localSql(
+    "delete from public.conversation_control_operation_receipts; delete from public.conversation_permission_candidates; delete from public.model_decisions; delete from public.conversation_drafts; delete from public.agent_approval_update_receipts; delete from public.agent_session_update_receipts; delete from public.agent_sessions",
+  );
+}
+
 function audit(
   fields: DecisionContextFields,
   inputClass: DecisionAudit["inputClass"],
@@ -86,7 +92,7 @@ function audit(
 }
 
 describe("local Supabase conversation controls", () => {
-  it("parks and resolves separate permission focus, replays exactly, and resets only unconfirmed state", async () => {
+  it("parks and resolves separate permission focus with exact concurrent replay", async () => {
     const config = localConfig();
     const conversation = new SupabaseConversationRepository({
       supabaseSecretKey: config.supabaseSecretKey,
@@ -97,16 +103,7 @@ describe("local Supabase conversation controls", () => {
       supabaseUrl: config.supabaseUrl,
     });
     const base = 9_700_000_000 + randomInt(100_000_000);
-    const confirmedBefore = await rows(
-      config.supabaseUrl,
-      config.supabaseSecretKey,
-      "commitments",
-    );
-
-    await telegram.claimUpdate(base, config.telegramOwnerUserId);
-    await expect(
-      conversation.resetUnconfirmed(base, config.telegramOwnerUserId),
-    ).resolves.toMatchObject({ completed: true, status: "applied" });
+    clearConversationState();
 
     const oldFields: DecisionContextFields = {
       definitionOfDone: "Publish the old synthetic note",
@@ -173,20 +170,23 @@ describe("local Supabase conversation controls", () => {
       processingResult: "conversation" as const,
       updateId: permissionUpdate,
     };
-    await expect(
+    const createResults = await Promise.all([
       conversation.applyTurn(createPermissionCommand),
-    ).resolves.toMatchObject({
-      completed: true,
-      draftCreated: false,
-      status: "applied",
-    });
-    await expect(
       conversation.applyTurn(createPermissionCommand),
-    ).resolves.toMatchObject({
-      completed: true,
-      draftCreated: false,
-      status: "applied",
-    });
+    ]);
+    expect(createResults).toEqual([
+      expect.objectContaining({
+        completed: true,
+        draftCreated: false,
+        status: "applied",
+      }),
+      expect.objectContaining({
+        completed: true,
+        draftCreated: false,
+        status: "applied",
+      }),
+    ]);
+    expect(createResults[1]).toEqual(createResults[0]);
 
     const [parkedOld] = await rows(
       config.supabaseUrl,
@@ -231,16 +231,17 @@ describe("local Supabase conversation controls", () => {
       processingResult: "conversation" as const,
       updateId: acceptUpdate,
     } as const;
-    const accepted = await conversation.applyTurn(acceptCommand);
+    const [accepted, acceptedReplay] = await Promise.all([
+      conversation.applyTurn(acceptCommand),
+      conversation.applyTurn(acceptCommand),
+    ]);
     expect(accepted).toMatchObject({
       completed: true,
       draftCreated: true,
       status: "applied",
     });
     expect(accepted.draftReference?.id).not.toBe(oldReference.id);
-    await expect(conversation.applyTurn(acceptCommand)).resolves.toEqual(
-      accepted,
-    );
+    expect(acceptedReplay).toEqual(accepted);
     expect(
       await rows(
         config.supabaseUrl,
@@ -256,11 +257,7 @@ describe("local Supabase conversation controls", () => {
       }),
     ]);
 
-    await telegram.claimUpdate(base + 4, config.telegramOwnerUserId);
-    await conversation.resetUnconfirmed(
-      base + 4,
-      config.telegramOwnerUserId,
-    );
+    clearConversationState();
 
     await telegram.claimUpdate(base + 5, config.telegramOwnerUserId);
     const empty = await conversation.readTurn(base + 5);
@@ -317,16 +314,17 @@ describe("local Supabase conversation controls", () => {
       processingResult: "conversation" as const,
       updateId: base + 7,
     } as const;
-    const declined = await conversation.applyTurn(declineCommand);
+    const [declined, declinedReplay] = await Promise.all([
+      conversation.applyTurn(declineCommand),
+      conversation.applyTurn(declineCommand),
+    ]);
     expect(declined).toMatchObject({
       completed: true,
       draftCreated: false,
       draftReference: secondOldReference,
       status: "applied",
     });
-    await expect(conversation.applyTurn(declineCommand)).resolves.toEqual(
-      declined,
-    );
+    expect(declinedReplay).toEqual(declined);
     expect(
       await rows(
         config.supabaseUrl,
@@ -341,26 +339,6 @@ describe("local Supabase conversation controls", () => {
       }),
     ]);
 
-    const resetUpdate = base + 8;
-    await telegram.claimUpdate(resetUpdate, config.telegramOwnerUserId);
-    const resetResult = await conversation.resetUnconfirmed(
-      resetUpdate,
-      config.telegramOwnerUserId,
-    );
-    await expect(
-      conversation.resetUnconfirmed(
-        resetUpdate,
-        config.telegramOwnerUserId,
-      ),
-    ).resolves.toEqual(resetResult);
-    expect(
-      await rows(
-        config.supabaseUrl,
-        config.supabaseSecretKey,
-        "conversation_drafts",
-        "&state=in.(active,parked)",
-      ),
-    ).toHaveLength(0);
     expect(
       await rows(
         config.supabaseUrl,
@@ -368,13 +346,6 @@ describe("local Supabase conversation controls", () => {
         "conversation_permission_candidates",
       ),
     ).toHaveLength(0);
-    expect(
-      await rows(
-        config.supabaseUrl,
-        config.supabaseSecretKey,
-        "commitments",
-      ),
-    ).toHaveLength(confirmedBefore.length);
   });
 
   it("restores linked focus when permission expires during read or resolution", async () => {
@@ -409,14 +380,6 @@ describe("local Supabase conversation controls", () => {
       timingConstraints: [],
     };
 
-    const reset = async () => {
-      updateId += 1;
-      await telegram.claimUpdate(updateId, config.telegramOwnerUserId);
-      await conversation.resetUnconfirmed(
-        updateId,
-        config.telegramOwnerUserId,
-      );
-    };
     const createLinkedPermission = async () => {
       updateId += 1;
       await telegram.claimUpdate(updateId, config.telegramOwnerUserId);
@@ -459,7 +422,7 @@ describe("local Supabase conversation controls", () => {
       return oldCreated.draftReference!;
     };
 
-    await reset();
+    clearConversationState();
     const resolutionPrior = await createLinkedPermission();
     updateId += 1;
     await telegram.claimUpdate(updateId, config.telegramOwnerUserId);
@@ -548,7 +511,7 @@ describe("local Supabase conversation controls", () => {
       }),
     ]);
 
-    await reset();
+    clearConversationState();
     const readPrior = await createLinkedPermission();
     localSql(
       "update public.conversation_permission_candidates set expires_at = now() - interval '1 second' where singleton",
@@ -557,6 +520,7 @@ describe("local Supabase conversation controls", () => {
     await telegram.claimUpdate(updateId, config.telegramOwnerUserId);
     await expect(conversation.readTurn(updateId)).resolves.toEqual({
       completed: true,
+      draftReference: readPrior,
       kind: "interrupted",
     });
     expect(
@@ -573,7 +537,7 @@ describe("local Supabase conversation controls", () => {
       }),
     ]);
 
-    await reset();
+    clearConversationState();
     const expiredPrior = await createLinkedPermission();
     localSql(
       `update public.conversation_drafts set expires_at = now() - interval '1 second' where id = '${expiredPrior.id}'; update public.conversation_permission_candidates set expires_at = now() - interval '1 second' where singleton`,
@@ -602,104 +566,4 @@ describe("local Supabase conversation controls", () => {
     ).toHaveLength(0);
   });
 
-  it("fences an older claimed model turn after owner reset", async () => {
-    const config = localConfig();
-    const conversation = new SupabaseConversationRepository({
-      supabaseSecretKey: config.supabaseSecretKey,
-      supabaseUrl: config.supabaseUrl,
-    });
-    const telegram = new SupabaseTelegramRepository({
-      supabaseSecretKey: config.supabaseSecretKey,
-      supabaseUrl: config.supabaseUrl,
-    });
-    const base = 9_900_000_000 + randomInt(90_000_000);
-
-    await telegram.claimUpdate(base, config.telegramOwnerUserId);
-    await conversation.resetUnconfirmed(
-      base,
-      config.telegramOwnerUserId,
-    );
-
-    const slowUpdate = base + 1;
-    await telegram.claimUpdate(slowUpdate, config.telegramOwnerUserId);
-    const preResetSnapshot = await conversation.readTurn(slowUpdate);
-    expect(preResetSnapshot).toEqual({ kind: "none" });
-
-    const resetUpdate = base + 2;
-    await telegram.claimUpdate(resetUpdate, config.telegramOwnerUserId);
-    const resetResult = await conversation.resetUnconfirmed(
-      resetUpdate,
-      config.telegramOwnerUserId,
-    );
-    await expect(
-      conversation.resetUnconfirmed(
-        resetUpdate,
-        config.telegramOwnerUserId,
-      ),
-    ).resolves.toEqual(resetResult);
-
-    const proposedFields: DecisionContextFields = {
-      definitionOfDone: "This slow pre-reset result must not be saved",
-      durationMinutes: null,
-      offerWorkWindowHelp: false,
-      possibleWorkSession: false,
-      simpleAction: true,
-      targetAt: futureTarget(48),
-      targetTimeZone: "Asia/Singapore",
-      timingConstraints: [],
-    };
-    const staleCommand = {
-      action: "create_draft" as const,
-      audit: audit(
-        proposedFields,
-        "explicit_commitment",
-        "new_request",
-        "ready",
-      ),
-      expected: preResetSnapshot,
-      fields: proposedFields,
-      phase: "complete" as const,
-      processingResult: "conversation" as const,
-      updateId: slowUpdate,
-    };
-    const stale = await conversation.applyTurn(staleCommand);
-    expect(stale).toEqual({
-      completed: true,
-      draftCreated: false,
-      status: "stale",
-    });
-    await expect(conversation.applyTurn(staleCommand)).resolves.toEqual(
-      stale,
-    );
-    await expect(
-      conversation.applyTurn({
-        ...staleCommand,
-        fields: {
-          ...proposedFields,
-          definitionOfDone: "A changed stale replay also cannot save",
-        },
-      }),
-    ).resolves.toEqual(stale);
-    expect(
-      await rows(
-        config.supabaseUrl,
-        config.supabaseSecretKey,
-        "conversation_drafts",
-        "&state=in.(active,parked)",
-      ),
-    ).toHaveLength(0);
-    expect(
-      await rows(
-        config.supabaseUrl,
-        config.supabaseSecretKey,
-        "telegram_updates",
-        `&update_id=eq.${slowUpdate}`,
-      ),
-    ).toEqual([
-      expect.objectContaining({
-        processing_result: "conversation_interrupted",
-        processing_status: "processed",
-      }),
-    ]);
-  });
 });

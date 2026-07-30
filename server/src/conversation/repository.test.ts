@@ -411,6 +411,22 @@ describe("SupabaseConversationRepository", () => {
     ).resolves.toEqual(result);
   });
 
+  it("accepts restored draft authority on interrupted read", async () => {
+    const result = {
+      completed: true,
+      draftReference: {
+        id: "77777777-7777-4777-8777-777777777777",
+        version: 4,
+      },
+      kind: "interrupted",
+    };
+    const fetchFromSupabase = vi.fn(async () => Response.json(result));
+
+    await expect(
+      repositoryWith(fetchFromSupabase as typeof fetch).readTurn(9009),
+    ).resolves.toEqual(result);
+  });
+
   it.each(["applied", "expired", "interrupted", "stale"] as const)(
     "accepts bounded apply status %s",
     async (status) => {
@@ -605,34 +621,6 @@ describe("SupabaseConversationRepository", () => {
       p_expected_focus_id: focusedDraft.id,
       p_expected_focus_version: focusedDraft.version,
       p_update_id: 9015,
-    });
-  });
-
-  it("resets only owner unconfirmed conversation state through the bounded RPC", async () => {
-    const fetchFromSupabase = vi.fn(async () =>
-      Response.json({
-        completed: true,
-        draftCreated: false,
-        status: "applied",
-      })
-    );
-
-    await expect(
-      repositoryWith(fetchFromSupabase as typeof fetch)
-        .resetUnconfirmed(9016, 42),
-    ).resolves.toEqual({
-      completed: true,
-      draftCreated: false,
-      status: "applied",
-    });
-    expect(fetchFromSupabase.mock.calls[0][0]).toBe(
-      "http://127.0.0.1:54321/rest/v1/rpc/reset_owner_unconfirmed_conversation",
-    );
-    expect(
-      JSON.parse(String(fetchFromSupabase.mock.calls[0][1]?.body)),
-    ).toEqual({
-      p_owner_chat_id: 42,
-      p_update_id: 9016,
     });
   });
 

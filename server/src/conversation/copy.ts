@@ -26,7 +26,7 @@ export const conversationCopy = {
   permissionUnclear:
     "Please reply yes or no: would you like me to help turn that into a promise?",
   reset:
-    "Reset complete. Unconfirmed drafts were cleared. Confirmed promises were unchanged.",
+    "Reset is unavailable. Nothing was changed. Your confirmed promises and unconfirmed drafts are unchanged. Use /status to review them.",
 } as const;
 
 export function collectedDraftCopy(phase: ConversationPhase): string {

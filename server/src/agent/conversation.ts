@@ -371,14 +371,23 @@ export class SessionBackedAgentDecisionEngine implements DecisionEngine {
     const pending = this.#pendingTurns.get(completion.updateId);
     this.#pendingTurns.delete(completion.updateId);
 
-    if (pending === undefined) {
-      return;
-    }
     if (completion.status === "expired") {
       return;
     }
+    let session = pending?.session;
+    if (session === undefined) {
+      try {
+        session = await this.#repository.open(this.#chatId);
+      } catch {
+        this.#reportContinuityFailure(
+          "record_reply",
+          "repository_error",
+        );
+        return;
+      }
+    }
     try {
-      const recorded = await pending.session.recordApplicationReply({
+      const recorded = await session.recordApplicationReply({
         activeDraftId: completion.activeDraftId,
         assistantText: completion.assistantText,
         pendingQuestion: completion.pendingQuestion,

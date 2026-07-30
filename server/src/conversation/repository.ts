@@ -41,7 +41,11 @@ export type ConversationReadResult =
   | ConversationSnapshot
   | { completed: true; kind: "busy" }
   | { completed: true; kind: "expired" }
-  | { completed: true; kind: "interrupted" };
+  | {
+      completed: true;
+      draftReference?: { id: string; version: number };
+      kind: "interrupted";
+    };
 
 export type ExpectedConversationFocus =
   | { kind: "none" }
@@ -215,10 +219,6 @@ export interface ConversationDraftRepository
     query: string,
     limit?: number,
   ): Promise<ConversationDraftResolution>;
-  resetUnconfirmed(
-    updateId: number,
-    ownerChatId: number,
-  ): Promise<ConversationApplyResult>;
 }
 
 type SupabaseConversationRepositoryOptions = {
@@ -294,6 +294,31 @@ function parseReadResult(value: unknown): ConversationReadResult {
   if (["busy", "expired", "interrupted"].includes(value.kind)) {
     if (value.completed !== true) {
       throw new Error("Conversation read did not complete the update");
+    }
+    const draftReference = value.draftReference;
+    if (
+      draftReference !== undefined &&
+      (
+        value.kind !== "interrupted" ||
+        !isRecord(draftReference) ||
+        typeof draftReference.id !== "string" ||
+        !safeInteger(draftReference.version) ||
+        draftReference.version < 1
+      )
+    ) {
+      throw new Error(
+        "Conversation read returned an invalid restored draft reference",
+      );
+    }
+    if (value.kind === "interrupted" && draftReference !== undefined) {
+      return {
+        completed: true,
+        draftReference: {
+          id: draftReference.id as string,
+          version: draftReference.version as number,
+        },
+        kind: "interrupted",
+      };
     }
     return {
       completed: true,
@@ -690,18 +715,6 @@ export class SupabaseConversationRepository
       throw new Error("Conversation read failed");
     }
     return parseReadResult(await response.json());
-  }
-
-  async resetUnconfirmed(
-    updateId: number,
-    ownerChatId: number,
-  ): Promise<ConversationApplyResult> {
-    return parseApplyResult(
-      await this.#rpc("reset_owner_unconfirmed_conversation", {
-        p_owner_chat_id: ownerChatId,
-        p_update_id: updateId,
-      }),
-    );
   }
 
   async recordDecision(command: Readonly<{

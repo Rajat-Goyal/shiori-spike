@@ -867,11 +867,6 @@ describe("ConversationService", () => {
 
   it("handles exact /reset before reading state or calling the model", async () => {
     const readTurn = vi.fn();
-    const resetUnconfirmed = vi.fn(async () => ({
-      completed: true,
-      draftCreated: false,
-      status: "applied" as const,
-    }));
     const decide = vi.fn();
     const service = new ConversationService({
       decisionEngine: { decide },
@@ -882,14 +877,12 @@ describe("ConversationService", () => {
         applyTurn: vi.fn(),
         patchFocusedDraft: vi.fn(),
         readTurn,
-        resetUnconfirmed,
       },
     });
 
     await expect(service.handle(6996, "/reset")).resolves.toBe(
       conversationCopy.reset,
     );
-    expect(resetUnconfirmed).toHaveBeenCalledWith(6996, 42);
     expect(readTurn).not.toHaveBeenCalled();
     expect(decide).not.toHaveBeenCalled();
   });
@@ -2266,6 +2259,33 @@ describe("ConversationService", () => {
     },
   );
 
+  it("clears expired permission context and restores read-time draft focus", async () => {
+    const restored = {
+      id: "88888888-8888-4888-8888-888888888888",
+      version: 6,
+    };
+    const test = controlled(
+      {
+        completed: true,
+        draftReference: restored,
+        kind: "interrupted",
+      },
+      success(decision(completeFields)),
+    );
+
+    await expect(
+      test.service.handle(70141, "must not reach model"),
+    ).resolves.toBe(conversationCopy.interrupted);
+    expect(test.decide).not.toHaveBeenCalled();
+    expect(test.completeTurn).toHaveBeenCalledWith({
+      activeDraftId: restored.id,
+      assistantText: conversationCopy.interrupted,
+      pendingQuestion: "clear",
+      status: "active",
+      updateId: 70141,
+    });
+  });
+
   it.each([
     "http",
     "provider_error",
@@ -2428,6 +2448,34 @@ describe("ConversationService", () => {
       await expect(test.service.handle(7016, "owner input")).resolves.toBe(copy);
     },
   );
+
+  it("clears expired permission context after interrupted resolution", async () => {
+    const snapshot = activeDraft("complete", completeFields);
+    const test = controlled(
+      snapshot,
+      success(ordinary("Answer")),
+    );
+    test.repository.applyResult = {
+      completed: true,
+      draftCreated: false,
+      draftReference: {
+        id: snapshot.id,
+        version: snapshot.version,
+      },
+      status: "interrupted",
+    };
+
+    await expect(
+      test.service.handle(70161, "owner input"),
+    ).resolves.toBe(conversationCopy.interrupted);
+    expect(test.completeTurn).toHaveBeenCalledWith({
+      activeDraftId: snapshot.id,
+      assistantText: conversationCopy.interrupted,
+      pendingQuestion: "clear",
+      status: "active",
+      updateId: 70161,
+    });
+  });
 
   it("throws opaquely if repository does not atomically complete the update", async () => {
     const test = controlled(

@@ -57,9 +57,7 @@ type ConversationServiceOptions = {
   promptVersion: string;
   repository: ConversationRepository &
     Pick<ConversationDraftRepository, "patchFocusedDraft"> &
-    Partial<
-      Pick<ConversationDraftRepository, "listDrafts" | "resetUnconfirmed">
-    >;
+    Partial<Pick<ConversationDraftRepository, "listDrafts">>;
   statusService?: {
     read(): Promise<readonly TelegramReply[]>;
   };
@@ -379,7 +377,7 @@ export class ConversationService {
     ownerText: string,
   ): Promise<ConversationHandleReply> {
     if (ownerText === "/reset") {
-      return this.#reset(updateId);
+      return conversationCopy.reset;
     }
     const read = await this.#repository.readTurn(updateId);
     if (read.kind === "expired") {
@@ -393,6 +391,13 @@ export class ConversationService {
       return conversationCopy.expired;
     }
     if (read.kind === "interrupted") {
+      await this.#decisionEngine.completeTurn?.({
+        activeDraftId: read.draftReference?.id ?? null,
+        assistantText: conversationCopy.interrupted,
+        pendingQuestion: "clear",
+        status: read.draftReference ? "active" : "closed",
+        updateId,
+      });
       return conversationCopy.interrupted;
     }
     if (read.kind === "busy") {
@@ -651,28 +656,6 @@ export class ConversationService {
       updateId,
     });
     return replies;
-  }
-
-  async #reset(updateId: number): Promise<ConversationReply> {
-    if (
-      this.#ownerChatId === undefined ||
-      this.#repository.resetUnconfirmed === undefined
-    ) {
-      return "Reset is unavailable here. No conversation state was changed.";
-    }
-    const result = await this.#repository.resetUnconfirmed(
-      updateId,
-      this.#ownerChatId,
-    );
-    if (
-      !result.completed ||
-      !["applied", "stale"].includes(result.status)
-    ) {
-      throw new Error("Conversation reset did not complete");
-    }
-    return result.status === "applied"
-      ? conversationCopy.reset
-      : "Reset was already handled. Confirmed promises were unchanged.";
   }
 
   async #withoutState(
@@ -1263,6 +1246,15 @@ export class ConversationService {
         assistantText,
         pendingQuestion: "clear",
         status: "expired",
+        updateId: command.updateId,
+      };
+    }
+    if (result.status === "interrupted") {
+      return {
+        activeDraftId: result.draftReference?.id ?? null,
+        assistantText,
+        pendingQuestion: "clear",
+        status: result.draftReference ? "active" : "closed",
         updateId: command.updateId,
       };
     }

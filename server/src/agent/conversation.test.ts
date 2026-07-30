@@ -391,6 +391,27 @@ describe("SessionBackedAgentDecisionEngine", () => {
     expect(test.repository.clear).not.toHaveBeenCalled();
   });
 
+  it("clears a pre-decision permission question in the durable session", async () => {
+    const test = fixture();
+    const restoredDraftId = "88888888-8888-4888-8888-888888888888";
+
+    await test.engine.completeTurn({
+      activeDraftId: restoredDraftId,
+      assistantText: conversationCopy.interrupted,
+      pendingQuestion: "clear",
+      status: "active",
+      updateId: 121,
+    });
+
+    expect(test.repository.open).toHaveBeenCalledWith(42);
+    expect(test.session.recordApplicationReply).toHaveBeenCalledWith({
+      activeDraftId: restoredDraftId,
+      assistantText: conversationCopy.interrupted,
+      pendingQuestion: "clear",
+      updateId: 121,
+    });
+  });
+
   it("retains durable history when a draft conversation closes", async () => {
     const test = fixture();
     await test.engine.decide(
@@ -985,7 +1006,7 @@ describe("SessionBackedAgentDecisionEngine", () => {
     ).resolves.toBe(conversationCopy.interrupted);
 
     expect(conversationRepository.applyTurn).toHaveBeenCalledTimes(1);
-    expect(test.session.recordApplicationReply).toHaveBeenCalledTimes(1);
+    expect(test.session.recordApplicationReply).toHaveBeenCalledTimes(2);
     expect(test.continuityFailures).toHaveBeenCalledWith({
       event: "agent_session_continuity_dropped",
       operation: "record_reply",
