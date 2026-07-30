@@ -325,6 +325,25 @@ function decisionInput(
   }
 }
 
+/**
+ * Re-asks whatever is still outstanding for the preserved snapshot.
+ *
+ * Every phase already has an application-owned question; a rejected turn simply
+ * repeats it.
+ */
+function recoveryCopy(snapshot: ConversationSnapshot): string {
+  switch (snapshot.kind) {
+    case "draft":
+      return snapshot.phase === "complete"
+        ? conversationCopy.recoverComplete
+        : collectedDraftCopy(snapshot.phase);
+    case "permission":
+      return conversationCopy.permissionUnclear;
+    case "none":
+      return conversationCopy.recoverNoDraft;
+  }
+}
+
 function safeFailure(snapshot: ConversationSnapshot): string {
   return snapshot.kind === "draft"
     ? conversationCopy.failureWithDraft
@@ -1278,8 +1297,19 @@ export class ConversationService {
    * indistinguishable in a screenshot. Off by default and temporary: it goes
    * away once failures continue the conversation instead of apologizing.
    */
+  /**
+   * Forward-moving reply for a turn the application rejected.
+   *
+   * A rejected turn preserves state and changes nothing, so the owner does not
+   * need an apology — they need the pending question again. The application
+   * already knows what is outstanding, so it answers from its own authoritative
+   * snapshot rather than dead-ending on "I couldn't safely process that".
+   *
+   * Refusal is reserved for the write boundary; nothing here can save, schedule,
+   * or mutate.
+   */
   #failureCopy(snapshot: ConversationSnapshot, code: string): string {
-    const base = safeFailure(snapshot);
+    const base = recoveryCopy(snapshot);
     return this.#failureCodes ? `${base} [${code}]` : base;
   }
 

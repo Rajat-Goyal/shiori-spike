@@ -604,7 +604,7 @@ describe("bounded Agents SDK runtime", () => {
           startAt: null,
           timingConstraints: null,
         }),
-      ).resolves.toEqual({
+      ).resolves.toMatchObject({
         accepted: false,
         reason: "input_invalid",
       });
@@ -649,7 +649,7 @@ describe("bounded Agents SDK runtime", () => {
           startAt: null,
           timingConstraints: null,
         }),
-      ).resolves.toEqual({
+      ).resolves.toMatchObject({
         accepted: false,
         reason: "input_invalid",
       });
@@ -681,7 +681,7 @@ describe("bounded Agents SDK runtime", () => {
           startAt: null,
           timingConstraints: null,
         }),
-      ).resolves.toEqual({
+      ).resolves.toMatchObject({
         accepted: false,
         reason: "input_invalid",
       });
@@ -775,7 +775,7 @@ describe("bounded Agents SDK runtime", () => {
           startAt: null,
           timingConstraints: null,
         }),
-      ).resolves.toEqual({
+      ).resolves.toMatchObject({
         accepted: false,
         reason: "input_invalid",
       });
@@ -986,8 +986,12 @@ describe("bounded Agents SDK runtime", () => {
         targetAt: "2026-07-29T09:00:00+08:00",
         turnRelation: "clarification_continuation",
       });
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         accepted: false,
+        // The repair guidance is the point: a bare enum tells the model that it
+        // failed and never what to change, so the in-run retry is wasted.
+        correction:
+          "Use a target strictly after the immutable decision reference time.",
         reason: "target_not_future",
       });
       return emptyResult();
@@ -1149,7 +1153,7 @@ describe("bounded Agents SDK runtime", () => {
         targetAt: "2026-07-30T17:00:00+08:00",
         turnRelation: "clarification_continuation",
       });
-      expect(response).toEqual({
+      expect(response).toMatchObject({
         accepted: false,
         reason: "draft_target_invalid",
       });
@@ -1297,7 +1301,7 @@ describe("bounded Agents SDK runtime", () => {
             kind: "draft",
           },
         }),
-      ).resolves.toEqual({
+      ).resolves.toMatchObject({
         accepted: false,
         reason: "draft_target_invalid",
       });
@@ -1323,7 +1327,7 @@ describe("bounded Agents SDK runtime", () => {
           ...separateProposal,
           targetAt: "tomorrow at five",
         }),
-      ).resolves.toEqual({
+      ).resolves.toMatchObject({
         accepted: false,
         reason: "target_format_invalid",
       });

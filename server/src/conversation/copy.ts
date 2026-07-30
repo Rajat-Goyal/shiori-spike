@@ -25,6 +25,13 @@ export const conversationCopy = {
     "I’m still waiting for your answer about the current intention. I didn’t start another promise.\n\nPlease reply yes or no: would you like me to help turn that into a promise?",
   permissionUnclear:
     "Please reply yes or no: would you like me to help turn that into a promise?",
+  // Recovery copy replaces the old fail-closed apology. A rejected turn changes
+  // no state, so the honest and useful reply is to re-ask what is still pending
+  // rather than dead-end the owner with "I couldn't safely process that".
+  recoverComplete:
+    "Your promise is ready and unchanged. Send /status to see it, or tell me what to change.",
+  recoverNoDraft:
+    "I didn’t catch that. Tell me what you’ll do and when, and I’ll set it up.",
   reset:
     "Reset is unavailable. Nothing was changed. Your confirmed promises and unconfirmed drafts are unchanged. Use /status to review them.",
 } as const;

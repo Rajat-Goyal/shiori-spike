@@ -35,6 +35,7 @@ import {
   parseProviderDecisionStructure,
 } from "../decision/schema.js";
 import {
+  correctiveInstructions,
   evaluateDecisionSemantics,
   materializeProviderDecision,
   validateDecisionInputSemantics,
@@ -58,7 +59,10 @@ import type {
 import { normalizeTimingConstraints } from "../work-sessions/availability-integration.js";
 import type { WorkSessionContinuationConversationInput } from "../work-sessions/continuation.js";
 
-export const AGENT_RUNTIME_MAX_TURNS = 4;
+// Raised from 4: a rejected proposal now carries repair guidance, and at 4 a
+// single rejection after two context reads exhausted the budget and returned
+// missing_output instead of a corrected proposal.
+export const AGENT_RUNTIME_MAX_TURNS = 8;
 export const AGENT_RUNTIME_TIMEOUT_MS = 30_000;
 export const AGENT_RUNTIME_TOOL_NAMES = [
   "read_context",
@@ -449,6 +453,28 @@ function fail(
  * traces, and a trace without the prompt or completion cannot explain why a
  * proposal failed validation. Provider-side storage stays disabled regardless.
  */
+/**
+ * Rejection payload handed back to the model.
+ *
+ * Carries the repair guidance, not just the reason code, so the in-run retry has
+ * something to act on.
+ */
+function rejected(
+  reason: DecisionTelemetryReason,
+): { accepted: false; correction?: string; reason: string } {
+  const correction =
+    reason in correctiveInstructions
+      ? correctiveInstructions[
+          reason as keyof typeof correctiveInstructions
+        ]
+      : undefined;
+  return {
+    accepted: false,
+    reason,
+    ...(correction === undefined ? {} : { correction }),
+  };
+}
+
 function agentSafety(tracingEnabled: boolean): AgentRunnerSafetySettings {
   return {
     modelStore: false,
@@ -883,13 +909,13 @@ function buildTools(
     execute: (value) => {
       if (context.input === null) {
         context.lastSemanticFailure = "input_invalid";
-        return { accepted: false, reason: "input_invalid" };
+        return rejected("input_invalid");
       }
       const { target, ...providerValue } = value;
       const providerDecision = parseProviderDecisionStructure(providerValue);
       if (providerDecision === null) {
         context.lastSemanticFailure = "schema";
-        return { accepted: false, reason: "schema" };
+        return rejected("schema");
       }
       const proposal = materializeProviderDecision(
         providerDecision,
@@ -903,7 +929,7 @@ function buildTools(
       );
       if (!semantic.ok) {
         context.lastSemanticFailure = semantic.reason;
-        return { accepted: false, reason: semantic.reason };
+        return rejected(semantic.reason);
       }
       const patchesDraft = [
         "clarification_continuation",
@@ -921,11 +947,11 @@ function buildTools(
         )
       ) {
         context.lastSemanticFailure = "draft_target_invalid";
-        return { accepted: false, reason: "draft_target_invalid" };
+        return rejected("draft_target_invalid");
       }
       if (!patchesDraft && target !== null) {
         context.lastSemanticFailure = "draft_target_invalid";
-        return { accepted: false, reason: "draft_target_invalid" };
+        return rejected("draft_target_invalid");
       }
       context.proposal = proposal;
       context.proposalTarget = target;
@@ -1065,7 +1091,7 @@ function buildTools(
       }
       if (!stageValid || normalizedTiming?.status === "invalid") {
         context.lastSemanticFailure = "input_invalid";
-        return { accepted: false, reason: "input_invalid" };
+        return rejected("input_invalid");
       }
       context.workSessionInput = {
         ...value,
@@ -1105,7 +1131,7 @@ function buildTools(
         awaiting[0]!.version !== value.intentVersion
       ) {
         context.lastSemanticFailure = "input_invalid";
-        return { accepted: false, reason: "input_invalid" };
+        return rejected("input_invalid");
       }
       context.continuationInput = value;
       context.lastSemanticFailure = undefined;
@@ -1182,7 +1208,7 @@ function buildTools(
         )
       ) {
         context.lastSemanticFailure = "input_invalid";
-        return { accepted: false, reason: "input_invalid" };
+        return rejected("input_invalid");
       }
       context.initialWorkSessionInput = {
         ...value,

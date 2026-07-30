@@ -7,6 +7,7 @@ import {
   parseProviderDecisionStructure,
 } from "./schema.js";
 import {
+  correctiveInstructions,
   type DecisionSemanticFailureReason,
   evaluateDecisionSemantics,
   materializeProviderDecision,
@@ -287,52 +288,6 @@ function instructions(
   ].join(" ");
 }
 
-const correctiveInstructions = {
-  clarification_context_mutation:
-    "Preserve every populated context candidate field exactly.",
-  clarification_filled_nothing:
-    "A clarification must fill at least one null context candidate field.",
-  complete_mode_unresolved:
-    "Resolve a complete candidate to simple_action or possible_work_session.",
-  correction_changed_nothing:
-    "Use correction only when a populated context candidate field changes.",
-  definition_blank:
-    "Use a non-blank definitionOfDone or null.",
-  draft_target_invalid:
-    "Use the exact application-owned target only for a clarification or correction; a separate request must use no target.",
-  implied_payload_conflict:
-    "For implied_intention, keep duration null and use ask_permission.",
-  incomplete_mode_resolved:
-    "Use unresolved commitmentMode whenever either core field is missing.",
-  input_invalid:
-    "Follow the supplied bounded phase and context exactly.",
-  missing_fields_invalid:
-    "Derive missingFields only from absent core fields in canonical order.",
-  next_action_invalid:
-    "Choose the nextAction implied by class, core fields, mode, and duration.",
-  ordinary_payload_conflict:
-    "For ordinary_question, return no commitment candidate fields.",
-  permission_candidate_mismatch:
-    "For permission_accepted, copy every context candidate field exactly.",
-  response_blank:
-    "Return a non-blank response.",
-  simple_work_fields:
-    "Do not attach duration or work-help fields to simple_action.",
-  target_format_invalid:
-    "Use a real calendar date in absolute RFC3339 format.",
-  target_not_future:
-    "Use a target strictly after the immutable decision reference time.",
-  target_pair_invalid:
-    "Return an absolute targetAt or null.",
-  target_timezone_invalid:
-    "Use the exact +08:00 offset in targetAt.",
-  timing_constraint_invalid:
-    "Use only non-blank bounded timing constraints.",
-  unsafe_relation:
-    "Choose only the relation allowed for the supplied phase and class.",
-  unresolved_work_help:
-    "Keep work-help false until the candidate mode is resolved.",
-} as const satisfies Record<DecisionSemanticFailureReason, string>;
 
 function requestInstructions(
   promptVersion: string,

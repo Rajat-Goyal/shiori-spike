@@ -1358,7 +1358,7 @@ describe("ConversationService", () => {
     );
 
     await expect(test.service.handle(7002, "yes")).resolves.toBe(
-      conversationCopy.failureNoDraft,
+      conversationCopy.permissionUnclear,
     );
     expect(test.repository.commands[0]).toMatchObject({
       action: "preserve",
@@ -1787,7 +1787,9 @@ describe("ConversationService", () => {
 
     await expect(
       test.service.handle(70116, "Move the finance report"),
-    ).resolves.toBe(conversationCopy.failureWithDraft);
+      // The focused snapshot is awaiting_target, so a stale CAS re-asks for the
+      // target rather than dead-ending.
+    ).resolves.toBe(conversationCopy.missingTarget);
     expect(test.repository.commands).toHaveLength(1);
     expect(test.repository.commands[0]).toMatchObject({
       target: {
@@ -1810,7 +1812,7 @@ describe("ConversationService", () => {
     );
 
     await expect(test.service.handle(7011, "invalid relation")).resolves.toBe(
-      conversationCopy.failureWithDraft,
+      conversationCopy.recoverComplete,
     );
     expect(test.repository.commands[0]).toMatchObject({
       action: "preserve",
@@ -2109,7 +2111,7 @@ describe("ConversationService", () => {
 
     await expect(
       test.service.handle(70122, "private malformed separate promise"),
-    ).resolves.toBe(conversationCopy.failureWithDraft);
+    ).resolves.toBe(conversationCopy.recoverComplete);
     expect(test.repository.commands).toEqual([{
       action: "preserve",
       expected: {
@@ -2314,7 +2316,7 @@ describe("ConversationService", () => {
       const test = controlled(snapshot, failureOutcome(failure));
 
       await expect(test.service.handle(7015, "private sentinel")).resolves.toBe(
-        conversationCopy.failureWithDraft,
+        conversationCopy.recoverComplete,
       );
       expect(test.repository.commands[0]).toEqual({
         action: "preserve",
@@ -2362,7 +2364,7 @@ describe("ConversationService", () => {
     });
 
     await expect(service.handle(7015, "private sentinel")).resolves.toBe(
-      conversationCopy.failureWithDraft,
+      conversationCopy.recoverComplete,
     );
     expect(repository.commands[0]).toMatchObject({
       action: "preserve",
@@ -2421,7 +2423,7 @@ describe("ConversationService", () => {
     });
 
     await expect(service.handle(7015, "private sentinel")).resolves.toBe(
-      conversationCopy.failureWithDraft,
+      conversationCopy.recoverComplete,
     );
     expect(decisionFailureEvents).toHaveBeenCalledWith({
       attemptCount: 0,
@@ -2457,7 +2459,7 @@ describe("ConversationService", () => {
     // The fail-closed reply and the opaque "http" class stay unchanged; the new
     // event is the only way to tell a Supabase outage from a provider outage.
     await expect(service.handle(7015, "private sentinel")).resolves.toBe(
-      conversationCopy.failureWithDraft,
+      conversationCopy.recoverComplete,
     );
     expect(decisionFailureEvents).toHaveBeenCalledWith({
       attemptCount: 0,
@@ -2493,7 +2495,7 @@ describe("ConversationService", () => {
     });
 
     await expect(service.handle(7017, "owner input")).resolves.toBe(
-      conversationCopy.failureWithDraft,
+      conversationCopy.recoverComplete,
     );
   });
 
@@ -2507,7 +2509,7 @@ describe("ConversationService", () => {
       status: "interrupted",
     },
     {
-      copy: conversationCopy.failureWithDraft,
+      copy: conversationCopy.recoverComplete,
       status: "stale",
     },
   ] as const)(
@@ -2593,12 +2595,14 @@ describe("ConversationService failure attribution", () => {
     // existed there was no way to tell them apart in production.
     const cases = [
       {
+        expectedReply: conversationCopy.recoverNoDraft,
         expectedSite: "no_state_relation_invalid",
         outcome: success(ordinary("", "new_request")),
         snapshot: { completed: true, kind: "none" } as const,
         updateId: 8001,
       },
       {
+        expectedReply: conversationCopy.permissionUnclear,
         expectedSite: "permission_candidate_mismatch",
         outcome: success(
           decision(incompleteFields, {
@@ -2609,6 +2613,7 @@ describe("ConversationService failure attribution", () => {
         updateId: 8002,
       },
       {
+        expectedReply: conversationCopy.permissionUnclear,
         expectedSite: "permission_decline_class_invalid",
         outcome: success(
           decision(completeFields, {
@@ -2619,12 +2624,14 @@ describe("ConversationService failure attribution", () => {
         updateId: 8003,
       },
       {
+        expectedReply: conversationCopy.missingTarget,
         expectedSite: "draft_ordinary_response_missing",
         outcome: success(ordinary("", "none")),
         snapshot: activeDraft("awaiting_target", targetMissingFields),
         updateId: 8004,
       },
       {
+        expectedReply: conversationCopy.recoverComplete,
         expectedSite: "clarification_against_complete_draft",
         outcome: success(
           decision(completeFields, {
@@ -2644,11 +2651,8 @@ describe("ConversationService failure attribution", () => {
         "owner input",
       );
 
-      expect(reply).toBe(
-        scenario.snapshot.kind === "draft"
-          ? conversationCopy.failureWithDraft
-          : conversationCopy.failureNoDraft,
-      );
+      // A rejected turn re-asks what is still pending instead of apologizing.
+      expect(reply).toBe(scenario.expectedReply);
       expect(reportedFailureSites(test.conversationFailureEvents)).toEqual([
         scenario.expectedSite,
       ]);
@@ -2682,7 +2686,7 @@ describe("ConversationService failure attribution", () => {
     test.repository.applyResult.status = "stale";
 
     await expect(test.service.handle(8007, "owner input")).resolves.toBe(
-      conversationCopy.failureWithDraft,
+      conversationCopy.recoverComplete,
     );
     expect(reportedFailureSites(test.conversationFailureEvents)).toEqual([
       "apply_stale",
@@ -2707,7 +2711,7 @@ describe("ConversationService failure attribution", () => {
     });
 
     await expect(service.handle(8008, "owner input")).resolves.toBe(
-      conversationCopy.failureNoDraft,
+      conversationCopy.recoverNoDraft,
     );
   });
 
@@ -2751,7 +2755,7 @@ describe("ConversationService failure attribution", () => {
     expect(settled).toBe(false);
 
     releaseWrite();
-    await expect(handled).resolves.toBe(conversationCopy.failureNoDraft);
+    await expect(handled).resolves.toBe(conversationCopy.recoverNoDraft);
     expect(records).toEqual([
       {
         site: "no_state_relation_invalid",
@@ -2808,20 +2812,20 @@ describe("ConversationService failure attribution", () => {
     );
 
     await expect(test.service.handle(8012, "owner input")).resolves.toBe(
-      conversationCopy.failureNoDraft,
+      conversationCopy.recoverNoDraft,
     );
   });
 
   it("tags the failure reply with its reason code when enabled", async () => {
     for (const scenario of [
       {
-        expected: `${conversationCopy.failureNoDraft} [no_state_relation_invalid]`,
+        expected: `${conversationCopy.recoverNoDraft} [no_state_relation_invalid]`,
         outcome: success(ordinary("", "new_request")),
         snapshot: { completed: true, kind: "none" } as const,
         updateId: 8013,
       },
       {
-        expected: `${conversationCopy.failureWithDraft} [decision_clarification_context_mutation]`,
+        expected: `${conversationCopy.missingDefinition} [decision_clarification_context_mutation]`,
         outcome: {
           attemptCount: 2 as const,
           failure: "semantic" as const,
