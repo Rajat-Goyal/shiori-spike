@@ -7,6 +7,15 @@ export type ServerConfig = Readonly<{
   agentSessionRetentionSeconds: number;
   conversationFailureCodes: boolean;
   dashboardPasswordHash: string;
+  /**
+   * Present only when both Langfuse keys are configured. Tracing is optional:
+   * the bot must run identically with observability switched off.
+   */
+  langfuse?: Readonly<{
+    baseUrl?: string;
+    publicKey: string;
+    secretKey: string;
+  }>;
   dashboardSessionSecret: string;
   googleOAuthClientId: string;
   googleOAuthClientSecret: string;
@@ -78,6 +87,56 @@ function optionalFlag(
     );
   }
   return value === "true";
+}
+
+function optionalValue(
+  environment: NodeJS.ProcessEnv,
+  key: string,
+): string | undefined {
+  const value = environment[key]?.trim();
+  return !value || PLACEHOLDER.test(value) ? undefined : value;
+}
+
+/**
+ * Resolves optional Langfuse credentials.
+ *
+ * Both keys are required together: one alone is a misconfiguration that would
+ * otherwise fail silently at export time, long after startup.
+ */
+function optionalLangfuse(
+  environment: NodeJS.ProcessEnv,
+): ServerConfig["langfuse"] {
+  const publicKey = optionalValue(environment, "LANGFUSE_PUBLIC_KEY");
+  const secretKey = optionalValue(environment, "LANGFUSE_SECRET_KEY");
+  const baseUrl = optionalValue(environment, "LANGFUSE_BASE_URL");
+  if (publicKey === undefined && secretKey === undefined) {
+    return undefined;
+  }
+  if (publicKey === undefined || secretKey === undefined) {
+    throw new Error(
+      "Invalid server configuration: LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY must be set together",
+    );
+  }
+  if (baseUrl !== undefined) {
+    let parsed: URL;
+    try {
+      parsed = new URL(baseUrl);
+    } catch {
+      throw new Error(
+        "Invalid server configuration: LANGFUSE_BASE_URL must be an absolute URL",
+      );
+    }
+    if (parsed.protocol !== "https:") {
+      throw new Error(
+        "Invalid server configuration: LANGFUSE_BASE_URL must use HTTPS",
+      );
+    }
+  }
+  return {
+    publicKey,
+    secretKey,
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+  };
 }
 
 function required(environment: NodeJS.ProcessEnv, key: string): string {
@@ -207,6 +266,7 @@ export function readServerConfig(
       minimum: AGENT_SESSION_MIN_RETENTION_SECONDS,
     },
   );
+  const langfuse = optionalLangfuse(environment);
   const dashboardPasswordHash = required(environment, "DASHBOARD_PASSWORD_HASH");
   const dashboardSessionSecret = required(environment, "DASHBOARD_SESSION_SECRET");
   const googleOAuthClientId = required(environment, "GOOGLE_OAUTH_CLIENT_ID");
@@ -286,6 +346,7 @@ export function readServerConfig(
       "CONVERSATION_FAILURE_CODES",
     ),
     dashboardPasswordHash,
+    ...(langfuse === undefined ? {} : { langfuse }),
     dashboardSessionSecret: sessionSecret(dashboardSessionSecret),
     googleOAuthClientId: boundedIdentifier(
       googleOAuthClientId,

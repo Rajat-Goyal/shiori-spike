@@ -261,8 +261,7 @@ Record the input, structured decision, application action, stored state, Telegra
 - Behavioural inference.
 - Advanced or semantic memory.
 - Memory export or complete deletion workflows.
-- Prompt management platforms such as Langfuse.
-- Formal eval platforms, repeated runs, trace review, cost analysis, or latency analysis.
+- Formal eval platforms, repeated runs, automated scoring, or experiment tracking.
 - Dashboard commitment write controls.
 - Email, WhatsApp, wearables, or ambient listening.
 - Multi-user onboarding and account management.
@@ -279,5 +278,6 @@ Additional context sources such as email or activity data remain separate produc
 - **Core product behaviour:** intent judgment, structured output, permission, one-off and simple recurring commitments, calendar-event matching, calendar-aware timing, optional work sessions, commitment management, reminders, check-ins, outcomes, the live dashboard, and honest end-to-end evidence.
 - **Platform foundation:** Telegram ingress and inline actions, persistence, event-ledger primitives, scheduler, read-only Calendar authorization and bounded event access, secret loading, owner boundaries, Railway configuration, duplicate protection, and recovery checkpoints.
 - **Dashboard scope:** real commitments, relevant read-only calendar events, confirmed commitment-event relationships, real work-session and reminder outcomes, factual summaries, history derived from the event ledger, operational states, accessibility, and responsive design.
-- **Deferred until supported by evidence and tooling:** behavioural inference, adaptation, coaching, experiments, advanced memory, prompt versioning, and formal evaluation.
+- **Observability:** Langfuse carries agent traces and versioned prompts. Tracing is optional at runtime: the application runs identically with the keys absent. Traces include prompt and completion content, which is a deliberate owner decision — a trace without it cannot explain why a proposal failed validation.
+- **Deferred until supported by evidence and tooling:** behavioural inference, adaptation, coaching, experiments, and formal evaluation.
 - **Never represented with runtime mock data:** commitments, outcomes, calendar state, history, or dashboard summaries.

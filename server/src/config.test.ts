@@ -95,6 +95,50 @@ describe("readServerConfig", () => {
     }
   });
 
+  it("treats Langfuse credentials as optional but paired", () => {
+    expect(readServerConfig(validEnvironment).langfuse).toBeUndefined();
+    expect(
+      readServerConfig({
+        ...validEnvironment,
+        LANGFUSE_PUBLIC_KEY: "<pk>",
+        LANGFUSE_SECRET_KEY: "<sk>",
+      }).langfuse,
+    ).toBeUndefined();
+    expect(
+      readServerConfig({
+        ...validEnvironment,
+        LANGFUSE_BASE_URL: "https://us.cloud.langfuse.com",
+        LANGFUSE_PUBLIC_KEY: "pk-lf-test",
+        LANGFUSE_SECRET_KEY: "sk-lf-test",
+      }).langfuse,
+    ).toEqual({
+      baseUrl: "https://us.cloud.langfuse.com",
+      publicKey: "pk-lf-test",
+      secretKey: "sk-lf-test",
+    });
+  });
+
+  it("rejects a half-configured or insecure Langfuse target", () => {
+    for (const overrides of [
+      { LANGFUSE_PUBLIC_KEY: "pk-lf-test" },
+      { LANGFUSE_SECRET_KEY: "sk-lf-test" },
+    ]) {
+      expect(() =>
+        readServerConfig({ ...validEnvironment, ...overrides }),
+      ).toThrow(/LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY/);
+    }
+    for (const baseUrl of ["http://cloud.langfuse.com", "not-a-url"]) {
+      expect(() =>
+        readServerConfig({
+          ...validEnvironment,
+          LANGFUSE_BASE_URL: baseUrl,
+          LANGFUSE_PUBLIC_KEY: "pk-lf-test",
+          LANGFUSE_SECRET_KEY: "sk-lf-test",
+        }),
+      ).toThrow(/LANGFUSE_BASE_URL/);
+    }
+  });
+
   it("allows HTTP only for a loopback Supabase URL", () => {
     expect(readServerConfig(validEnvironment).supabaseUrl).toBe(
       "http://127.0.0.1:54321",

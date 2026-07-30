@@ -100,6 +100,8 @@ export type AppOptions = {
   logger?: FastifyServerOptions["logger"];
   now?: () => Date;
   serveStatic?: boolean;
+  /** True when Langfuse tracing was started, so agent runs emit spans. */
+  tracingEnabled?: boolean;
   simpleReminderScheduler?: {
     start(): void;
     stop(): Promise<void>;
@@ -209,6 +211,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     onRuntimeFailure: (event) => {
       app.log.error(event);
     },
+    tracingEnabled: options.tracingEnabled === true,
     executeCommitment: async (authority, proposal) =>
       executeApprovedCommitment
         ? executeApprovedCommitment(authority, proposal)

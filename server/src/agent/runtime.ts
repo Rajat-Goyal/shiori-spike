@@ -232,9 +232,10 @@ export type AgentRunnerResumeRequest = Readonly<{
 }>;
 
 export type AgentRunnerSafetySettings = Readonly<{
+  /** Provider-side storage is a hard boundary and is never enabled. */
   modelStore: false;
-  traceIncludeSensitiveData: false;
-  tracingDisabled: true;
+  traceIncludeSensitiveData: boolean;
+  tracingDisabled: boolean;
 }>;
 
 export interface AgentRunner {
@@ -255,6 +256,11 @@ export type AgentRuntimeOptions = Readonly<{
     request: SanitizedAvailabilityRequest,
   ) => Promise<readonly SanitizedAvailabilitySlot[]>;
   onRuntimeFailure?: (event: AgentRuntimeFailureEvent) => void;
+  /**
+   * Enables the Agents SDK trace pipeline so registered processors receive the
+   * run. Off by default: with no processor attached, tracing is pure overhead.
+   */
+  tracingEnabled?: boolean;
   runner?: AgentRunner;
   updateCommitment?: (
     authority: ApprovedAgentExecutionAuthority,
@@ -422,6 +428,21 @@ function fail(
     ok: false,
     reason,
     stage,
+  };
+}
+
+/**
+ * Agent run safety settings.
+ *
+ * `traceIncludeSensitiveData` follows tracing: the owner chose full-content
+ * traces, and a trace without the prompt or completion cannot explain why a
+ * proposal failed validation. Provider-side storage stays disabled regardless.
+ */
+function agentSafety(tracingEnabled: boolean): AgentRunnerSafetySettings {
+  return {
+    modelStore: false,
+    traceIncludeSensitiveData: tracingEnabled,
+    tracingDisabled: !tracingEnabled,
   };
 }
 
@@ -1842,11 +1863,7 @@ export function createAgentRuntime(
           context: prepared.context,
           input: CREATION_CONTINUATION_INPUT,
           maxTurns: AGENT_RUNTIME_MAX_TURNS,
-          safety: {
-            modelStore: false,
-            traceIncludeSensitiveData: false,
-            tracingDisabled: true,
-          },
+          safety: agentSafety(options.tracingEnabled === true),
           session: request.session,
           signal,
         });
@@ -1881,11 +1898,7 @@ export function createAgentRuntime(
             role: "user",
           }],
           maxTurns: AGENT_RUNTIME_MAX_TURNS,
-          safety: {
-            modelStore: false,
-            traceIncludeSensitiveData: false,
-            tracingDisabled: true,
-          },
+          safety: agentSafety(options.tracingEnabled === true),
           session: request.session,
           signal,
         });
@@ -1921,11 +1934,7 @@ export function createAgentRuntime(
           approval: request.approval,
           context: resumed.context,
           maxTurns: AGENT_RUNTIME_MAX_TURNS,
-          safety: {
-            modelStore: false,
-            traceIncludeSensitiveData: false,
-            tracingDisabled: true,
-          },
+          safety: agentSafety(options.tracingEnabled === true),
           serializedState: envelope.sdkRunState,
           signal,
         });
